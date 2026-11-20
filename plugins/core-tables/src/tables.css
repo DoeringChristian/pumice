@@ -71,11 +71,16 @@
 }
 
 .pm-table-col-handle {
-  top: -9px;
+  top: -8px;
   left: 50%;
   width: 22px;
   height: 14px;
-  transform: translateX(-50%) rotate(90deg);
+  transform: translateX(-50%);
+}
+/* A lying pill on the column's upper edge: only the dots are turned, not the button (turned
+   as a whole it stood upright and was cut off at the top). */
+.pm-table-col-handle svg {
+  transform: rotate(90deg);
 }
 
 .pm-table-row-handle {
