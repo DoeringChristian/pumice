@@ -87,6 +87,28 @@ export interface ProcessHost {
   which(command: string): Promise<string | null>;
 }
 
+/**
+ * "Sign in with ChatGPT": the user's ChatGPT plan pays for the built-in assistant. The shell
+ * holds the tokens and makes the requests (OpenAI requires both to stay out of the page).
+ */
+export interface ChatGptHost {
+  status(): Promise<{ signedIn: boolean; email: string | null; planUsage: boolean }>;
+  /** Opens OpenAI's consent page in the browser; poll `status()` for the result. */
+  login(): Promise<void>;
+  logout(): Promise<void>;
+  models(): Promise<Array<{ id: string; name: string }>>;
+  /**
+   * One streamed Responses API request; `onEvent` gets each server-sent event. A failed request
+   * arrives as `{ type: 'http_error', status, body }`. Rejects with `needsSignIn` set on the
+   * error when the user has to sign in (again).
+   */
+  responses(
+    body: Record<string, unknown>,
+    onEvent: (event: Record<string, unknown>) => void,
+    signal?: AbortSignal,
+  ): Promise<void>;
+}
+
 /** A vault the app knows about (opened before, or living in app storage on mobile). */
 export interface KnownVault {
   /** Opaque handle for `open`/`forget` (a folder path on desktop). */
@@ -128,6 +150,8 @@ export interface Platform {
   /** Network access for the app shell (plugin installs); absent where `fetch` is enough. */
   readonly net?: Net;
   readonly vaults?: VaultSwitcher;
+  /** Absent where the shell can't keep tokens out of the page (web, mobile for now). */
+  readonly chatgpt?: ChatGptHost;
   /** Absent where programs can't be started (web, mobile). */
   readonly process?: ProcessHost;
 }

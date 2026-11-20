@@ -19,9 +19,41 @@ export interface AgentConfig {
   args: string[];
   /** Shown when the command isn't installed or the agent asks for a login. */
   setupHint?: string;
+  /** `chatgpt`: the built-in assistant on the user's ChatGPT plan (no program to run). */
+  kind?: 'acp' | 'chatgpt';
+}
+
+/** What the chat panel needs from a running agent, whatever is behind it. */
+export interface ChatSession {
+  readonly config: AgentConfig;
+  readonly items: TranscriptItem[];
+  status: SessionStatus;
+  modes: Array<{ id: string; name: string }>;
+  currentMode: string | undefined;
+  /** Models to choose from (empty: the agent decides). */
+  models: Array<{ id: string; name: string }>;
+  currentModel: string | undefined;
+  readonly onDidChange: (listener: () => void) => { dispose(): void };
+  /** Sign-in buttons to offer while `status` is `error`. */
+  readonly loginOptions: Array<{ id: string; name: string }>;
+  start(): Promise<void>;
+  authenticate(methodId: string): Promise<void>;
+  setMode(modeId: string): Promise<void>;
+  setModel(modelId: string): Promise<void>;
+  prompt(text: string, context?: ContentBlock[], contextLabel?: string): Promise<void>;
+  cancel(): void;
+  dispose(): void;
 }
 
 export const DEFAULT_AGENTS: AgentConfig[] = [
+  {
+    id: 'chatgpt',
+    name: 'ChatGPT (your plan)',
+    kind: 'chatgpt',
+    command: '',
+    args: [],
+    setupHint: 'Uses your ChatGPT subscription through "Sign in with ChatGPT". Nothing to install.',
+  },
   {
     id: 'claude',
     name: 'Claude Code',
@@ -104,7 +136,11 @@ const toPath = (root: string, abs: string): VaultPath => {
 let nextItemId = 1;
 
 /** One running agent and its conversation. */
-export class AgentSession {
+export class AgentSession implements ChatSession {
+  models: Array<{ id: string; name: string }> = [];
+  currentModel: string | undefined;
+  async setModel(): Promise<void> {}
+
   readonly items: TranscriptItem[] = [];
   status: SessionStatus = 'starting';
   /** Diagnostics from the agent process (stderr), for the "details" view. */
@@ -270,13 +306,7 @@ export class AgentSession {
   }
 
   private fail(e: unknown, recoverable = false) {
-    const msg =
-      e instanceof Error
-        ? e.message
-        : typeof e === 'object' && e && 'message' in e
-          ? String((e as { message: unknown }).message)
-          : String(e);
-    this.push({ kind: 'error', text: msg });
+    this.push({ kind: 'error', text: errorText(e) });
     this.setStatus(recoverable && this.proc ? 'ready' : 'error');
   }
 
@@ -391,4 +421,23 @@ export function vaultPathOf(root: string, abs: string): string {
   } catch {
     return abs;
   }
+}
+
+/**
+ * The most useful text in an error. Agents often answer "Internal error" and put the reason
+ * (sometimes as JSON from their provider) in the error's data.
+ */
+export function errorText(e: unknown): string {
+  const obj = (typeof e === 'object' && e ? e : {}) as { message?: unknown; data?: unknown };
+  const base = typeof obj.message === 'string' ? obj.message : String(e);
+  const data = obj.data as { message?: unknown } | string | undefined;
+  let detail =
+    typeof data === 'string' ? data : typeof data?.message === 'string' ? data.message : '';
+  try {
+    const parsed = JSON.parse(detail) as { error?: { message?: string }; message?: string };
+    detail = parsed.error?.message ?? parsed.message ?? detail;
+  } catch {
+    // not JSON: use as is
+  }
+  return detail && detail !== base ? `${detail}` : base;
 }

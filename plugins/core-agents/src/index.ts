@@ -1,6 +1,7 @@
 import {
   Documents,
   Editor,
+  MetadataIndex,
   MarkdownSyntax,
   PlatformService,
   SettingsUi,
@@ -8,6 +9,7 @@ import {
   Workspace,
   definePlugin,
   markdownText,
+  type ChatGptHost,
   type PluginModule,
   type VaultPath,
 } from '@pumice/api';
@@ -15,7 +17,14 @@ import { button, h, settingItem, textInput } from '@pumice/ui';
 import '@pumice/ui/panel.css';
 import manifestJson from '../manifest.json';
 import { AgentPanelState, renderAgentPanel, type Attachment } from './panel';
-import { AgentSession, DEFAULT_AGENTS, type AgentConfig, type AgentFiles } from './session';
+import { ChatGptSession } from './chatgpt-session';
+import {
+  AgentSession,
+  DEFAULT_AGENTS,
+  type AgentConfig,
+  type AgentFiles,
+  type ChatSession,
+} from './session';
 import './agents.css';
 
 export const manifest = manifestJson;
@@ -43,6 +52,40 @@ function minimalChange(a: string, b: string): { from: number; to: number; insert
   return { from: start, to: endA, insert: b.slice(start, endB) };
 }
 
+/** Settings row: who is signed in with ChatGPT, with sign in / sign out. */
+function chatgptRow(chatgpt: ChatGptHost): HTMLElement {
+  const status = h('span', {}, 'Checking…');
+  const action = button('Sign in', () => undefined);
+  const refresh = async () => {
+    const s = await chatgpt.status().catch(() => undefined);
+    status.textContent = !s?.signedIn
+      ? 'Not signed in.'
+      : `Signed in${s.email ? ` as ${s.email}` : ''}${s.planUsage ? '' : ' (plan usage not allowed: sign in again)'}.`;
+    action.textContent = s?.signedIn ? 'Sign out' : 'Sign in';
+    action.onclick = async () => {
+      if (s?.signedIn) await chatgpt.logout();
+      else {
+        await chatgpt.login();
+        // The browser takes over; look again when the user comes back.
+        window.addEventListener('focus', () => void refresh(), { once: true });
+      }
+      await refresh();
+    };
+  };
+  void refresh();
+  return settingItem(
+    'ChatGPT (your plan)',
+    h(
+      'span',
+      {},
+      'The built-in assistant runs on your ChatGPT subscription through OpenAI’s “Sign in with ChatGPT”. Nothing to install; the sign-in stays on this computer.',
+      h('br'),
+      status,
+    ),
+    action,
+  );
+}
+
 export const plugin = definePlugin({
   activate(ctx) {
     const workspace = ctx.use(Workspace);
@@ -56,15 +99,19 @@ export const plugin = definePlugin({
 
     const agents = (): AgentConfig[] => {
       const overrides = ctx.settings.get<Record<string, string>>('commands', {});
-      return DEFAULT_AGENTS.map((a) => {
-        const line = overrides[a.id]?.trim();
+      // The ChatGPT assistant needs the shell's sign-in; the others are programs to run.
+      const usable = DEFAULT_AGENTS.filter((a) =>
+        a.kind === 'chatgpt' ? !!platform.chatgpt : !!host,
+      );
+      return usable.map((a) => {
+        const line = a.kind === 'chatgpt' ? undefined : overrides[a.id]?.trim();
         if (!line) return a;
         const [command, ...args] = splitCommand(line);
         return { ...a, command: command!, args };
       });
     };
     const currentAgent = () => {
-      const id = ctx.settings.get('agent', 'claude');
+      const id = ctx.settings.get('agent', 'chatgpt');
       return agents().some((a) => a.id === id) ? id : agents()[0]!.id;
     };
 
@@ -94,12 +141,24 @@ export const plugin = definePlugin({
       },
     };
 
-    const sessions = new Map<string, AgentSession>();
+    const sessions = new Map<string, ChatSession>();
     ctx.register(() => sessions.forEach((s) => s.dispose()));
     const startSession = (agentId: string) => {
       sessions.get(agentId)?.dispose();
       const config = agents().find((a) => a.id === agentId) ?? agents()[0]!;
-      const s = new AgentSession(config, host!, files);
+      const s: ChatSession =
+        config.kind === 'chatgpt'
+          ? new ChatGptSession(config, {
+              host: platform.chatgpt!,
+              files,
+              index: ctx.use(MetadataIndex),
+              vault,
+              savedModel: () => ctx.settings.get<string | undefined>('chatgptModel', undefined),
+              saveModel: (id) => void ctx.settings.set('chatgptModel', id),
+              savedMode: () => ctx.settings.get<string | undefined>('chatgptMode', undefined),
+              saveMode: (id) => void ctx.settings.set('chatgptMode', id),
+            })
+          : new AgentSession(config, host!, files);
       sessions.set(agentId, s);
       void s.start();
       return s;
@@ -126,7 +185,7 @@ export const plugin = definePlugin({
               workspace,
               syntax,
               agents,
-              available: !!host && !!root,
+              available: (!!host || !!platform.chatgpt) && !!root,
               root,
               sessionFor: (id) => sessions.get(id),
               startSession,
@@ -236,7 +295,7 @@ export const plugin = definePlugin({
           group: 'plugins',
           render(container) {
             const overrides = { ...ctx.settings.get<Record<string, string>>('commands', {}) };
-            const rows = DEFAULT_AGENTS.map((a) => {
+            const rows = DEFAULT_AGENTS.filter((a) => a.kind !== 'chatgpt').map((a) => {
               const status = h('span', { class: 'pm-agent-install' });
               const check = async () => {
                 const cmd = splitCommand(overrides[a.id]?.trim() || joinCommand(a))[0]!;
@@ -263,8 +322,9 @@ export const plugin = definePlugin({
               h(
                 'p',
                 { class: 'pm-setting-note' },
-                'Agents run on this computer with the Agent Client Protocol, signed in with your own Claude, ChatGPT or Google account. The first time an agent starts, Pumice asks before running its command.',
+                'The ChatGPT assistant is built in. The other agents are programs on this computer (Agent Client Protocol), signed in with your own account; the first time one starts, Pumice asks before running its command.',
               ),
+              ...(platform.chatgpt ? [chatgptRow(platform.chatgpt)] : []),
               ...(host ? rows : [h('p', {}, 'Agents need the desktop app.')]),
               settingItem(
                 'Reset commands',

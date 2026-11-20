@@ -1,7 +1,7 @@
 import type { ContentBlock, ToolCallContent } from '@agentclientprotocol/sdk';
 import type { MarkdownSyntaxApi, VaultPath, WorkspaceApi } from '@pumice/api';
 import { button, createIcon, h } from '@pumice/ui';
-import { vaultPathOf, type AgentConfig, type AgentSession, type TranscriptItem } from './session';
+import { vaultPathOf, type AgentConfig, type ChatSession, type TranscriptItem } from './session';
 
 /** Text attached to the next prompt (a selection, a comment thread, the current note). */
 export interface Attachment {
@@ -13,11 +13,11 @@ export interface AgentPanelDeps {
   workspace: WorkspaceApi;
   syntax: MarkdownSyntaxApi;
   agents(): AgentConfig[];
-  /** Null on platforms that can't run programs. */
+  /** Whether any agent can run here (desktop). */
   available: boolean;
   root: string;
-  sessionFor(agentId: string): AgentSession | undefined;
-  startSession(agentId: string): AgentSession;
+  sessionFor(agentId: string): ChatSession | undefined;
+  startSession(agentId: string): ChatSession;
   currentAgent(): string;
   setCurrentAgent(id: string): void;
   /** Attachment for the active note (offered by default). */
@@ -76,7 +76,7 @@ export function renderAgentPanel(
       h(
         'div',
         { class: 'pm-panel-empty' },
-        'Agents run in the desktop app: it starts Claude Code, Codex or Gemini CLI on your computer, signed in with your own account.',
+        'The assistant runs in the desktop app, on your ChatGPT plan or through Claude Code, Codex or Gemini CLI on your computer.',
       ),
     );
     return { dispose() {} };
@@ -86,6 +86,11 @@ export function renderAgentPanel(
   const modePicker = h('select', {
     class: 'pm-select pm-agent-mode',
     'aria-label': 'Mode',
+    hidden: true,
+  });
+  const modelPicker = h('select', {
+    class: 'pm-select pm-agent-mode',
+    'aria-label': 'Model',
     hidden: true,
   });
   const status = h('span', { class: 'pm-agent-status' });
@@ -114,7 +119,15 @@ export function renderAgentPanel(
     ' Stop',
   );
   root.append(
-    h('div', { class: 'pm-panel-toolbar pm-agent-toolbar' }, picker, modePicker, status, newChat),
+    h(
+      'div',
+      { class: 'pm-panel-toolbar pm-agent-toolbar' },
+      picker,
+      modelPicker,
+      modePicker,
+      status,
+      newChat,
+    ),
     transcript,
     h(
       'div',
@@ -125,7 +138,7 @@ export function renderAgentPanel(
     ),
   );
 
-  let session: AgentSession | undefined;
+  let session: ChatSession | undefined;
   let sub: { dispose(): void } | undefined;
   let includeNote = true;
 
@@ -145,9 +158,10 @@ export function renderAgentPanel(
   };
   picker.addEventListener('change', () => {
     deps.setCurrentAgent(picker.value);
-    attach(picker.value, false);
+    attach(picker.value, deps.agents().find((a) => a.id === picker.value)?.kind === 'chatgpt');
   });
   modePicker.addEventListener('change', () => void session?.setMode(modePicker.value));
+  modelPicker.addEventListener('change', () => void session?.setModel(modelPicker.value));
   newChat.addEventListener('click', () => {
     session?.dispose();
     session = deps.startSession(picker.value);
@@ -384,9 +398,19 @@ export function renderAgentPanel(
           error: 'Error',
         }[session.status]
       : '';
+    if (session?.status === 'error' && session.loginOptions.length)
+      status.textContent = 'Sign in needed';
     status.dataset.status = session?.status ?? '';
     stop.hidden = session?.status !== 'working';
     send.disabled = session?.status === 'working';
+    modelPicker.hidden = !session?.models.length;
+    if (session?.models.length) {
+      modelPicker.replaceChildren(
+        ...session.models.map((m) =>
+          h('option', { value: m.id, selected: m.id === session!.currentModel }, m.name),
+        ),
+      );
+    }
     modePicker.hidden = !session?.modes.length;
     if (session?.modes.length) {
       modePicker.replaceChildren(
@@ -439,7 +463,9 @@ export function renderAgentPanel(
   fillPicker();
   input.value = state.draft;
   renderChips();
-  attach(picker.value || deps.currentAgent(), false);
+  // The built-in assistant has nothing to launch: show its state (or the sign-in) right away.
+  const builtIn = (id: string) => deps.agents().find((a) => a.id === id)?.kind === 'chatgpt';
+  attach(picker.value || deps.currentAgent(), builtIn(picker.value || deps.currentAgent()));
 
   return {
     focus() {

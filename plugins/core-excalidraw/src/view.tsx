@@ -329,6 +329,9 @@ export class ExcalidrawView implements ViewInstance {
             }
           }}
           UIOptions={{
+            // Excalidraw's own desktop interface (full style panel) even in a pane narrowed
+            // by sidebars; its tablet layout would replace the panel with an icon column.
+            getFormFactor: (width) => (width < 640 ? 'phone' : 'desktop'),
             canvasActions: {
               loadScene: false,
               saveToActiveFile: false,

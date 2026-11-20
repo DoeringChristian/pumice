@@ -2,7 +2,7 @@
   "id": "core.agents",
   "name": "Agents",
   "version": "0.1.0",
-  "description": "Chat with coding agents (Claude Code, Codex, Gemini CLI) about your notes, using your own subscription. Desktop only.",
+  "description": "Chat with an assistant about your notes: built in on your ChatGPT plan, or Claude Code, Codex and Gemini CLI through the Agent Client Protocol. Desktop only.",
   "api": "^0.1.0",
   "permissions": ["platform"],
   "dependencies": {
@@ -10,7 +10,8 @@
     "core.documents": "^0.1.0",
     "core.workspace": "^0.1.0",
     "core.editor": "^0.1.0",
-    "core.markdown": "^0.1.0"
+    "core.markdown": "^0.1.0",
+    "core.index": "^0.1.0"
   },
   "optionalDependencies": {
     "core.settings": "^0.1.0"

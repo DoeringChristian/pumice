@@ -16,6 +16,7 @@ import { watch, type FSWatcher } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import { basename, dirname, join, normalize, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { ChatGptError, createChatGpt, type ChatGpt } from './chatgpt';
 import { ProcessManager } from './processes';
 
 const OS: PlatformOs =
@@ -243,6 +244,25 @@ const storageFile = (dir: string, key: unknown) => {
   return join(dir, `${createHash('sha256').update(key).digest('hex').slice(0, 32)}.txt`);
 };
 
+// Sign in with ChatGPT: one sign-in for the whole app, tokens in the user data folder.
+let chatgptInstance: ChatGpt | undefined;
+const chatgpt = () =>
+  (chatgptInstance ??= createChatGpt({
+    dataDir: app.getPath('userData'),
+    openExternal: (url) => shell.openExternal(url),
+  }));
+/** Streams in flight, by window and request id. */
+const chatgptStreams = new Map<string, AbortController>();
+/** "Sign in again" survives IPC as a marker in the message (see platform-electron). */
+const signInAware = async <T>(run: () => Promise<T>): Promise<T> => {
+  try {
+    return await run();
+  } catch (e) {
+    if (e instanceof ChatGptError && e.reauth) throw new Error(`[sign-in] ${e.message}`);
+    throw e;
+  }
+};
+
 type Handler = (session: VaultSession, ...args: unknown[]) => unknown;
 
 const handlers: Record<string, Handler> = {
@@ -308,6 +328,37 @@ const handlers: Record<string, Handler> = {
     return text;
   },
   'window.close': (s) => s.window.close(),
+  'chatgpt.status': () => chatgpt().status(),
+  'chatgpt.login': () => signInAware(() => chatgpt().login()),
+  'chatgpt.logout': () => chatgpt().logout(),
+  'chatgpt.models': () => signInAware(() => chatgpt().models()),
+  'chatgpt.start': (s, id, body) => {
+    if (typeof id !== 'number' || !body || typeof body !== 'object') throw new Error('Bad request');
+    const key = `${s.window.webContents.id}:${id}`;
+    const controller = new AbortController();
+    chatgptStreams.set(key, controller);
+    const send = (message: object) => {
+      if (!s.window.isDestroyed()) s.window.webContents.send(IPC.chatgpt, { id, ...message });
+    };
+    // Runs on after this call returns; the renderer follows it through the events.
+    void chatgpt()
+      .responses(body, (event) => send({ event }), controller.signal)
+      .then(
+        () => send({ done: true }),
+        (e: unknown) => {
+          if (controller.signal.aborted) return;
+          send({
+            done: true,
+            error: e instanceof Error ? e.message : String(e),
+            needsSignIn: e instanceof ChatGptError && e.reauth,
+          });
+        },
+      )
+      .finally(() => chatgptStreams.delete(key));
+  },
+  'chatgpt.abort': (s, id) => {
+    chatgptStreams.get(`${s.window.webContents.id}:${String(id)}`)?.abort();
+  },
   'proc.spawn': (s, command, args, env) => s.processes.spawn(command, args, env),
   'proc.write': (s, id, data) => s.processes.write(id, data),
   'proc.closeStdin': (s, id) => s.processes.closeStdin(id),

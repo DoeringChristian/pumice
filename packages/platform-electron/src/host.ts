@@ -38,6 +38,16 @@ export interface PumiceHost {
   fetchText(url: string): Promise<string>;
   /** Closes the window through the main process, so pending edits are flushed first. */
   closeWindow(): Promise<void>;
+  chatgpt: {
+    status(): Promise<{ signedIn: boolean; email: string | null; planUsage: boolean }>;
+    login(): Promise<void>;
+    logout(): Promise<void>;
+    models(): Promise<Array<{ id: string; name: string }>>;
+    /** Starts a streamed request; its events arrive through `onEvent` under `id`. */
+    start(id: number, body: Record<string, unknown>): Promise<void>;
+    abort(id: number): Promise<void>;
+    onEvent(listener: (message: ChatGptMessage) => void): () => void;
+  };
   proc: {
     /** Asks the user (native dialog) unless the command was allowed before; returns a process id. */
     spawn(command: string, args: string[], env?: Record<string, string>): Promise<number>;
@@ -48,6 +58,10 @@ export interface PumiceHost {
     onEvent(listener: (event: ProcEvent) => void): () => void;
   };
 }
+
+export type ChatGptMessage =
+  | { id: number; event: Record<string, unknown> }
+  | { id: number; done: true; error?: string; needsSignIn?: boolean };
 
 export type ProcEvent =
   | { id: number; kind: 'stdout'; data: Uint8Array }
@@ -61,4 +75,5 @@ export const IPC = {
   beforeClose: 'pumice:before-close',
   closeReady: 'pumice:close-ready',
   proc: 'pumice:proc',
+  chatgpt: 'pumice:chatgpt',
 } as const;

@@ -125,9 +125,10 @@ examples/             example community plugins (word-goal, kbd-syntax)
   `.pumice/comments/<note path>.json`, not in the markdown; they follow their text through edits.
 - **Copy location**: `Mod+Alt+C` copies `path:line` for pasting into an agent; also "with text"
   and "link to block" in the right-click menu.
-- **Agents** (desktop): chat with Claude Code, Codex or Gemini CLI in the right sidebar through
-  the Agent Client Protocol, using your own login. The app asks before first running an agent's
-  command; agent edits to open notes merge live. `Mod+Alt+A` asks about the selection.
+- **Assistant** (desktop): a chat in the right sidebar. Built in: **ChatGPT on your own plan**
+  through OpenAI's "Sign in with ChatGPT" (nothing to install; it can search, read and, with your
+  approval, edit notes). Also Claude Code, Codex and Gemini CLI through the Agent Client Protocol
+  if you have them. `Mod+Alt+A` asks about the selection.
 - **LaTeX in drawings**: Excalidraw is built from our fork (`vendor/excalidraw`, upstream master +
   the MathJax subtypes PR #6037/#6936). Select a text, switch on "Math (LaTeX)" in its style panel and write `$…$`.
 

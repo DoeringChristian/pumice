@@ -72,6 +72,14 @@ For pasting a precise reference into an agent or a chat:
 
 ## Agents (`core-agents`)
 
+> **Added (0.2):** the default agent is a built-in assistant on the user's ChatGPT plan, using
+> OpenAI's "Sign in with ChatGPT" flow for open-source apps. The desktop main process registers
+> the install, runs the OAuth login on a 127.0.0.1 callback, keeps and refreshes the tokens
+> (owner-only file in the app's data folder) and makes the Responses API calls; the page only
+> sees the streamed output. The agent loop and its vault tools (list, search, read, links, edit,
+> create; edits ask first) live in `core-agents`. The ACP agents below remain available. The
+> Codex ACP adapter currently fails for ChatGPT accounts whose only model needs a newer Codex.
+
 Run coding agents (Claude Code, Codex, Gemini CLI, …) against the vault from inside the app, using
 the user's own installed CLI and **subscription** login, no API keys required.
 

@@ -1,5 +1,10 @@
 import type { FsWatchEvent } from '@pumice/platform';
-import { IPC, type ProcEvent, type PumiceHost } from '@pumice/platform-electron/host';
+import {
+  IPC,
+  type ChatGptMessage,
+  type ProcEvent,
+  type PumiceHost,
+} from '@pumice/platform-electron/host';
 import { contextBridge, ipcRenderer } from 'electron';
 
 const invoke = <T>(op: string, ...args: unknown[]) =>
@@ -44,6 +49,19 @@ const host: PumiceHost = {
   },
   fetchText: (url) => invoke('net.fetchText', url),
   closeWindow: () => invoke('window.close'),
+  chatgpt: {
+    status: () => invoke('chatgpt.status'),
+    login: () => invoke('chatgpt.login'),
+    logout: () => invoke('chatgpt.logout'),
+    models: () => invoke('chatgpt.models'),
+    start: (id, body) => invoke('chatgpt.start', id, body),
+    abort: (id) => invoke('chatgpt.abort', id),
+    onEvent(listener) {
+      const handler = (_: unknown, m: ChatGptMessage) => listener(m);
+      ipcRenderer.on(IPC.chatgpt, handler);
+      return () => ipcRenderer.off(IPC.chatgpt, handler);
+    },
+  },
   proc: {
     spawn: (command, args, env) => invoke('proc.spawn', command, args, env),
     write: (id, data) => invoke('proc.write', id, data),

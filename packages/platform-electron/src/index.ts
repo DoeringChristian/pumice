@@ -1,5 +1,5 @@
-import type { ChildProcessHandle, Platform, ProcessHost } from '@pumice/platform';
-import type { ProcEvent, PumiceHost } from './host';
+import type { ChatGptHost, ChildProcessHandle, Platform, ProcessHost } from '@pumice/platform';
+import type { ChatGptMessage, ProcEvent, PumiceHost } from './host';
 
 export type { PumiceHost } from './host';
 
@@ -53,7 +53,53 @@ export async function createElectronPlatform(host: PumiceHost): Promise<Platform
       pick: (opts) => host.vaults.pick(!!opts?.newWindow),
       forget: (id) => host.vaults.forget(id),
     },
+    chatgpt: chatGptHost(host),
     process: processHost(host),
+  };
+}
+
+/** Errors cross IPC as plain messages; this marker carries "sign in again". */
+const SIGN_IN = '[sign-in] ';
+const signInError = (e: unknown): Error => {
+  const message = e instanceof Error ? e.message : String(e);
+  const i = message.indexOf(SIGN_IN);
+  if (i < 0) return e instanceof Error ? e : new Error(message);
+  return Object.assign(new Error(message.slice(i + SIGN_IN.length)), { needsSignIn: true });
+};
+
+function chatGptHost(host: PumiceHost): ChatGptHost {
+  let nextId = 1;
+  const streams = new Map<number, (m: ChatGptMessage) => void>();
+  host.chatgpt.onEvent((m) => streams.get(m.id)?.(m));
+  const call = <T>(p: Promise<T>) => p.catch((e) => Promise.reject(signInError(e)));
+  return {
+    status: () => host.chatgpt.status(),
+    login: () => call(host.chatgpt.login()),
+    logout: () => host.chatgpt.logout(),
+    models: () => call(host.chatgpt.models()),
+    responses: (body, onEvent, signal) =>
+      new Promise<void>((resolve, reject) => {
+        const id = nextId++;
+        const finish = (error?: Error) => {
+          streams.delete(id);
+          signal?.removeEventListener('abort', onAbort);
+          if (error) reject(error);
+          else resolve();
+        };
+        const onAbort = () => {
+          void host.chatgpt.abort(id);
+          finish(new DOMException('Aborted', 'AbortError'));
+        };
+        if (signal?.aborted) return onAbort();
+        signal?.addEventListener('abort', onAbort);
+        streams.set(id, (m) => {
+          if ('event' in m) onEvent(m.event);
+          else if (m.error)
+            finish(Object.assign(new Error(m.error), { needsSignIn: !!m.needsSignIn }));
+          else finish();
+        });
+        host.chatgpt.start(id, body).catch((e) => finish(signInError(e)));
+      }),
   };
 }
 
