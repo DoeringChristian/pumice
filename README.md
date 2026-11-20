@@ -153,6 +153,15 @@ examples/             example community plugins (word-goal, kbd-syntax)
   tables and equations are numbered in the order of the note, and `[[#^fig-loss]]` reads
   "Figure 2" (from another note, `[[Results#^fig-loss]]` reads "Figure 2 in Results"). Nothing but
   Obsidian syntax is written; the numbers are worked out when the note is shown.
+- **Editing rendered things**: a list keeps its dots on the line being edited (the dash shows
+  when the cursor is at it). A click on a formula puts the cursor at the symbol clicked; while
+  a formula is written, what it gives is shown under it, and a formula with a mistake is drawn
+  as far as it is right, the wrong part in red. Code blocks show their language and a copy
+  button in place of their fences. A click on a picture enlarges it; the `</>` button on a
+  picture or frame shows its source. Rows and columns of a table are moved by dragging their
+  handles. Rendered things show a faint outline on hover.
+- **Snippets**: `:today:`, `:now:`, `:time:`, `:tomorrow:`, `:daily:` and your own (Settings →
+  Snippets) are replaced as the closing colon is typed.
 - **Back and forward**: arrows in the tab bar, `Mod+Alt+←/→` and the mouse's back/forward buttons
   move through what a tab has shown.
 - **Media**: images (including SVG), audio and video open in a tab, with zoom for images;

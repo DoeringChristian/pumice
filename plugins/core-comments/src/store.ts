@@ -165,12 +165,44 @@ export class CommentStore implements CommentsApi {
     });
   }
 
+  /** What was deleted last, to bring it back (most recent last). */
+  private readonly deleted: Array<{ path: VaultPath; restore(file: CommentsFile): void }> = [];
+
+  private remember(path: VaultPath, restore: (file: CommentsFile) => void): void {
+    this.deleted.push({ path, restore });
+    if (this.deleted.length > 30) this.deleted.shift();
+  }
+
+  get canUndoDelete(): boolean {
+    return this.deleted.length > 0;
+  }
+
+  /** Brings back the comment or thread deleted last. Resolves to the note it belongs to. */
+  async undoDelete(): Promise<VaultPath | undefined> {
+    const last = this.deleted.pop();
+    if (!last) return undefined;
+    await this.mutate(last.path, (file) => last.restore(file));
+    return last.path;
+  }
+
   deleteComment(path: VaultPath, threadId: string, commentId: string) {
     return this.mutate(path, (file) => {
       const t = this.thread(file, threadId);
-      t.comments = t.comments.filter((c) => c.id !== commentId);
+      const at = t.comments.findIndex((c) => c.id === commentId);
+      if (at < 0) return;
+      const [comment] = t.comments.splice(at, 1);
+      const threadAt = file.threads.indexOf(t);
       // The last comment takes the thread with it.
       if (!t.comments.length) file.threads = file.threads.filter((x) => x !== t);
+      this.remember(path, (now) => {
+        let thread = now.threads.find((x) => x.id === threadId);
+        if (!thread) {
+          thread = { ...t, comments: [] };
+          now.threads.splice(Math.min(threadAt, now.threads.length), 0, thread);
+        }
+        if (!thread.comments.some((c) => c.id === comment!.id))
+          thread.comments.splice(Math.min(at, thread.comments.length), 0, comment!);
+      });
     });
   }
 
@@ -182,7 +214,13 @@ export class CommentStore implements CommentsApi {
 
   deleteThread(path: VaultPath, threadId: string) {
     return this.mutate(path, (file) => {
-      file.threads = file.threads.filter((t) => t.id !== threadId);
+      const at = file.threads.findIndex((t) => t.id === threadId);
+      if (at < 0) return;
+      const [thread] = file.threads.splice(at, 1);
+      this.remember(path, (now) => {
+        if (!now.threads.some((t) => t.id === threadId))
+          now.threads.splice(Math.min(at, now.threads.length), 0, thread!);
+      });
     });
   }
 

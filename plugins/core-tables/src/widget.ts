@@ -4,7 +4,7 @@ import {
   Prec,
   StateEffect,
   StateField,
-  type EditorState,
+  EditorState,
   type Extension,
   type Range,
 } from '@codemirror/state';
@@ -572,6 +572,117 @@ function tableMenu(
   return entries;
 }
 
+/**
+ * A press on a row or column handle: dragging it moves the row or column to where it is let
+ * go; a click without a drag opens the handle's menu.
+ */
+function dragHandle(
+  view: EditorView,
+  root: HTMLElement,
+  deps: TableDeps,
+  handle: HTMLElement,
+  down: MouseEvent,
+): void {
+  const row = handle.dataset.kind === 'row';
+  const from = Number(handle.dataset.index);
+  const cellsOf = (index: number) =>
+    [
+      ...root.querySelectorAll<HTMLElement>(
+        row ? `.pm-table-cell[data-row="${index}"]` : `.pm-table-cell[data-col="${index}"]`,
+      ),
+    ].map((c) => c.closest<HTMLElement>('td, th') ?? c);
+  // The rows (below the header) or columns there are, with where they are on screen.
+  const slots = () => {
+    const seen = new Map<number, DOMRect>();
+    for (const cell of root.querySelectorAll<HTMLElement>('.pm-table-cell')) {
+      const index = Number(row ? cell.dataset.row : cell.dataset.col);
+      if ((row && index === 0) || seen.has(index)) continue;
+      seen.set(index, (cell.closest('td, th') ?? cell).getBoundingClientRect());
+    }
+    return [...seen.entries()].sort((a, b) => a[0] - b[0]);
+  };
+  let dragging = false;
+  let target = from;
+  const clear = () => {
+    for (const el of root.querySelectorAll('.is-drop-before, .is-drop-after, .is-dragged'))
+      el.classList.remove('is-drop-before', 'is-drop-after', 'is-dragged');
+  };
+  const move = (e: MouseEvent) => {
+    if (!dragging && Math.hypot(e.clientX - down.clientX, e.clientY - down.clientY) < 5) return;
+    dragging = true;
+    root.classList.add('is-dragging', row ? 'is-dragging-row' : 'is-dragging-col');
+    const at = row ? e.clientY : e.clientX;
+    const all = slots();
+    // The row or column under the pointer (the first or last one beyond the table's edges).
+    target = all[all.length - 1]?.[0] ?? from;
+    for (const [index, rect] of all) {
+      if (at < (row ? rect.bottom : rect.right)) {
+        target = index;
+        break;
+      }
+    }
+    clear();
+    cellsOf(from).forEach((c) => c.classList.add('is-dragged'));
+    if (target !== from)
+      cellsOf(target).forEach((c) =>
+        c.classList.add(target > from ? 'is-drop-after' : 'is-drop-before'),
+      );
+  };
+  const up = () => {
+    window.removeEventListener('mousemove', move, true);
+    window.removeEventListener('mouseup', up, true);
+    clear();
+    root.classList.remove('is-dragging', 'is-dragging-row', 'is-dragging-col');
+    if (!dragging) {
+      const rect = handle.getBoundingClientRect();
+      deps.showMenu(tableMenu(view, root, deps, row ? { row: from } : { col: from }), {
+        x: rect.left,
+        y: rect.bottom + 2,
+      });
+      return;
+    }
+    if (target === from) return;
+    const t = locate(view, root);
+    if (!t) return;
+    const data = tableData(t.model);
+    // Rows are counted with the header as row 0; the data has the body rows only.
+    replaceTable(
+      view,
+      t,
+      row ? moveRow(data, from - 1, target - 1) : moveColumn(data, from, target),
+    );
+  };
+  window.addEventListener('mousemove', move, true);
+  window.addEventListener('mouseup', up, true);
+}
+
+/**
+ * Text typed on the line right after a table would become one more row of it (that is how
+ * markdown reads it). A blank line is put between, so that it is a paragraph of its own.
+ */
+const paragraphAfterTable = EditorState.transactionFilter.of((tr) => {
+  if (!tr.docChanged || !tr.isUserEvent('input') || tr.annotation(fromWidget)) return tr;
+  const sel = tr.newSelection.main;
+  if (!sel.empty) return tr;
+  const { newDoc } = tr;
+  const line = newDoc.lineAt(sel.head);
+  if (line.number < 3 || !line.text.trim() || line.text.includes('|')) return tr;
+  const above = newDoc.line(line.number - 1).text;
+  // The line above is a table row, with the row of dashes somewhere above it.
+  if (!/^\s*\|.*\|\s*$/.test(above)) return tr;
+  let isTable = false;
+  for (let n = line.number - 1; n >= 1 && n > line.number - 400; n--) {
+    const text = newDoc.line(n).text;
+    if (!text.includes('|')) break;
+    if (/^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(text)) {
+      isTable = n > 1 && newDoc.line(n - 1).text.includes('|');
+      break;
+    }
+  }
+  if (!isTable) return tr;
+  return [tr, { changes: { from: line.from, insert: '\n' }, sequential: true }];
+});
+
 function attachEvents(root: HTMLElement, view: EditorView, deps: TableDeps): void {
   const cellOf = (el: EventTarget | null) =>
     el instanceof Element ? el.closest<HTMLElement>('.pm-table-cell') : null;
@@ -635,12 +746,7 @@ function attachEvents(root: HTMLElement, view: EditorView, deps: TableDeps): voi
     const h = target.closest<HTMLElement>('.pm-table-handle');
     if (h) {
       e.preventDefault();
-      const index = Number(h.dataset.index);
-      const rect = h.getBoundingClientRect();
-      deps.showMenu(
-        tableMenu(view, root, deps, h.dataset.kind === 'row' ? { row: index } : { col: index }),
-        { x: rect.left, y: rect.bottom + 2 },
-      );
+      dragHandle(view, root, deps, h, e);
       return;
     }
     const add = target.closest<HTMLElement>('.pm-table-add');
@@ -769,6 +875,7 @@ export function tableEditing(deps: TableDeps): Extension {
   return [
     sourceTables,
     field,
+    paragraphAfterTable,
     previewBlockOwners.of('Table'),
     Prec.high(
       keymap.of([

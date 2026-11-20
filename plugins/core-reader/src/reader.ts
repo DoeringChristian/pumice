@@ -20,7 +20,10 @@ import {
   type VaultPath,
   type WorkspaceApi,
 } from '@pumice/api';
+import { createIcon } from '@pumice/ui';
 import { numberRendered, setEmbedCaption } from './figures';
+import { showLightbox } from './lightbox';
+import { renderTex } from './math';
 
 /** Note embeds deeper than this show a link instead (stops cycles like A embeds B embeds A). */
 const MAX_DEPTH = 4;
@@ -161,7 +164,33 @@ export class ReaderImpl implements ReaderApi {
     }
     for (const pre of container.querySelectorAll<HTMLElement>('pre.pm-code-block')) {
       const renderer = this.codeBlocks.get(pre.dataset.lang ?? '');
-      if (!renderer) continue;
+      if (!renderer) {
+        // Plain code: its language in the corner, and a button to copy it.
+        if (!pre.querySelector(':scope > .pm-code-tools')) {
+          const code = pre.textContent ?? '';
+          const tools = document.createElement('span');
+          tools.className = 'pm-code-tools';
+          const label = document.createElement('span');
+          label.className = 'pm-code-lang';
+          label.textContent = pre.dataset.lang || 'text';
+          const copy = document.createElement('button');
+          copy.type = 'button';
+          copy.className = 'pm-copy-button';
+          copy.title = 'Copy';
+          copy.setAttribute('aria-label', 'Copy');
+          copy.append(createIcon('copy', 13));
+          copy.addEventListener('click', (e) => {
+            e.stopPropagation();
+            void navigator.clipboard.writeText(code).then(() => {
+              copy.replaceChildren(createIcon('check', 13));
+              setTimeout(() => copy.replaceChildren(createIcon('copy', 13)), 1200);
+            });
+          });
+          tools.append(label, copy);
+          pre.append(tools);
+        }
+        continue;
+      }
       const source = pre.textContent ?? '';
       const host = document.createElement('div');
       host.className = `pm-code-render pm-code-render-${renderer.language}`;
@@ -196,12 +225,12 @@ export class ReaderImpl implements ReaderApi {
     this.katex ??= import('katex');
     try {
       const katex = (await this.katex).default;
-      katex.render(tex, container, {
-        displayMode: display,
-        throwOnError: false,
-        output: 'htmlAndMathml',
-      });
+      // A formula with a mistake is drawn as far as it is right, the wrong part in red.
+      const problem = renderTex(katex, tex, display, container);
       container.classList.add('is-rendered');
+      container.classList.toggle('has-error', !!problem);
+      if (problem) container.title = problem;
+      else container.removeAttribute('title');
     } catch (e) {
       container.textContent = display ? `$$${tex}$$` : `$${tex}$`;
       container.title = e instanceof Error ? e.message : String(e);
@@ -325,13 +354,14 @@ export class ReaderImpl implements ReaderApi {
         if (width) img.width = width;
         if (height) img.height = height;
         img.src = await this.blobUrl(ctx.file!.path, ctx.file!.extension, (d) => ctx.register(d));
-        // Double-click opens the picture on its own (a single click still places the cursor).
+        // A click enlarges the picture; with Cmd/Ctrl it opens in a tab of its own.
         const path = ctx.file!.path;
-        img.title = 'Double-click to open';
-        img.addEventListener('dblclick', (e) => {
+        img.classList.add('pm-zoomable');
+        img.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          void this.deps.workspace.openFile(path, { newTab: e.metaKey || e.ctrlKey });
+          if (e.metaKey || e.ctrlKey) void this.deps.workspace.openFile(path, { newTab: true });
+          else showLightbox(img.src, img.alt);
         });
         ctx.container.append(img);
       },

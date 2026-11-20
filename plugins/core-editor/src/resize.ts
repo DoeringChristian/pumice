@@ -96,7 +96,8 @@ export function snapWidth(
   return best && { name: best.name, width: best.width };
 }
 
-const SELECTOR = 'img:not(.cm-widgetBuffer), video, .pm-frame';
+// Pictures, videos, frames, and drawings (which are embedded as an SVG).
+const SELECTOR = 'img:not(.cm-widgetBuffer), video, .pm-frame, .pm-excalidraw-embed > svg';
 
 /**
  * Adds the handle to `host` if it shows something that can be sized. Call again after the
@@ -217,8 +218,14 @@ export function attachResizeHandle(
 export function attachMenuButton(
   host: HTMLElement,
   open: (at: { x: number; y: number }) => void,
+  /**
+   * Shows the source behind what is rendered. A click on a picture or frame does something else
+   * (enlarges it, is handled by the frame), so there is a "</>" button for getting at the text.
+   */
+  edit?: () => void,
 ): void {
   host.querySelector(':scope > .cm-pm-embed-menu')?.remove();
+  host.querySelector(':scope > .cm-pm-embed-edit')?.remove();
   const target = host.querySelector<HTMLElement>(`${SELECTOR}, audio, iframe`);
   if (!target || target.closest('.pm-embed[data-embed-type="note"]')) return;
   host.classList.add('cm-pm-has-menu');
@@ -228,12 +235,37 @@ export function attachMenuButton(
   button.title = 'More';
   button.setAttribute('aria-label', 'More');
   button.append(createIcon('more-vertical', 14));
+  let source: HTMLButtonElement | undefined;
+  if (edit) {
+    source = document.createElement('button');
+    source.type = 'button';
+    source.className = 'cm-pm-embed-menu cm-pm-embed-edit';
+    source.title = 'Edit the source';
+    source.setAttribute('aria-label', 'Edit the source');
+    source.append(createIcon('code', 14));
+    source.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    source.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      edit();
+    });
+    host.append(source);
+  }
   const place = () => {
     // The corner of what is shown, which may be narrower than the line.
     const box = target.getBoundingClientRect();
     const outer = host.getBoundingClientRect();
-    button.style.left = `${Math.max(0, box.right - outer.left - 26)}px`;
-    button.style.top = `${Math.max(0, box.top - outer.top + 4)}px`;
+    const left = Math.max(0, box.right - outer.left - 26);
+    const top = `${Math.max(0, box.top - outer.top + 4)}px`;
+    button.style.left = `${left}px`;
+    button.style.top = top;
+    if (source) {
+      source.style.left = `${Math.max(0, left - 26)}px`;
+      source.style.top = top;
+    }
   };
   // The editor must not take these as clicks into the text.
   button.addEventListener('mousedown', (e) => {

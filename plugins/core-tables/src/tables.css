@@ -143,3 +143,28 @@
     opacity: 1;
   }
 }
+
+/* Dragging a row or column by its handle */
+.pm-table-handle {
+  cursor: grab;
+}
+.pm-table-widget.is-dragging,
+.pm-table-widget.is-dragging .pm-table-handle {
+  cursor: grabbing;
+  user-select: none;
+}
+.pm-table .is-dragged {
+  background: var(--accent-soft);
+}
+.pm-table-widget.is-dragging-row .is-drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.pm-table-widget.is-dragging-row .is-drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.pm-table-widget.is-dragging-col .is-drop-before {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.pm-table-widget.is-dragging-col .is-drop-after {
+  box-shadow: inset -2px 0 0 var(--accent);
+}

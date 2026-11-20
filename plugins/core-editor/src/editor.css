@@ -596,3 +596,76 @@
   font-size: var(--font-size-ui);
   text-align: center;
 }
+
+/* A formula being written: what it gives, under its source (block) or floating (inline) */
+.cm-pm-math-preview {
+  padding: 4px 0 8px;
+  white-space: normal;
+  opacity: 0.9;
+}
+.cm-pm-math-preview > .pm-math {
+  margin: 0;
+}
+.cm-editor .cm-tooltip.cm-pm-math-tip {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-elevated);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  white-space: normal;
+}
+
+/* What is rendered shows on hover that it is one thing that can be clicked. */
+.cm-pm-math.is-inline,
+.cm-pm-block-math,
+.cm-pm-embed img,
+.cm-pm-embed video,
+.cm-pm-embed .pm-excalidraw-embed,
+.cm-pm-embed .pm-frame-view,
+.cm-pm-block-code .pm-frame-view,
+.cm-pm-block-code:not(:has(.pm-frame)),
+.cm-pm-block-table {
+  outline: 1px solid transparent;
+  outline-offset: 2px;
+  border-radius: var(--radius-s);
+  transition: outline-color 0.12s;
+}
+.cm-pm-math.is-inline:hover,
+.cm-pm-block-math:hover,
+.cm-pm-embed:hover img,
+.cm-pm-embed:hover video,
+.cm-pm-embed:hover .pm-excalidraw-embed,
+/* A frame is outlined itself, not the whole line it stands on (it may be narrower). */
+.cm-pm-embed:hover .pm-frame-view,
+.cm-pm-block-code:hover .pm-frame-view,
+.cm-pm-block-code:not(:has(.pm-frame)):hover,
+.cm-pm-block-table:hover {
+  outline-color: var(--border);
+}
+
+/* A code block that is not being edited: a header instead of its fences */
+.cm-pm-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--text-faint);
+  cursor: text;
+}
+.cm-pm-code-lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pm-markdown-page .cm-line.cm-pm-codeblock-close {
+  font-size: 4px;
+  padding-bottom: 4px !important;
+}
+/* The header takes less room than a line of code. */
+.pm-markdown-page .cm-line:has(> .cm-pm-code-header) {
+  line-height: 1.5;
+  padding-top: 4px !important;
+}

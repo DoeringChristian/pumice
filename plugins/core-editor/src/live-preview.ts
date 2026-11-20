@@ -13,7 +13,9 @@ import {
   EditorView,
   ViewPlugin,
   WidgetType,
+  showTooltip,
   type DecorationSet,
+  type Tooltip,
   type ViewUpdate,
 } from '@codemirror/view';
 import {
@@ -149,11 +151,40 @@ class CalloutIconWidget extends WidgetType {
   }
 }
 
+/**
+ * Where in the TeX source a click on a rendered formula points: the symbol under the pointer
+ * (each carries its place), or the one nearest to it.
+ */
+function texOffsetAt(root: HTMLElement, event: MouseEvent): number | undefined {
+  const offset = (el: Element) => Number((el as HTMLElement).dataset.p);
+  const hit = (event.target as Element).closest?.('[data-p]');
+  const marked = hit && root.contains(hit) ? hit : undefined;
+  let best: { el: Element; distance: number } | undefined;
+  if (!marked) {
+    for (const el of root.querySelectorAll('[data-p]')) {
+      const r = el.getBoundingClientRect();
+      if (!r.width && !r.height) continue;
+      const dx = Math.max(r.left - event.clientX, 0, event.clientX - r.right);
+      const dy = Math.max(r.top - event.clientY, 0, event.clientY - r.bottom);
+      const distance = Math.hypot(dx, dy * 2);
+      if (!best || distance < best.distance) best = { el, distance };
+    }
+  }
+  const el = marked ?? best?.el;
+  if (!el || !Number.isFinite(offset(el))) return undefined;
+  // In the right half of a one-character symbol: behind it.
+  const r = el.getBoundingClientRect();
+  const single = (el.textContent ?? '').length <= 1;
+  return offset(el) + (single && event.clientX > r.left + r.width / 2 ? 1 : 0);
+}
+
 class MathWidget extends WidgetType {
   constructor(
     readonly tex: string,
     readonly display: boolean,
     readonly from: number,
+    /** Length of the mark in front of the TeX (`$` or `$$`). */
+    readonly mark = 1,
   ) {
     super();
   }
@@ -169,7 +200,9 @@ class MathWidget extends WidgetType {
     void view.state.facet(previewDeps)?.reader?.renderMath(this.tex, this.display, el);
     el.addEventListener('mousedown', (e) => {
       e.preventDefault();
-      view.dispatch({ selection: { anchor: this.from + (this.display ? 3 : 1) } });
+      // The cursor goes to the part of the formula that was clicked.
+      const at = texOffsetAt(el, e as MouseEvent);
+      view.dispatch({ selection: { anchor: view.posAtDOM(el) + this.mark + (at ?? 0) } });
       view.focus();
     });
     return el;
@@ -179,6 +212,153 @@ class MathWidget extends WidgetType {
     return false;
   }
 }
+
+/** Copies text and shows for a moment that it did. */
+export function copyButton(text: () => string): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'pm-copy-button';
+  button.title = 'Copy';
+  button.setAttribute('aria-label', 'Copy');
+  button.append(createIcon('copy', 13));
+  // Not a click into the text.
+  button.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  button.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    void navigator.clipboard.writeText(text()).then(() => {
+      button.replaceChildren(createIcon('check', 13));
+      button.classList.add('is-done');
+      setTimeout(() => {
+        button.replaceChildren(createIcon('copy', 13));
+        button.classList.remove('is-done');
+      }, 1200);
+    });
+  });
+  return button;
+}
+
+/** In place of a code block's opening fence: its language, and a button to copy the code. */
+class CodeHeaderWidget extends WidgetType {
+  constructor(
+    readonly lang: string,
+    readonly code: string,
+  ) {
+    super();
+  }
+
+  override eq(other: CodeHeaderWidget): boolean {
+    return other.lang === this.lang && other.code === this.code;
+  }
+
+  toDOM(): HTMLElement {
+    const el = document.createElement('span');
+    el.className = 'cm-pm-code-header';
+    const label = document.createElement('span');
+    label.className = 'cm-pm-code-lang';
+    label.append(createIcon('code', 12), ` ${this.lang || 'text'}`);
+    el.append(
+      label,
+      copyButton(() => this.code),
+    );
+    return el;
+  }
+
+  override ignoreEvent(event: Event): boolean {
+    // The button handles its own clicks; a click elsewhere puts the cursor on the fence.
+    return !!(event.target as HTMLElement).closest?.('.pm-copy-button');
+  }
+}
+
+/** What a formula gives, shown under its source while it is being written. */
+class MathPreviewWidget extends WidgetType {
+  constructor(readonly tex: string) {
+    super();
+  }
+
+  override eq(other: MathPreviewWidget): boolean {
+    return other.tex === this.tex;
+  }
+
+  private draw(view: EditorView, inner: HTMLElement): void {
+    void view.state
+      .facet(previewDeps)
+      ?.reader?.renderMath(this.tex, true, inner)
+      .then(() => view.requestMeasure());
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    // An outer element without margins of its own (see the CSS note on blocks).
+    const el = document.createElement('div');
+    el.className = 'cm-pm-math-preview';
+    const inner = document.createElement('div');
+    inner.className = 'pm-math is-display';
+    el.append(inner);
+    this.draw(view, inner);
+    return el;
+  }
+
+  /** Drawn again in place while typing, so the note does not jump. */
+  override updateDOM(dom: HTMLElement, view: EditorView): boolean {
+    const inner = dom.querySelector<HTMLElement>(':scope > .pm-math');
+    if (!inner) return false;
+    this.draw(view, inner);
+    return true;
+  }
+
+  override ignoreEvent(): boolean {
+    return true;
+  }
+}
+
+/** The inline formula the cursor is in, if any: where it starts and its TeX. */
+function inlineMathAt(state: EditorState): { from: number; tex: string } | undefined {
+  const sel = state.selection.main;
+  if (!sel.empty) return undefined;
+  for (let node = syntaxTree(state).resolveInner(sel.head, -1); ;) {
+    if (node.name === 'InlineMath' || node.name === 'InlineMathDisplay') {
+      const mark = node.name === 'InlineMath' ? 1 : 2;
+      const tex = state.doc.sliceString(node.from + mark, node.to - mark);
+      return tex.trim() ? { from: node.from, tex } : undefined;
+    }
+    if (!node.parent) return undefined;
+    node = node.parent;
+  }
+}
+
+/** While an inline formula is being written, what it gives floats under it. */
+const inlineMathPreview = StateField.define<Tooltip | null>({
+  create: () => null,
+  update(tooltip, tr) {
+    const math = inlineMathAt(tr.state);
+    if (!math || !tr.state.facet(previewDeps)?.reader) return null;
+    // The same formula as before (typing inside it): the same box, drawn again by itself.
+    if (tooltip && tr.changes.mapPos(tooltip.pos) === math.from && tooltip.pos === math.from)
+      return tooltip;
+    return {
+      pos: math.from,
+      above: false,
+      arrow: false,
+      create(view) {
+        const dom = document.createElement('div');
+        dom.className = 'cm-pm-math-tip pm-math is-inline';
+        let shown = '';
+        const draw = (state: EditorState) => {
+          const now = inlineMathAt(state);
+          if (!now || now.tex === shown) return;
+          shown = now.tex;
+          void state.facet(previewDeps)?.reader?.renderMath(now.tex, false, dom);
+        };
+        draw(view.state);
+        return { dom, update: (update) => draw(update.state) };
+      },
+    };
+  },
+  provide: (field) => showTooltip.from(field),
+});
 
 // Numbered figures, tables and equations of the note, by the line they start on. Counted once
 // per version of the text.
@@ -291,7 +471,7 @@ class EmbedWidget extends WidgetType {
     const reader = view.state.facet(previewDeps)?.reader;
     // Events inside the widget do not reach the editor's own handlers.
     el.addEventListener('contextmenu', (e) => {
-      if (!el.querySelector('img, video, audio, iframe')) return;
+      if (!el.querySelector('img, video, audio, iframe, .pm-excalidraw-embed')) return;
       const menu = view.state.facet(previewDeps)?.embedMenu;
       if (!menu) return;
       e.preventDefault();
@@ -300,6 +480,12 @@ class EmbedWidget extends WidgetType {
     });
     const menuAt = (at: { x: number; y: number }) =>
       view.state.facet(previewDeps)?.embedMenu?.(view, el, at);
+    /** Puts the cursor into the embed's text, which shows it as source. */
+    const editSource = () => {
+      const start = view.posAtDOM(el);
+      view.dispatch({ selection: { anchor: start + 3 }, scrollIntoView: true });
+      view.focus();
+    };
     /** Writes a new size into the embed's text (`![[x.png|300]]`). */
     const resize = (size: Size) => {
       const line = view.state.doc.lineAt(view.posAtDOM(el));
@@ -325,7 +511,7 @@ class EmbedWidget extends WidgetType {
             view.requestMeasure();
             caption();
             attachResizeHandle(view, el, resize);
-            attachMenuButton(el, menuAt);
+            attachMenuButton(el, menuAt, editSource);
           },
         })
         .then((d) => {
@@ -333,7 +519,7 @@ class EmbedWidget extends WidgetType {
           view.requestMeasure();
           caption();
           attachResizeHandle(view, el, resize);
-          attachMenuButton(el, menuAt);
+          attachMenuButton(el, menuAt, editSource);
         });
     }
     return el;
@@ -440,10 +626,22 @@ class BlockWidget extends WidgetType {
             });
           });
         const menu = () =>
-          attachMenuButton(el, (at) => {
-            const { source, from } = blockOf.get(el)!;
-            deps.blockMenu?.(view, { from, to: from + source.length }, at);
-          });
+          attachMenuButton(
+            el,
+            (at) => {
+              const { source, from } = blockOf.get(el)!;
+              deps.blockMenu?.(view, { from, to: from + source.length }, at);
+            },
+            () => {
+              // The cursor inside the block shows its source.
+              const { source, from } = blockOf.get(el)!;
+              view.dispatch({
+                selection: { anchor: Math.min(from + 4, from + source.length) },
+                scrollIntoView: true,
+              });
+              view.focus();
+            },
+          );
         attach();
         menu();
         // The frame itself appears a moment after the block.
@@ -457,11 +655,14 @@ class BlockWidget extends WidgetType {
       if ((e.target as HTMLElement).closest('a') && (e.metaKey || e.ctrlKey)) return;
       e.preventDefault();
       const { source, from } = blockOf.get(el)!;
-      view.dispatch({
-        selection: {
-          anchor: kind === 'properties' ? Math.min(4, from + source.length) : from,
-        },
-      });
+      let anchor = kind === 'properties' ? Math.min(4, from + source.length) : from;
+      if (kind === 'math') {
+        // The cursor goes to the part of the formula that was clicked.
+        const lead = /^\$\$+/.exec(source)?.[0].length ?? 0;
+        const at = texOffsetAt(el, e);
+        anchor = from + lead + (at ?? (source[lead] === '\n' ? 1 : 0));
+      }
+      view.dispatch({ selection: { anchor } });
       view.focus();
     });
     return el;
@@ -591,7 +792,7 @@ function buildDecorations(view: EditorView): DecorationSet {
             const mark = name === 'InlineMath' ? 1 : 2;
             const tex = state.doc.sliceString(node.from + mark, node.to - mark);
             decorations.push(
-              Decoration.replace({ widget: new MathWidget(tex, false, node.from) }).range(
+              Decoration.replace({ widget: new MathWidget(tex, false, node.from, mark) }).range(
                 node.from,
                 node.to,
               ),
@@ -709,6 +910,31 @@ function buildDecorations(view: EditorView): DecorationSet {
               .join(' ')
               .trim(),
           );
+          // A code block that is not being edited: its fences give way to a header with the
+          // language and a copy button.
+          if (name === 'FencedCode' && !rangeActive(node.from, node.to)) {
+            const first = state.doc.lineAt(node.from);
+            const last = state.doc.lineAt(node.to);
+            const open = /^\s*(`{3,}|~{3,})\s*([^\s`~]*)/.exec(first.text);
+            const lang = open?.[2] ?? '';
+            if (open && !deps?.reader?.hasCodeBlockRenderer(lang.toLowerCase())) {
+              const closed = last.number > first.number && /^\s*(`{3,}|~{3,})\s*$/.test(last.text);
+              const code =
+                last.number > first.number
+                  ? state.doc.sliceString(first.to + 1, closed ? last.from - 1 : last.to)
+                  : '';
+              decorations.push(
+                Decoration.replace({ widget: new CodeHeaderWidget(lang, code) }).range(
+                  first.from,
+                  first.to,
+                ),
+              );
+              if (closed) {
+                hide(last.from, last.to);
+                lineClass(last.from, 'cm-pm-codeblock-close');
+              }
+            }
+          }
           return;
         }
         if (name === 'TaskMarker') {
@@ -752,7 +978,13 @@ function buildDecorations(view: EditorView): DecorationSet {
             hide(node.from, node.node.nextSibling.from);
             return;
           }
-          if (!isActive(node.from)) {
+          // A dot also on the line being edited, unless the cursor is right at the dash (or
+          // the dash is selected): then the dash can be changed.
+          const sel = state.selection.main;
+          const atMark = sel.empty
+            ? sel.head === node.from || sel.head === node.to
+            : sel.from <= node.to && sel.to >= node.from;
+          if (!isActive(node.from) || !atMark) {
             decorations.push(
               Decoration.replace({ widget: new BulletWidget() }).range(node.from, node.to),
             );
@@ -807,7 +1039,12 @@ const inlinePreview = ViewPlugin.fromClass(
         update.docChanged ||
         update.viewportChanged ||
         revealChanged(update.startState, update.state) ||
-        syntaxTree(update.startState) !== syntaxTree(update.state)
+        syntaxTree(update.startState) !== syntaxTree(update.state) ||
+        // Within a list item, whether the cursor is at the dash decides how it is drawn.
+        (update.selectionSet &&
+          [update.startState, update.state].some((s) =>
+            /^\s*[-*+]\s/.test(s.doc.lineAt(s.selection.main.head).text),
+          ))
       ) {
         this.decorations = buildDecorations(update.view);
       }
@@ -854,6 +1091,20 @@ function buildBlocks(state: EditorState): DecorationSet {
         const info = cursor.node.getChild('CodeInfo');
         const lang = info ? state.doc.sliceString(info.from, info.to).trim().toLowerCase() : '';
         if (lang && reader.hasCodeBlockRenderer(lang)) kind = 'code';
+      }
+      if (kind === 'math' && !owned.has(name) && touches(from, to) && reader) {
+        // A formula being written: its source stays, and what it gives is shown below it.
+        const source = state.doc.sliceString(from, to);
+        const tex = source.replace(/^\$\$+/, '').replace(/\$\$+\s*$/, '');
+        if (tex.trim()) {
+          decorations.push(
+            Decoration.widget({
+              widget: new MathPreviewWidget(tex),
+              block: true,
+              side: 1,
+            }).range(state.doc.lineAt(to).to),
+          );
+        }
       }
       if (!kind || owned.has(name) || touches(from, to)) continue;
       // Block replacements must cover whole lines.
@@ -905,7 +1156,13 @@ const remeasure = EditorView.domEventHandlers({
   },
 } as Parameters<typeof EditorView.domEventHandlers>[0]);
 
-export const livePreview: Extension = [revealTracking, inlinePreview, blockPreview, remeasure];
+export const livePreview: Extension = [
+  revealTracking,
+  inlinePreview,
+  blockPreview,
+  inlineMathPreview,
+  remeasure,
+];
 
 /** Line classes that also apply in source mode (heading sizes, code blocks). */
 export const sourceModeStyling = ViewPlugin.fromClass(

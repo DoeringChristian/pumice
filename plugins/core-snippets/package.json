@@ -1,0 +1,17 @@
+{
+  "name": "@pumice/core-snippets",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.18.2",
+    "@codemirror/language": "^6.10.3",
+    "@codemirror/state": "^6.4.1",
+    "@codemirror/view": "^6.34.1",
+    "@pumice/api": "workspace:*",
+    "@pumice/ui": "workspace:*"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "id": "core.snippets",
+  "name": "Snippets",
+  "version": "0.1.0",
+  "description": "Short names that turn into text while typing: :today: becomes the date, :now: the date and time, and your own.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.editor": "^0.1.0"
+  },
+  "optionalDependencies": {
+    "core.settings": "^0.1.0"
+  }
+}

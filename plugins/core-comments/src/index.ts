@@ -64,6 +64,7 @@ export const plugin = definePlugin({
       const active = editor.active();
       return active?.path === path ? active.view : undefined;
     };
+    const isMac = /mac/i.test(navigator.platform);
     const showPanel = () => workspace.openView('comments', { location: 'right' });
 
     // Comments that mention an agent (`@agent`, `@claude`, …) are answered by it, in the thread.
@@ -135,6 +136,11 @@ export const plugin = definePlugin({
               editorFor,
               author,
               hasAgent: agentAvailable,
+              deleted: (what) =>
+                workspace.notify(
+                  `${what === 'thread' ? 'Thread' : 'Comment'} deleted. ${isMac ? '⌘Z' : 'Ctrl+Z'} brings it back.`,
+                  { timeout: 4000 },
+                ),
               onReply: maybeAskAgent,
               commentMode,
               setCommentMode: (on: boolean) => void ctx.settings.set('commentMode', on),
@@ -197,6 +203,26 @@ export const plugin = definePlugin({
             timeout: 2000,
           },
         );
+      },
+    });
+    // Cmd/Ctrl+Z brings a deleted comment back, unless something that has its own undo (the
+    // note, a text field, a drawing) has the focus.
+    const undoApplies = () => {
+      if (!store.canUndoDelete) return false;
+      const active = document.activeElement;
+      if (!active || active === document.body) return true;
+      if (active.closest('input, textarea, [contenteditable="true"], .cm-editor')) return false;
+      return !!active.closest('.pm-comments, .pm-panel');
+    };
+    ctx.commands.register({
+      id: 'comments.undo-delete',
+      title: 'Bring back the deleted comment',
+      category: 'Comments',
+      hotkeys: ['Mod+Z'],
+      when: undoApplies,
+      run: async () => {
+        const path = await store.undoDelete();
+        if (path !== undefined) workspace.notify('Comment restored.', { timeout: 2000 });
       },
     });
     ctx.commands.register({

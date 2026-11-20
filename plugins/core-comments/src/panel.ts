@@ -21,6 +21,8 @@ export interface PanelDeps {
   /** Whether an agent plugin is available to hand threads to. */
   hasAgent(): boolean;
   askAgent(path: VaultPath, thread: LocatedThread): void;
+  /** Called after a comment or thread was deleted (says how to get it back). */
+  deleted(what: 'comment' | 'thread'): void;
   /** Called after a reply was added (replies that mention an agent are sent to it). */
   onReply(path: VaultPath, threadId: string, body: string): void;
   commentMode(): boolean;
@@ -192,10 +194,9 @@ export function renderPanel(container: HTMLElement, deps: PanelDeps, state: Pane
         {
           class: 'pm-icon-button',
           title: 'Delete thread',
-          onclick: async () => {
-            if (await workspace.confirm('Delete this comment thread?'))
-              void run(store.deleteThread(path, t.id));
-          },
+          // No question: Cmd/Ctrl+Z brings it back.
+          onclick: () =>
+            void run(store.deleteThread(path, t.id).then(() => deps.deleted('thread'))),
         },
         createIcon('trash', 14),
       ),
@@ -247,7 +248,10 @@ export function renderPanel(container: HTMLElement, deps: PanelDeps, state: Pane
                       label: 'Delete',
                       icon: 'trash',
                       danger: true,
-                      run: () => run(store.deleteComment(path, t.id, c.id)),
+                      run: () =>
+                        run(
+                          store.deleteComment(path, t.id, c.id).then(() => deps.deleted('comment')),
+                        ),
                     },
                   ],
                   { x: e.clientX, y: e.clientY },

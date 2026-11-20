@@ -368,3 +368,80 @@
 .pm-rendered .pm-block-id {
   display: none;
 }
+
+/* A formula that could only be drawn in part */
+.pm-math.has-error {
+  cursor: help;
+}
+.pm-math.pm-math-error {
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* Copy buttons, and the tools in the corner of a code block */
+.pm-copy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.pm-copy-button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.pm-copy-button.is-done {
+  color: var(--accent);
+}
+.pm-rendered pre.pm-code-block {
+  position: relative;
+}
+.pm-code-tools {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--text-faint);
+  user-select: none;
+}
+
+/* A picture enlarged over the window */
+.pm-zoomable {
+  cursor: zoom-in;
+}
+.pm-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.78);
+  cursor: zoom-out;
+  outline: none;
+  overflow: hidden;
+  touch-action: none;
+}
+.pm-lightbox.is-zoomed {
+  cursor: grab;
+}
+.pm-lightbox img {
+  max-width: 94vw;
+  max-height: 94vh;
+  border-radius: 4px;
+  background: var(--bg);
+  transform-origin: center;
+  user-select: none;
+  -webkit-user-drag: none;
+}
