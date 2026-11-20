@@ -95,35 +95,46 @@ function composerDom(
   });
   const actions = document.createElement('div');
   actions.className = 'pm-comment-popover-actions';
+  const mentionsAgent = () => /(^|\s)@agent\b/i.test(input.value);
+  let ask: HTMLButtonElement | undefined;
   if (deps.agentAvailable()) {
-    const ask = document.createElement('button');
+    ask = document.createElement('button');
     ask.type = 'button';
     ask.className = 'pm-comment-ask';
     ask.title = 'Send this comment to the assistant';
     ask.append(createIcon('bot', 13), ' @agent');
     ask.addEventListener('mousedown', (e) => e.preventDefault());
     ask.addEventListener('click', () => {
-      if (!/(^|\s)@agent\b/i.test(input.value)) {
-        input.value = `@agent ${input.value}`;
-      }
+      input.value = mentionsAgent()
+        ? input.value.replace(/(^|\s)@agent\b\s?/i, '$1')
+        : `@agent ${input.value}`;
+      sync();
       input.focus();
       input.setSelectionRange(input.value.length, input.value.length);
     });
     actions.append(ask);
   }
-  const spacer = document.createElement('span');
-  spacer.style.flex = '1';
-  const cancel = document.createElement('button');
-  cancel.type = 'button';
-  cancel.className = 'pm-button is-plain';
-  cancel.textContent = 'Cancel';
-  cancel.addEventListener('click', close);
+  const hint = document.createElement('span');
+  hint.className = 'pm-comment-popover-hint';
+  hint.textContent = 'Enter to comment · Esc to cancel';
   const ok = document.createElement('button');
   ok.type = 'button';
-  ok.className = 'pm-button is-primary';
-  ok.textContent = 'Comment';
+  ok.className = 'pm-comment-send';
+  ok.title = 'Comment (Enter)';
+  ok.setAttribute('aria-label', 'Comment');
+  ok.append(createIcon('send', 14));
   ok.addEventListener('click', () => void send());
-  actions.append(spacer, cancel, ok);
+  actions.append(hint, ok);
+  /** Grows the field with its text and reflects what is typed in the controls. */
+  const sync = () => {
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(180, input.scrollHeight)}px`;
+    ok.disabled = !input.value.trim();
+    ask?.classList.toggle('is-on', mentionsAgent());
+  };
+  input.addEventListener('input', sync);
+  input.placeholder = 'Add a comment…';
+  requestAnimationFrame(sync);
   box.append(input, error, actions);
   // The tooltip is added after this returns.
   requestAnimationFrame(() => input.focus());
