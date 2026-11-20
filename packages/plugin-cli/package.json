@@ -1,0 +1,12 @@
+{
+  "name": "@pumice/plugin-cli",
+  "version": "0.1.0",
+  "description": "Scaffold, build and live-develop Pumice plugins.",
+  "type": "module",
+  "bin": {
+    "pumice-plugin": "./bin/pumice-plugin.mjs"
+  },
+  "dependencies": {
+    "esbuild": "^0.21.5"
+  }
+}

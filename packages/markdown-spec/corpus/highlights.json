@@ -1,0 +1,7 @@
+{
+  "nodes": [
+    { "kind": "highlight", "text": "==simple==" },
+    { "kind": "highlight", "text": "==with *emphasis* inside==" },
+    { "kind": "heading", "text": "Setext heading\n==", "level": 1 }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "@pumice/core-index",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@pumice/api": "workspace:*",
+    "@pumice/markdown": "workspace:*",
+    "minisearch": "^7.2.0"
+  },
+  "devDependencies": {
+    "@pumice/core-documents": "workspace:*",
+    "@pumice/core-markdown": "workspace:*",
+    "@pumice/core-vault": "workspace:*",
+    "@pumice/platform-memory": "workspace:*"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "core.tables",
+  "name": "Tables",
+  "version": "0.1.0",
+  "description": "Edit markdown tables as a grid in live preview: type in cells, Tab between them, add, move, sort and align rows and columns.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.workspace": "^0.1.0",
+    "core.editor": "^0.1.0",
+    "core.markdown": "^0.1.0"
+  },
+  "optionalDependencies": {
+    "core.settings": "^0.1.0",
+    "core.links": "^0.1.0"
+  }
+}

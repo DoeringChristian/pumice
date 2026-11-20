@@ -1,0 +1,16 @@
+{
+  "id": "core.collab",
+  "name": "Collaboration",
+  "version": "0.1.0",
+  "description": "Shared vaults: real-time editing of notes and drawings with others, presence, version history. Needs a Pumice server.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.vault": "^0.1.0",
+    "core.documents": "^0.1.0",
+    "core.workspace": "^0.1.0"
+  },
+  "optionalDependencies": {
+    "core.settings": "^0.1.0"
+  },
+  "permissions": ["network", "platform"]
+}

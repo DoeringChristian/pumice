@@ -1,0 +1,8 @@
+{
+  "id": "core.graph",
+  "name": "Graph view",
+  "version": "0.1.0",
+  "description": "Notes and the links between them, as an interactive graph — the whole vault or around the active note.",
+  "api": "^0.1.0",
+  "dependencies": { "core.workspace": "^0.1.0", "core.index": "^0.1.0" }
+}

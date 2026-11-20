@@ -1,0 +1,10 @@
+.cm-kbd,
+.kbd-keys kbd {
+  font-family: var(--font-ui);
+  font-size: 0.85em;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 5px;
+  background: var(--bg-elevated);
+}

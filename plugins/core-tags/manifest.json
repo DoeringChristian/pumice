@@ -1,0 +1,11 @@
+{
+  "id": "core.tags",
+  "name": "Tags",
+  "version": "0.1.0",
+  "description": "All tags in the vault, with counts.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.workspace": "^0.1.0",
+    "core.index": "^0.1.0"
+  }
+}

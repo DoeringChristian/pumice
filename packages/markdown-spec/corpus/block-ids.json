@@ -1,0 +1,7 @@
+{
+  "nodes": [
+    { "kind": "blockId", "text": "^para-1", "value": "para-1" },
+    { "kind": "blockId", "text": "^item-2", "value": "item-2" },
+    { "kind": "blockId", "text": "^table-id", "value": "table-id" }
+  ]
+}

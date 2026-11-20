@@ -1,0 +1,10 @@
+{
+  "id": "example.word-goal",
+  "name": "Word goal",
+  "version": "0.1.0",
+  "description": "Example plugin: shows progress toward a word goal for the active note.",
+  "api": "^0.1.0",
+  "dependencies": { "core.workspace": "^0.1.0", "core.documents": "^0.1.0" },
+  "optionalDependencies": { "core.settings": "^0.1.0" },
+  "permissions": []
+}

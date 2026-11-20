@@ -1,0 +1,13 @@
+{
+  "nodes": [
+    { "kind": "embed", "text": "![[image.png]]", "target": "image.png" },
+    { "kind": "embed", "text": "![[image.png|300]]", "target": "image.png", "alias": "300" },
+    {
+      "kind": "embed",
+      "text": "![[image.png|300x200]]",
+      "target": "image.png",
+      "alias": "300x200"
+    },
+    { "kind": "embed", "text": "![[Note#Heading]]", "target": "Note", "subpath": "Heading" }
+  ]
+}

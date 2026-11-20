@@ -1,0 +1,14 @@
+{
+  "name": "example.word-goal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pumice-plugin build",
+    "dev": "pumice-plugin dev --vault"
+  },
+  "devDependencies": {
+    "@pumice/api": "workspace:*",
+    "@pumice/plugin-cli": "workspace:*"
+  }
+}

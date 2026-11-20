@@ -1,0 +1,9 @@
+{
+  "id": "core.theme",
+  "name": "Appearance",
+  "version": "0.1.0",
+  "description": "Light and dark mode, accent color, text size, themes and CSS snippets (.pumice/themes, .pumice/snippets).",
+  "api": "^0.1.0",
+  "dependencies": { "core.settings": "^0.1.0" },
+  "permissions": ["platform"]
+}

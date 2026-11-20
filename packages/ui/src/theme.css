@@ -1,0 +1,232 @@
+/*
+ * Pumice theme tokens. Plugins and themes style against these variables;
+ * internal class names are not API.
+ */
+:root {
+  --font-ui:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --font-text: var(--font-ui);
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --font-size-ui: 13px;
+  --font-size-text: 16px;
+  --line-height-text: 1.65;
+
+  --radius-s: 4px;
+  --radius-m: 6px;
+  --radius-l: 10px;
+
+  --bg: #faf9f7;
+  --bg-panel: #f2f0ec;
+  --bg-hover: rgba(60, 45, 30, 0.06);
+  --bg-active: rgba(60, 45, 30, 0.1);
+  --bg-elevated: #ffffff;
+  --border: #e4e0d9;
+  --text: #2b2723;
+  --text-muted: #7a726a;
+  --text-faint: #a8a097;
+  --accent: #c8582e;
+  --accent-soft: rgba(200, 88, 46, 0.12);
+  --accent-text: #ffffff;
+  --link: #b4532c;
+  --danger: #c43c3c;
+  --selection: rgba(200, 88, 46, 0.18);
+  --code-bg: rgba(60, 45, 30, 0.06);
+  --highlight: rgba(245, 196, 66, 0.4);
+  --shadow: 0 8px 30px rgba(30, 20, 10, 0.16), 0 1px 3px rgba(30, 20, 10, 0.1);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #1c1a18;
+    --bg-panel: #23211e;
+    --bg-hover: rgba(255, 240, 225, 0.06);
+    --bg-active: rgba(255, 240, 225, 0.1);
+    --bg-elevated: #2a2724;
+    --border: #36322e;
+    --text: #e9e4dd;
+    --text-muted: #9a9087;
+    --text-faint: #6c645c;
+    --accent: #e3825a;
+    --accent-soft: rgba(227, 130, 90, 0.16);
+    --accent-text: #1c1a18;
+    --link: #ec9a77;
+    --danger: #e26d6d;
+    --selection: rgba(227, 130, 90, 0.25);
+    --code-bg: rgba(255, 240, 225, 0.07);
+    --highlight: rgba(245, 196, 66, 0.3);
+    --shadow: 0 8px 30px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #1c1a18;
+  --bg-panel: #23211e;
+  --bg-hover: rgba(255, 240, 225, 0.06);
+  --bg-active: rgba(255, 240, 225, 0.1);
+  --bg-elevated: #2a2724;
+  --border: #36322e;
+  --text: #e9e4dd;
+  --text-muted: #9a9087;
+  --text-faint: #6c645c;
+  --accent: #e3825a;
+  --accent-soft: rgba(227, 130, 90, 0.16);
+  --accent-text: #1c1a18;
+  --link: #ec9a77;
+  --danger: #e26d6d;
+  --selection: rgba(227, 130, 90, 0.25);
+  --code-bg: rgba(255, 240, 225, 0.07);
+  --highlight: rgba(245, 196, 66, 0.3);
+  --shadow: 0 8px 30px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-ui);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+::selection {
+  background: var(--selection);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+input {
+  font: inherit;
+  color: inherit;
+}
+
+/* Shared controls (built with the helpers in @pumice/ui). */
+.pm-setting {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.pm-setting-name {
+  font-weight: 550;
+}
+
+.pm-setting-desc {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.pm-button {
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  border-radius: var(--radius-s);
+  padding: 5px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pm-button:hover {
+  background: var(--bg-hover);
+}
+
+.pm-button.is-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.pm-button.is-danger {
+  color: var(--danger);
+}
+
+.pm-button.is-plain {
+  border-color: transparent;
+  background: none;
+}
+
+.pm-text-input,
+.pm-select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  padding: 5px 8px;
+  min-width: 220px;
+}
+
+.pm-settings-panel > .pm-text-input {
+  width: 100%;
+  margin: 8px 0;
+}
+
+.pm-toggle {
+  appearance: none;
+  width: 34px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--bg-active);
+  position: relative;
+  cursor: pointer;
+  transition: background 120ms;
+  flex: none;
+}
+
+.pm-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 120ms;
+}
+
+.pm-toggle:checked {
+  background: var(--accent);
+}
+
+.pm-toggle:checked::after {
+  transform: translateX(14px);
+}
+
+.pm-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Respect reduced-motion preferences everywhere. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

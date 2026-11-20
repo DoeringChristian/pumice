@@ -1,0 +1,23 @@
+{
+  "name": "@pumice/core-collab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@pumice/api": "workspace:*",
+    "@pumice/collab-protocol": "workspace:*",
+    "@pumice/ui": "workspace:*",
+    "lib0": "^0.2.99",
+    "y-protocols": "^1.0.6",
+    "yjs": "^13.6.20"
+  },
+  "devDependencies": {
+    "@pumice/core-documents": "workspace:*",
+    "@pumice/core-vault": "workspace:*",
+    "@pumice/platform-memory": "workspace:*",
+    "@pumice/server": "workspace:*"
+  }
+}

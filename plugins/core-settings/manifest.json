@@ -1,0 +1,10 @@
+{
+  "id": "core.settings",
+  "name": "Settings",
+  "version": "0.1.0",
+  "description": "The settings window: core and community plugins, hotkeys, and tabs contributed by plugins.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.workspace": "^0.1.0"
+  }
+}

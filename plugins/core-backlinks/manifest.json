@@ -1,0 +1,16 @@
+{
+  "id": "core.backlinks",
+  "name": "Backlinks",
+  "version": "0.1.0",
+  "description": "Linked and unlinked mentions of the active note.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.workspace": "^0.1.0",
+    "core.index": "^0.1.0",
+    "core.vault": "^0.1.0",
+    "core.documents": "^0.1.0"
+  },
+  "optionalDependencies": {
+    "core.links": "^0.1.0"
+  }
+}

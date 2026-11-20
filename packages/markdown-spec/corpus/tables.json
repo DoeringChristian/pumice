@@ -1,0 +1,8 @@
+{
+  "nodes": [
+    { "kind": "link", "text": "[[Note\\|Alias]]", "target": "Note", "alias": "Alias" },
+    { "kind": "tag", "text": "#tag", "value": "tag" },
+    { "kind": "highlight", "text": "==mark==" },
+    { "kind": "math", "text": "$x$" }
+  ]
+}

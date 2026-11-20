@@ -1,0 +1,7 @@
+{
+  "nodes": [
+    { "kind": "math", "text": "$e^{i\\pi}+1=0$" },
+    { "kind": "math", "text": "$$\\sum_i x_i$$" },
+    { "kind": "math", "text": "$$\n\\int_0^1 f(x)\\,dx\n$$" }
+  ]
+}

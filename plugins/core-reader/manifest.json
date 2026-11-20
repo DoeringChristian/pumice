@@ -1,0 +1,15 @@
+{
+  "id": "core.reader",
+  "name": "Reader",
+  "version": "0.1.0",
+  "description": "Renders notes for reading: embeds, callouts, math, diagrams, and renderer contribution points.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.vault": "^0.1.0",
+    "core.documents": "^0.1.0",
+    "core.markdown": "^0.1.0",
+    "core.index": "^0.1.0",
+    "core.workspace": "^0.1.0"
+  },
+  "permissions": ["shell"]
+}

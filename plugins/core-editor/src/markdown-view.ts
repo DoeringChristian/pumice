@@ -1,0 +1,461 @@
+import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+import { defaultKeymap, indentWithTab } from '@codemirror/commands';
+import { commonmarkLanguage, markdown, markdownKeymap } from '@codemirror/lang-markdown';
+import { yamlFrontmatter } from '@codemirror/lang-yaml';
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { languages } from '@codemirror/language-data';
+import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
+import { Compartment, EditorState, type Extension } from '@codemirror/state';
+import {
+  EditorView,
+  drawSelection,
+  dropCursor,
+  keymap,
+  placeholder,
+  rectangularSelection,
+} from '@codemirror/view';
+import { tags } from '@lezer/highlight';
+import {
+  basename,
+  dirname,
+  frontmatterBounds,
+  joinPath,
+  markdownText,
+  type DisposableStore,
+  type DocumentHandle,
+  type Disposable,
+  type DocumentsApi,
+  type EditorToolbarAction,
+  type MarkdownSyntaxApi,
+  type MetadataIndexApi,
+  type ReaderApi,
+  type VaultApi,
+  type ViewContext,
+  type ViewInstance,
+  type ViewState,
+  type WorkspaceApi,
+} from '@pumice/api';
+import { createIcon } from '@pumice/ui';
+import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
+import * as Y from 'yjs';
+import { livePreview, previewDeps, sourceModeStyling } from './live-preview';
+
+const highlightStyle = HighlightStyle.define([
+  { tag: tags.heading, fontWeight: '650' },
+  { tag: tags.strong, fontWeight: '650' },
+  { tag: tags.emphasis, fontStyle: 'italic' },
+  { tag: tags.strikethrough, textDecoration: 'line-through' },
+  { tag: tags.link, color: 'var(--link)' },
+  { tag: tags.url, color: 'var(--text-muted)' },
+  { tag: tags.monospace, fontFamily: 'var(--font-mono)' },
+  {
+    tag: [tags.processingInstruction, tags.contentSeparator, tags.labelName],
+    color: 'var(--text-faint)',
+  },
+  { tag: tags.quote, color: 'var(--text-muted)' },
+  { tag: tags.keyword, color: '#a34fb0' },
+  { tag: [tags.string, tags.special(tags.string)], color: '#4c8a3f' },
+  { tag: [tags.number, tags.bool, tags.atom], color: '#b0662a' },
+  { tag: tags.comment, color: 'var(--text-faint)', fontStyle: 'italic' },
+  { tag: [tags.function(tags.variableName), tags.propertyName], color: '#2f6fb0' },
+  { tag: tags.typeName, color: '#2a8a86' },
+  { tag: tags.meta, color: 'var(--text-faint)' },
+]);
+
+export interface EditorShared {
+  workspace: WorkspaceApi;
+  documents: DocumentsApi;
+  vault: VaultApi;
+  syntax: MarkdownSyntaxApi;
+  reader: () => ReaderApi | undefined;
+  index: () => MetadataIndexApi | undefined;
+  /** Extensions contributed by plugins (`Editor.registerExtension`). */
+  contributed: () => Extension[];
+  sourceMode: () => boolean;
+  openExternal: (url: string) => void;
+  onActiveChange: (view: MarkdownView | undefined) => void;
+  /** Toolbar actions for touch devices, sorted. */
+  toolbarActions: () => EditorToolbarAction[];
+  /** Whether to show the touch toolbar (phone/tablet layouts). */
+  touch: () => boolean;
+}
+
+/** A tab showing one markdown file. */
+export class MarkdownView implements ViewInstance {
+  readonly editor: EditorView;
+  private handle: DocumentHandle | undefined;
+  private handleStore: DisposableStore | undefined;
+  private readonly titleInput: HTMLInputElement;
+  readonly contributedCompartment = new Compartment();
+  readonly modeCompartment = new Compartment();
+  private disposed = false;
+  /** Set when a new note is opened: focus goes to the title so it can be named right away. */
+  private pendingRename = false;
+  private readonly page: HTMLElement;
+  private readonly toolbar: HTMLElement;
+  private readonly readingEl: HTMLElement;
+  private reading = false;
+  private readingRender: Disposable | undefined;
+  private readingTimer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(
+    private readonly ctx: ViewContext,
+    private readonly shared: EditorShared,
+    private readonly newStore: () => DisposableStore,
+  ) {
+    const root = ctx.container;
+    root.classList.add('pm-markdown-view');
+    const scroller = document.createElement('div');
+    scroller.className = 'pm-markdown-scroller';
+    const page = document.createElement('div');
+    page.className = 'pm-markdown-page';
+    this.titleInput = document.createElement('input');
+    this.titleInput.className = 'pm-inline-title';
+    this.titleInput.spellcheck = false;
+    this.titleInput.setAttribute('aria-label', 'Note title');
+    this.titleInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        this.focusBody();
+      } else if (e.key === 'Escape') {
+        this.titleInput.value = this.handle ? stem(this.handle.path) : '';
+        this.focusBody();
+      }
+    });
+    this.titleInput.addEventListener('blur', () => void this.renameFromTitle());
+    page.append(this.titleInput);
+    scroller.append(page);
+    root.append(scroller);
+    this.page = page;
+
+    this.editor = new EditorView({ parent: page });
+    this.toolbar = document.createElement('div');
+    this.toolbar.className = 'pm-editor-toolbar';
+    this.toolbar.setAttribute('role', 'toolbar');
+    this.toolbar.setAttribute('aria-label', 'Formatting');
+    this.toolbar.hidden = true;
+    // Keep the editor focused (and the keyboard up) while tapping toolbar buttons.
+    this.toolbar.addEventListener('mousedown', (e) => e.preventDefault());
+    root.append(this.toolbar);
+    this.editor.contentDOM.addEventListener('focus', () => this.showToolbar(true));
+    this.editor.contentDOM.addEventListener('blur', () =>
+      setTimeout(() => this.showToolbar(this.editor.hasFocus), 100),
+    );
+    this.readingEl = document.createElement('div');
+    this.readingEl.className = 'pm-reading-view';
+    this.readingEl.hidden = true;
+    this.readingEl.tabIndex = -1;
+    page.append(this.readingEl);
+    this.editor.contentDOM.addEventListener('focus', () => shared.onActiveChange(this));
+    this.editor.dom.addEventListener('mousedown', (e) => this.onMouseDown(e));
+  }
+
+  get path(): string | undefined {
+    return this.handle?.path;
+  }
+
+  async setState(state: ViewState): Promise<void> {
+    if (state.rename) this.pendingRename = true;
+    if (state.mode === 'reading' || state.mode === 'editing')
+      this.setReading(state.mode === 'reading');
+    if (!state.path) return;
+    if (this.handle?.path === state.path) {
+      if (typeof state.subpath === 'string') this.revealSubpath(state.subpath);
+      if (typeof state.offset === 'number') this.revealOffset(state.offset);
+      return;
+    }
+    const handle = await this.shared.documents.open(state.path);
+    if (this.disposed) {
+      handle.dispose();
+      return;
+    }
+    this.releaseHandle();
+    this.handle = handle;
+    const store = (this.handleStore = this.newStore());
+    store.add(handle);
+    store.add(handle.onDidRename((path) => this.showPath(path)));
+    store.add(handle.onDidDelete(() => this.shared.workspace.closeFile(handle.path)));
+    this.showPath(handle.path);
+    // CodeMirror refocuses a focused view after setState; a new note wants the title focused.
+    if (this.pendingRename) this.editor.contentDOM.blur();
+    this.editor.setState(this.createState(handle));
+    if (this.reading) this.renderReading();
+    if (typeof state.subpath === 'string') this.revealSubpath(state.subpath);
+    if (typeof state.offset === 'number') this.revealOffset(state.offset);
+  }
+
+  revealOffset(offset: number): void {
+    if (this.reading) this.setReading(false);
+    const pos = Math.max(0, Math.min(offset, this.editor.state.doc.length));
+    this.editor.dispatch({
+      selection: { anchor: pos },
+      effects: EditorView.scrollIntoView(pos, { y: 'center' }),
+    });
+    this.editor.focus();
+  }
+
+  getState(): ViewState {
+    return { path: this.handle?.path, mode: this.reading ? 'reading' : 'editing' };
+  }
+
+  get isReading(): boolean {
+    return this.reading;
+  }
+
+  setReading(reading: boolean): void {
+    if (reading === this.reading) return;
+    this.reading = reading;
+    this.editor.dom.hidden = reading;
+    this.readingEl.hidden = !reading;
+    this.ctx.container.classList.toggle('pm-is-reading', reading);
+    if (reading) this.renderReading();
+    else {
+      this.readingRender?.dispose();
+      this.readingRender = undefined;
+      this.readingEl.replaceChildren();
+      this.editor.focus();
+    }
+  }
+
+  private renderReading(): void {
+    clearTimeout(this.readingTimer);
+    const reader = this.shared.reader();
+    const path = this.handle?.path;
+    if (!this.reading || path === undefined) return;
+    if (!reader) {
+      this.readingEl.textContent = this.editor.state.doc.toString();
+      return;
+    }
+    const text = this.editor.state.doc.toString();
+    const scroll = this.page.parentElement?.scrollTop ?? 0;
+    void reader.render(this.readingEl, text, { sourcePath: path }).then((d) => {
+      this.readingRender?.dispose();
+      this.readingRender = d;
+      if (this.page.parentElement) this.page.parentElement.scrollTop = scroll;
+    });
+  }
+
+  /** Scrolls to `Heading`, `H1#H2` or `^block` in this note. */
+  revealSubpath(subpath: string): void {
+    const path = this.handle?.path;
+    const target =
+      path !== undefined ? this.shared.index()?.resolveSubpath(path, subpath) : undefined;
+    if (this.reading) {
+      const key = subpath.replace(/^\^/, '');
+      const el = subpath.startsWith('^')
+        ? this.readingEl.querySelector(`[data-block-id="${CSS.escape(key)}"]`)?.parentElement
+        : [...this.readingEl.querySelectorAll<HTMLElement>('[data-heading]')].find(
+            (h) => h.dataset.heading?.toLowerCase() === key.split('#').pop()?.toLowerCase(),
+          );
+      el?.scrollIntoView({ block: 'start' });
+      return;
+    }
+    if (!target) return;
+    const pos = Math.min(target.from, this.editor.state.doc.length);
+    this.editor.dispatch({
+      selection: { anchor: pos },
+      effects: EditorView.scrollIntoView(pos, { y: 'start', yMargin: 40 }),
+    });
+  }
+
+  focus(): void {
+    if (this.reading) {
+      this.readingEl.focus();
+      return;
+    }
+    if (this.pendingRename) {
+      this.pendingRename = false;
+      this.titleInput.focus();
+      this.titleInput.select();
+      return;
+    }
+    this.focusBody();
+  }
+
+  private showToolbar(show: boolean): void {
+    const visible = show && this.shared.touch() && !this.reading;
+    if (visible && this.toolbar.hidden) {
+      this.toolbar.replaceChildren(
+        ...this.shared.toolbarActions().map((action) => {
+          const b = document.createElement('button');
+          b.className = 'pm-editor-toolbar-button';
+          b.title = action.title;
+          b.setAttribute('aria-label', action.title);
+          const icon = /^[a-z-]+$/.test(action.icon) ? createIcon(action.icon, 18) : null;
+          if (icon) b.append(icon);
+          else b.textContent = action.icon;
+          b.addEventListener('click', () => action.run(this.editor));
+          return b;
+        }),
+      );
+    }
+    this.toolbar.hidden = !visible;
+  }
+
+  /** Focuses the editor with the cursor in the body, not in the (rendered) frontmatter. */
+  private focusBody(): void {
+    const fm = frontmatterBounds(this.editor.state.doc.toString().slice(0, 4096));
+    if (fm && this.editor.state.selection.main.head < fm.to) {
+      this.editor.dispatch({
+        selection: { anchor: Math.min(fm.to, this.editor.state.doc.length) },
+      });
+    }
+    this.editor.focus();
+  }
+
+  /** Words in the document, for the status bar. */
+  wordCount(): number {
+    const text = this.editor.state.doc.toString().replace(/^---\n[\s\S]*?\n---\n/, '');
+    return text.match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu)?.length ?? 0;
+  }
+
+  reconfigureContributed(): void {
+    this.editor.dispatch({
+      effects: this.contributedCompartment.reconfigure(this.shared.contributed()),
+    });
+  }
+
+  setSourceMode(source: boolean): void {
+    this.editor.dispatch({
+      effects: this.modeCompartment.reconfigure(source ? sourceModeStyling : livePreview),
+    });
+    this.ctx.container.classList.toggle('pm-source-mode', source);
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    clearTimeout(this.readingTimer);
+    this.readingRender?.dispose();
+    this.releaseHandle();
+    this.editor.destroy();
+    this.shared.onActiveChange(undefined);
+  }
+
+  private releaseHandle(): void {
+    this.handleStore?.dispose();
+    this.handleStore = undefined;
+    this.handle = undefined;
+  }
+
+  private showPath(path: string): void {
+    const title = stem(path);
+    this.ctx.setTitle(title);
+    this.ctx.setFile(path);
+    if (document.activeElement !== this.titleInput) this.titleInput.value = title;
+  }
+
+  private createState(handle: DocumentHandle): EditorState {
+    const shared = this.shared;
+    const ytext = markdownText(handle.doc);
+    const undoManager = new Y.UndoManager(ytext);
+    const text = ytext.toString();
+    // Start below the frontmatter, so it shows as properties rather than raw YAML.
+    const anchor = Math.min(frontmatterBounds(text.slice(0, 4096))?.to ?? 0, text.length);
+    return EditorState.create({
+      doc: text,
+      selection: { anchor },
+      extensions: [
+        yCollab(ytext, (handle.awareness as Parameters<typeof yCollab>[1]) ?? null, {
+          undoManager,
+        }),
+        EditorState.readOnly.of(handle.readOnly),
+        keymap.of([
+          ...yUndoManagerKeymap,
+          ...closeBracketsKeymap,
+          ...searchKeymap,
+          ...markdownKeymap,
+          ...defaultKeymap,
+          indentWithTab,
+        ]),
+        yamlFrontmatter({
+          content: markdown({
+            base: commonmarkLanguage,
+            extensions: this.shared.syntax.lezerExtensions(),
+            codeLanguages: languages,
+            addKeymap: false,
+          }),
+        }),
+        previewDeps.of({
+          syntax: this.shared.syntax,
+          get reader() {
+            return shared.reader();
+          },
+          sourcePath: () => this.handle?.path,
+        }),
+        syntaxHighlighting(highlightStyle),
+        EditorView.lineWrapping,
+        drawSelection(),
+        dropCursor(),
+        rectangularSelection(),
+        closeBrackets(),
+        search({ top: true }),
+        highlightSelectionMatches(),
+        placeholder('Start writing…'),
+        EditorView.contentAttributes.of({
+          spellcheck: 'true',
+          autocorrect: 'on',
+          autocapitalize: 'sentences',
+        }),
+        this.modeCompartment.of(this.shared.sourceMode() ? sourceModeStyling : livePreview),
+        this.contributedCompartment.of(this.shared.contributed()),
+        EditorView.updateListener.of((u) => {
+          if (u.docChanged || u.focusChanged) this.shared.onActiveChange(this);
+          if (u.docChanged && this.reading) {
+            clearTimeout(this.readingTimer);
+            this.readingTimer = setTimeout(() => this.renderReading(), 250);
+          }
+        }),
+      ],
+    });
+  }
+
+  private onMouseDown(e: MouseEvent): void {
+    const link = (e.target as HTMLElement).closest<HTMLElement>('.cm-pm-link');
+    const href = link?.dataset.href;
+    if (!href || !(e.metaKey || e.ctrlKey)) return;
+    e.preventDefault();
+    if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+      this.shared.openExternal(href);
+    } else if (this.handle) {
+      // Relative markdown link to a vault file.
+      const target = joinPath(dirname(this.handle.path), decodeURIComponent(href));
+      void this.shared.workspace.openFile(target, { newTab: e.shiftKey });
+    }
+  }
+
+  private async renameFromTitle(): Promise<void> {
+    const handle = this.handle;
+    if (!handle) return;
+    const title = this.titleInput.value.trim();
+    const current = stem(handle.path);
+    if (!title || title === current) {
+      this.titleInput.value = current;
+      return;
+    }
+    if (/[\\/:*?"<>|#^[\]]/.test(title)) {
+      this.shared.workspace.notify(
+        'A title cannot contain any of these characters: \\ / : * ? " < > | # ^ [ ]',
+        {
+          kind: 'warning',
+        },
+      );
+      this.titleInput.value = current;
+      return;
+    }
+    const name = basename(handle.path);
+    const ext = name.slice(name.indexOf('.') >= 0 ? name.lastIndexOf('.') : name.length);
+    const target = joinPath(dirname(handle.path), `${title}${ext}`);
+    try {
+      await this.shared.vault.rename(handle.path, target);
+    } catch (e) {
+      this.shared.workspace.notify(e instanceof Error ? e.message : String(e), { kind: 'error' });
+      this.titleInput.value = current;
+    }
+  }
+}
+
+function stem(path: string): string {
+  const name = basename(path);
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(0, dot) : name;
+}

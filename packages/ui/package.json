@@ -1,0 +1,14 @@
+{
+  "name": "@pumice/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./theme.css": "./src/theme.css",
+    "./panel.css": "./src/panel.css"
+  },
+  "dependencies": {
+    "lucide": "^0.454.0"
+  }
+}

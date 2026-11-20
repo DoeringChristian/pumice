@@ -1,0 +1,17 @@
+{
+  "name": "@pumice/core-vault",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@pumice/api": "workspace:*",
+    "@pumice/platform": "workspace:*"
+  },
+  "devDependencies": {
+    "@pumice/platform-memory": "workspace:*",
+    "@pumice/kernel": "workspace:*"
+  }
+}

@@ -1,0 +1,39 @@
+.pm-property-row {
+  display: grid;
+  grid-template-columns: minmax(70px, 34%) 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 2px;
+}
+.pm-property-key {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pm-property-row input[readonly] {
+  color: var(--text-faint);
+  border-style: dashed;
+}
+.pm-property-remove {
+  display: inline-flex;
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  padding: 3px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+.pm-property-remove:hover {
+  color: var(--danger);
+  background: var(--bg-hover);
+}
+.pm-properties-add {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pm-properties-error {
+  color: var(--danger);
+}

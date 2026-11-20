@@ -1,0 +1,18 @@
+{
+  "name": "@pumice/kernel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@pumice/api": "workspace:*",
+    "@pumice/platform": "workspace:*",
+    "semver": "^7.6.3"
+  },
+  "devDependencies": {
+    "@pumice/platform-memory": "workspace:*",
+    "@types/semver": "^7.5.8"
+  }
+}

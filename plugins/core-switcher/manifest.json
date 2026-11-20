@@ -1,0 +1,8 @@
+{
+  "id": "core.switcher",
+  "name": "Quick switcher",
+  "version": "0.1.0",
+  "description": "Jump to any file by name, or create it.",
+  "api": "^0.1.0",
+  "dependencies": { "core.workspace": "^0.1.0", "core.vault": "^0.1.0" }
+}

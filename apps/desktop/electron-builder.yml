@@ -1,0 +1,40 @@
+# Packaging for macOS, Windows and Linux (docs/plan/08, M6).
+# Signing: set CSC_LINK / CSC_KEY_PASSWORD (macOS Developer ID, Windows code signing) and, for
+# macOS notarization (automatic when set), APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID in CI.
+appId: app.pumice.desktop
+productName: Pumice
+copyright: Copyright © 2026 Pumice contributors
+directories:
+  output: release/${version}
+  buildResources: build
+files:
+  - out/**
+  - package.json
+asarUnpack: []
+publish:
+  # Auto-update feed (electron-updater). Override with PUMICE_UPDATE_URL for self-hosting.
+  provider: github
+  owner: DoeringChristian
+  repo: pumice
+  releaseType: release
+mac:
+  category: public.app-category.productivity
+  target: [dmg, zip]
+  artifactName: Pumice-${version}-mac-${arch}.${ext}
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+win:
+  target: [nsis]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+linux:
+  target: [AppImage, deb]
+  category: Office
+  maintainer: Pumice contributors
+fileAssociations:
+  - ext: md
+    name: Markdown
+    role: Editor

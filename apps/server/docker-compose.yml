@@ -1,0 +1,11 @@
+services:
+  pumice:
+    build:
+      context: ../..
+      dockerfile: apps/server/Dockerfile
+    ports: ['8787:8787']
+    environment:
+      PUBLIC_URL: https://pumice.example.com
+    volumes: ['pumice-data:/data']
+volumes:
+  pumice-data:

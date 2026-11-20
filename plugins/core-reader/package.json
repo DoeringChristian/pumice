@@ -1,0 +1,16 @@
+{
+  "name": "@pumice/core-reader",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@pumice/api": "workspace:*",
+    "@types/katex": "^0.16.8",
+    "katex": "^0.19.1",
+    "mermaid": "^12.2.0",
+    "@pumice/ui": "workspace:*"
+  }
+}

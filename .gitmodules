@@ -1,0 +1,4 @@
+[submodule "vendor/excalidraw"]
+	path = vendor/excalidraw
+	url = https://github.com/DoeringChristian/excalidraw.git
+	branch = pumice-mathjax

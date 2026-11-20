@@ -1,0 +1,12 @@
+{
+  "nodes": [
+    { "kind": "callout", "text": "> [!note]\n> Plain note.", "type": "note" },
+    {
+      "kind": "callout",
+      "text": "> [!TIP]- Collapsed **title**\n> Body with [[Link]].",
+      "type": "tip"
+    },
+    { "kind": "link", "text": "[[Link]]", "target": "Link" },
+    { "kind": "callout", "text": "> [!warning]+ Nested in a list\n  > text", "type": "warning" }
+  ]
+}

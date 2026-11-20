@@ -1,0 +1,29 @@
+{
+  "name": "pumice",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.18.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev:web": "pnpm --filter @pumice/web dev",
+    "dev:desktop": "pnpm --filter @pumice/desktop dev",
+    "build:desktop": "pnpm --filter @pumice/desktop build",
+    "format": "prettier --write .",
+    "docs:api": "typedoc",
+    "build:excalidraw": "cd vendor/excalidraw && npx -y yarn@1.22.22 install --frozen-lockfile --ignore-engines && npx -y yarn@1.22.22 build:packages"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "prettier": "^3.3.3",
+    "typedoc": "~0.26.11",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

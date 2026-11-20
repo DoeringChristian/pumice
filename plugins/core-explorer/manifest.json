@@ -1,0 +1,8 @@
+{
+  "id": "core.explorer",
+  "name": "File explorer",
+  "version": "0.1.0",
+  "description": "Browse, create, rename, move and delete files.",
+  "api": "^0.1.0",
+  "dependencies": { "core.workspace": "^0.1.0", "core.vault": "^0.1.0" }
+}

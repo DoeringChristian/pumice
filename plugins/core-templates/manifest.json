@@ -1,0 +1,17 @@
+{
+  "id": "core.templates",
+  "name": "Templates",
+  "version": "0.1.0",
+  "description": "Insert templates into notes or create notes from them, with {{title}}, {{date}} and {{time}} variables.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.vault": "^0.1.0",
+    "core.workspace": "^0.1.0",
+    "core.editor": "^0.1.0",
+    "core.documents": "^0.1.0",
+    "core.markdown": "^0.1.0"
+  },
+  "optionalDependencies": {
+    "core.settings": "^0.1.0"
+  }
+}

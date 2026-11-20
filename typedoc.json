@@ -1,0 +1,12 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "Pumice plugin API",
+  "entryPoints": ["packages/api/src/index.ts"],
+  "tsconfig": "tsconfig.json",
+  "out": "docs/api",
+  "readme": "docs/plugins/README.md",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "excludeExternals": true,
+  "skipErrorChecking": true
+}

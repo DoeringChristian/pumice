@@ -1,0 +1,14 @@
+{
+  "layout": {
+    "tabs": [],
+    "active": 0,
+    "left": {
+      "open": true,
+      "activePanel": "explorer"
+    },
+    "right": {
+      "open": false,
+      "activePanel": "backlinks"
+    }
+  }
+}

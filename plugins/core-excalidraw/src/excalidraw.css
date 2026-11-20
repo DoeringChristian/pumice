@@ -1,0 +1,53 @@
+.pm-excalidraw-view {
+  position: relative;
+  overflow: hidden;
+}
+.pm-excalidraw-host {
+  position: absolute;
+  inset: 0;
+}
+/* The canvas is transparent for default-background drawings; the app's background shows. */
+.pm-excalidraw-host {
+  background: var(--bg);
+}
+/* Excalidraw's UI in the app's colors (doubled class: must win over its theme rules). */
+.pm-excalidraw-host .excalidraw.excalidraw {
+  --ui-font: var(--font-ui);
+  --default-bg-color: var(--bg);
+  --island-bg-color: var(--bg-elevated);
+  --island-bg-color-alt: var(--bg-panel);
+  --popup-secondary-bg-color: var(--bg-panel);
+  --input-bg-color: var(--bg);
+  --color-surface-lowest: var(--bg);
+  --color-surface-low: var(--bg-panel);
+  --color-surface-mid: var(--bg-hover);
+  --color-surface-high: var(--bg-active);
+  --color-on-surface: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-darker: var(--accent);
+  --color-primary-darkest: var(--accent);
+  --color-primary-hover: var(--accent);
+  --color-primary-light: var(--accent-soft);
+  --color-primary-light-darker: var(--accent-soft);
+  --color-surface-primary-container: var(--accent-soft);
+  --color-on-primary-container: var(--text);
+  --color-brand-hover: var(--accent);
+  --color-brand-active: var(--accent);
+  --color-selection: var(--accent);
+  --focus-highlight-color: var(--accent-soft);
+  --link-color: var(--link);
+  --keybinding-color: var(--text-faint);
+  background: transparent;
+}
+.pm-excalidraw-embed {
+  display: inline-block;
+  max-width: 100%;
+  cursor: pointer;
+  border-radius: var(--radius-m);
+  overflow: hidden;
+}
+.pm-excalidraw-embed svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}

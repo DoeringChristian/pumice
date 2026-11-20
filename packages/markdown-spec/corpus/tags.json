@@ -1,0 +1,11 @@
+{
+  "nodes": [
+    { "kind": "heading", "text": "# Heading with #tag", "level": 1 },
+    { "kind": "tag", "text": "#tag", "value": "tag" },
+    { "kind": "tag", "text": "#start", "value": "start" },
+    { "kind": "tag", "text": "#word", "value": "word" },
+    { "kind": "tag", "text": "#nested/tag-name_2", "value": "nested/tag-name_2" },
+    { "kind": "tag", "text": "#ünïcode", "value": "ünïcode" },
+    { "kind": "heading", "text": "## Real heading", "level": 2 }
+  ]
+}

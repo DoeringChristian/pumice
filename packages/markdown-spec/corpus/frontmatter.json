@@ -1,0 +1,6 @@
+{
+  "nodes": [
+    { "kind": "frontmatter", "text": "---\ntitle: Hello\ntags: [a, b]\n---" },
+    { "kind": "heading", "text": "# Heading", "level": 1 }
+  ]
+}

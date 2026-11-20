@@ -1,0 +1,9 @@
+{
+  "id": "example.kbd-syntax",
+  "name": "Keyboard keys",
+  "version": "0.1.0",
+  "description": "Example plugin: ++Ctrl+C++ renders as keyboard keys (a markdown syntax extension).",
+  "api": "^0.1.0",
+  "dependencies": { "core.markdown": "^0.1.0", "core.editor": "^0.1.0" },
+  "permissions": []
+}

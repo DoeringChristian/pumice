@@ -1,0 +1,24 @@
+{
+  "nodes": [
+    { "kind": "frontmatter", "text": "---\nid: k7f3qm2xa1\n---" },
+    {
+      "kind": "link",
+      "text": "[[r2p9dz4wn8|Meeting notes]]",
+      "target": "r2p9dz4wn8",
+      "alias": "Meeting notes"
+    },
+    {
+      "kind": "embed",
+      "text": "![[a8c1vn6tq3|Architecture]]",
+      "target": "a8c1vn6tq3",
+      "alias": "Architecture"
+    },
+    {
+      "kind": "link",
+      "text": "[[r2p9dz4wn8#^decisions|the decisions]]",
+      "target": "r2p9dz4wn8",
+      "subpath": "^decisions",
+      "alias": "the decisions"
+    }
+  ]
+}

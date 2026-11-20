@@ -1,0 +1,7 @@
+{
+  "id": "core.workspace",
+  "name": "Workspace",
+  "version": "0.1.0",
+  "description": "Window layout: tabs, sidebars, status bar, dialogs.",
+  "api": "^0.1.0"
+}

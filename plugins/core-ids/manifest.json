@@ -1,0 +1,17 @@
+{
+  "id": "core.ids",
+  "name": "Note IDs",
+  "version": "0.1.0",
+  "description": "Optional stable links: notes can carry an `id` property, and [[id|Name]] links keep working when notes are renamed or moved, even outside the app. Plain [[Name]] links stay the default.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.documents": "^0.1.0",
+    "core.index": "^0.1.0",
+    "core.links": "^0.1.0",
+    "core.workspace": "^0.1.0",
+    "core.editor": "^0.1.0"
+  },
+  "optionalDependencies": {
+    "core.settings": "^0.1.0"
+  }
+}

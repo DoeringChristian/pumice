@@ -1,0 +1,27 @@
+.pm-presence {
+  display: flex;
+  gap: 4px;
+}
+.pm-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.pm-invite-out {
+  word-break: break-all;
+  user-select: text;
+}
+/* Remote cursors from y-codemirror */
+.cm-ySelectionInfo {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  border-radius: 3px;
+  padding: 1px 4px;
+  opacity: 1 !important;
+}

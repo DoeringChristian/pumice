@@ -1,0 +1,11 @@
+{
+  "id": "core.outline",
+  "name": "Outline",
+  "version": "0.1.0",
+  "description": "Headings of the active note.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.workspace": "^0.1.0",
+    "core.index": "^0.1.0"
+  }
+}

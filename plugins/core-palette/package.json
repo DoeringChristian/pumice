@@ -1,0 +1,12 @@
+{
+  "name": "@pumice/core-palette",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@pumice/api": "workspace:*"
+  }
+}

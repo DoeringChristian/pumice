@@ -1,0 +1,11 @@
+{
+  "id": "core.search",
+  "name": "Search",
+  "version": "0.1.0",
+  "description": "Full-text search with filters (tag:, path:, file:, \"phrases\", -exclusions).",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.workspace": "^0.1.0",
+    "core.index": "^0.1.0"
+  }
+}

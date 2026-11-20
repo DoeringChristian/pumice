@@ -1,0 +1,15 @@
+{
+  "id": "core.links",
+  "name": "Links",
+  "version": "0.1.0",
+  "description": "ID links ([[id|Name]]): link suggester, display, navigation, note IDs, and link updates on rename.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.vault": "^0.1.0",
+    "core.documents": "^0.1.0",
+    "core.index": "^0.1.0",
+    "core.workspace": "^0.1.0",
+    "core.editor": "^0.1.0"
+  },
+  "permissions": ["platform"]
+}

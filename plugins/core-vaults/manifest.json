@@ -1,0 +1,11 @@
+{
+  "id": "core.vaults",
+  "name": "Vault switcher",
+  "version": "0.1.0",
+  "description": "Open another vault, switch between recent vaults, or create one (mobile).",
+  "api": "^0.1.0",
+  "permissions": ["platform"],
+  "dependencies": {
+    "core.workspace": "^0.1.0"
+  }
+}

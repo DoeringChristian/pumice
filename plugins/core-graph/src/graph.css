@@ -1,0 +1,52 @@
+.pm-graph-view {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg);
+}
+.pm-graph-stage {
+  position: absolute;
+  inset: 0;
+}
+.pm-graph-canvas {
+  display: block;
+  cursor: grab;
+  outline: none;
+  touch-action: none;
+}
+.pm-graph-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 220px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: 6px 10px;
+  font-size: var(--font-size-ui);
+  box-shadow: var(--shadow);
+}
+.pm-graph-controls summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  user-select: none;
+}
+.pm-graph-controls[open] summary {
+  margin-bottom: 8px;
+}
+.pm-graph-controls .pm-panel-input {
+  width: 100%;
+  margin-bottom: 8px;
+}
+.pm-graph-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  color: var(--text);
+}
+.pm-graph-count {
+  display: block;
+  color: var(--text-faint);
+  font-size: 11px;
+  margin-top: 6px;
+}

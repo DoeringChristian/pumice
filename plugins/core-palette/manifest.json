@@ -1,0 +1,8 @@
+{
+  "id": "core.palette",
+  "name": "Command palette",
+  "version": "0.1.0",
+  "description": "Run any command from the keyboard.",
+  "api": "^0.1.0",
+  "dependencies": { "core.workspace": "^0.1.0" }
+}

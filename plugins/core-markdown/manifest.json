@@ -1,0 +1,7 @@
+{
+  "id": "core.markdown",
+  "name": "Markdown",
+  "description": "The markdown dialect (Obsidian flavored, with ID links) and its syntax extension registry.",
+  "version": "0.1.0",
+  "api": "^0.1.0"
+}

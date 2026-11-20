@@ -1,0 +1,9 @@
+{
+  "id": "core.documents",
+  "name": "Documents",
+  "version": "0.1.0",
+  "description": "Collaborative in-memory documents (Yjs) backed by vault files.",
+  "api": "^0.1.0",
+  "dependencies": { "core.vault": "^0.1.0" },
+  "permissions": ["platform"]
+}

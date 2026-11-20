@@ -1,0 +1,8 @@
+{
+  "id": "core.vault",
+  "name": "Vault",
+  "version": "0.1.0",
+  "description": "The vault's file tree and file operations.",
+  "api": "^0.1.0",
+  "permissions": ["platform"]
+}

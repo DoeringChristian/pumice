@@ -1,0 +1,13 @@
+{
+  "id": "core.daily",
+  "name": "Daily notes",
+  "version": "0.1.0",
+  "description": "One note per day: open today's note, step to the previous or next day.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.vault": "^0.1.0",
+    "core.workspace": "^0.1.0",
+    "core.templates": "^0.1.0"
+  },
+  "optionalDependencies": { "core.settings": "^0.1.0" }
+}

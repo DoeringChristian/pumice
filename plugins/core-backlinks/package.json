@@ -1,0 +1,13 @@
+{
+  "name": "@pumice/core-backlinks",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@pumice/api": "workspace:*",
+    "@pumice/ui": "workspace:*"
+  }
+}

@@ -1,0 +1,8 @@
+packages/markdown-spec/corpus/
+docs/api/
+node_modules/
+dist/
+out/
+release/
+pnpm-lock.yaml
+vendor/

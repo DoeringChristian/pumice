@@ -1,0 +1,206 @@
+.pm-settings {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.pm-settings-nav {
+  flex: 0 0 200px;
+  padding: 24px 10px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+  overflow-y: auto;
+}
+
+.pm-settings-group {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  padding: 14px 10px 6px;
+}
+
+.pm-settings-tab {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-s);
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.pm-settings-tab:hover {
+  background: var(--bg-hover);
+}
+
+.pm-settings-tab.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.pm-settings-content {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.pm-settings-panel {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 32px 80px;
+}
+
+.pm-settings-panel h2 {
+  font-size: 22px;
+  margin: 0 0 8px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
+.pm-settings-panel h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 28px 0 4px;
+}
+
+.pm-setting-info {
+  min-width: 0;
+}
+
+.pm-setting-control {
+  flex: none;
+}
+
+.pm-setting-meta {
+  color: var(--text-faint);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.pm-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pm-warning {
+  background: var(--accent-soft);
+  border-radius: var(--radius-m);
+  padding: 8px 12px;
+}
+
+.pm-hidden-input {
+  display: none;
+}
+
+.pm-hotkeys kbd {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-s);
+  padding: 1px 6px;
+  margin-left: 4px;
+  background: var(--bg-elevated);
+}
+
+@media (max-width: 700px) {
+  .pm-settings {
+    flex-direction: column;
+  }
+  .pm-settings-nav {
+    flex: none;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 8px;
+    display: flex;
+    overflow-x: auto;
+  }
+  .pm-settings-group {
+    display: none;
+  }
+  .pm-settings-tab {
+    width: auto;
+    white-space: nowrap;
+  }
+}
+
+.pm-segmented {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--radius-m);
+  background: var(--bg-active);
+}
+
+.pm-segmented button {
+  border: 0;
+  background: none;
+  padding: 5px 12px;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.pm-segmented button[data-active='true'] {
+  background: var(--bg-elevated);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.pm-plugin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.pm-plugin-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-faint);
+  font-size: 12px;
+  padding: 6px 8px 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.pm-plugin-table td {
+  padding: 10px 8px 10px 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.pm-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pm-badge {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--bg-active);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.pm-badge[data-state='active'] {
+  background: rgba(70, 160, 90, 0.15);
+  color: #4c9a5c;
+}
+
+.pm-badge[data-state='failed'] {
+  background: rgba(200, 60, 60, 0.15);
+  color: var(--danger);
+}
+
+.pm-plugin-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--danger);
+}

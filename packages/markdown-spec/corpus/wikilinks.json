@@ -1,0 +1,17 @@
+{
+  "nodes": [
+    { "kind": "link", "text": "[[Note]]", "target": "Note" },
+    { "kind": "link", "text": "[[Note|Shown]]", "target": "Note", "alias": "Shown" },
+    { "kind": "link", "text": "[[Note#Section]]", "target": "Note", "subpath": "Section" },
+    {
+      "kind": "link",
+      "text": "[[Note#^abc-1|x]]",
+      "target": "Note",
+      "subpath": "^abc-1",
+      "alias": "x"
+    },
+    { "kind": "link", "text": "[[#Heading]]", "target": "", "subpath": "Heading" },
+    { "kind": "link", "text": "[[folder/Other note.md]]", "target": "folder/Other note.md" },
+    { "kind": "link", "text": "[[Note#A#B]]", "target": "Note", "subpath": "A#B" }
+  ]
+}

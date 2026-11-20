@@ -1,0 +1,10 @@
+{
+  "nodes": [
+    { "kind": "comment", "text": "%%inline comment%%" },
+    {
+      "kind": "comment",
+      "text": "%%\nBlock comment\n\nspanning a blank line with [[Not a link]]\n%%"
+    },
+    { "kind": "comment", "text": "%%one-line block%%" }
+  ]
+}

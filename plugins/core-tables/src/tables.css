@@ -1,0 +1,145 @@
+/* Table grid in live preview (docs/plan/09). No vertical margins: see core-editor's CSS note. */
+.pm-table-widget {
+  position: relative;
+  width: fit-content;
+  max-width: calc(100% + 18px);
+  padding: 0 28px 22px 0;
+  margin-left: -18px;
+  white-space: normal;
+}
+
+/* The padding keeps the row and column handles inside the scroll container (it clips). */
+.pm-table-scroll {
+  overflow-x: auto;
+  padding: 10px 2px 2px 18px;
+}
+
+.pm-table {
+  border-collapse: collapse;
+  min-width: 40%;
+  font-size: inherit;
+}
+
+.pm-table th,
+.pm-table td {
+  position: relative;
+  border: 1px solid var(--border);
+  padding: 0;
+  vertical-align: top;
+  min-width: 60px;
+}
+
+.pm-table th {
+  text-align: left;
+  background: var(--bg-panel);
+  font-weight: 600;
+}
+
+.pm-table-cell {
+  padding: 4px 10px;
+  min-height: 1.6em;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
+}
+
+.pm-table-cell:focus {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  border-radius: 2px;
+}
+
+.pm-table-cell p {
+  margin: 0;
+}
+
+/* Row and column handles: visible on hover. */
+.pm-table-handle {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+  z-index: 2;
+}
+
+.pm-table-col-handle {
+  top: -9px;
+  left: 50%;
+  width: 22px;
+  height: 14px;
+  transform: translateX(-50%) rotate(90deg);
+}
+
+.pm-table-row-handle {
+  left: -17px;
+  top: 50%;
+  width: 14px;
+  height: 22px;
+  transform: translateY(-50%);
+}
+
+.pm-table th:hover > .pm-table-col-handle,
+.pm-table tr:hover > td > .pm-table-row-handle,
+.pm-table-handle:focus-visible {
+  opacity: 1;
+}
+
+.pm-table-handle:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+/* Add row / column bars. */
+.pm-table-add {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.pm-table-widget:hover .pm-table-add,
+.pm-table-widget.is-editing .pm-table-add {
+  opacity: 1;
+}
+
+.pm-table-add:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.pm-table-add-col {
+  top: 10px;
+  right: 4px;
+  bottom: 22px;
+  width: 18px;
+}
+
+.pm-table-add-row {
+  left: 18px;
+  right: 28px;
+  bottom: 2px;
+  height: 16px;
+}
+
+@media (pointer: coarse) {
+  .pm-table-handle,
+  .pm-table-add {
+    opacity: 1;
+  }
+}
