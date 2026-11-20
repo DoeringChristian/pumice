@@ -312,6 +312,7 @@ const handlers: Record<string, Handler> = {
     await switchVault(path, newWindow ? undefined : s.window);
   },
   'vaults.pick': (s, newWindow) => pickAndOpenVault(newWindow ? undefined : s.window),
+  'vaults.manage': () => openLauncher(),
   'vaults.forget': async (_s, path) => {
     const config = await readConfig();
     const recent = (config.recent ?? []).filter((v) => v.path !== path);
@@ -449,6 +450,122 @@ async function pickAndOpenVault(replace?: BrowserWindow): Promise<boolean> {
   return true;
 }
 
+// ---- Vault selector (the window shown when no vault is open) ------------------------------
+
+let launcherWindow: BrowserWindow | null = null;
+
+async function openLauncher(): Promise<void> {
+  if (launcherWindow && !launcherWindow.isDestroyed()) {
+    launcherWindow.focus();
+    return;
+  }
+  const window = new BrowserWindow({
+    width: 800,
+    height: 560,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    title: 'Pumice',
+    backgroundColor: '#1c1a18',
+    titleBarStyle: OS === 'macos' ? 'hiddenInset' : 'default',
+    show: false,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.cjs'),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+    },
+  });
+  launcherWindow = window;
+  window.setMenuBarVisibility(false);
+  window.on('closed', () => {
+    if (launcherWindow === window) launcherWindow = null;
+  });
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', (e) => e.preventDefault());
+  window.once('ready-to-show', () => window.show());
+  if (process.env.ELECTRON_RENDERER_URL)
+    await window.loadURL(`${process.env.ELECTRON_RENDERER_URL}/launcher.html`);
+  else await window.loadURL(`${APP_ORIGIN}/launcher.html`);
+}
+
+const closeLauncher = () => {
+  if (launcherWindow && !launcherWindow.isDestroyed()) launcherWindow.close();
+};
+
+async function launcherVaults() {
+  const out = [];
+  for (const v of (await readConfig()).recent ?? []) {
+    const missing = !(await fs.stat(v.path).catch(() => null))?.isDirectory();
+    out.push({ path: v.path, name: basename(v.path), missing });
+  }
+  return out;
+}
+
+const launcherHandlers: Record<string, (...args: unknown[]) => unknown> = {
+  info: () => ({ version: app.getVersion(), defaultLocation: app.getPath('documents') }),
+  list: () => launcherVaults(),
+  open: async (path) => {
+    const known = (await readConfig()).recent?.some((v) => v.path === path);
+    if (typeof path !== 'string' || !known) throw new Error('Unknown vault');
+    await switchVault(path);
+    closeLauncher();
+  },
+  pick: async () => {
+    if (await pickAndOpenVault()) closeLauncher();
+  },
+  chooseFolder: async () => {
+    const options: Electron.OpenDialogOptions = {
+      title: 'Where to create the vault',
+      buttonLabel: 'Choose',
+      properties: ['openDirectory', 'createDirectory'],
+    };
+    const result = launcherWindow
+      ? await dialog.showOpenDialog(launcherWindow, options)
+      : await dialog.showOpenDialog(options);
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  },
+  create: async (name, parent) => {
+    if (typeof name !== 'string' || typeof parent !== 'string') throw new Error('Bad request');
+    const clean = name.trim();
+    if (!clean || /[\\/:*?"<>|]/.test(clean) || clean.startsWith('.'))
+      throw new Error('That name can\u2019t be used for a folder.');
+    if (!(await fs.stat(parent).catch(() => null))?.isDirectory())
+      throw new Error('Choose a location for the vault.');
+    const root = join(parent, clean);
+    if (await fs.stat(root).catch(() => null))
+      throw new Error(`\u201c${clean}\u201d already exists there. Open it as a folder instead.`);
+    await fs.mkdir(root);
+    await switchVault(root);
+    closeLauncher();
+  },
+  forget: async (path) => {
+    const config = await readConfig();
+    const recent = (config.recent ?? []).filter((v) => v.path !== path);
+    await writeConfig({ ...config, recent });
+    buildMenu(recent.map((v) => v.path));
+  },
+  reveal: (path) => {
+    if (typeof path === 'string') shell.showItemInFolder(path);
+  },
+};
+
+ipcMain.handle(IPC.launcher, async (event, op: unknown, ...args: unknown[]) => {
+  // Only the selector window may list, create and open vaults this way.
+  if (!launcherWindow || event.sender.id !== launcherWindow.webContents.id)
+    throw new Error('Not allowed');
+  const handler = typeof op === 'string' ? launcherHandlers[op] : undefined;
+  if (!handler) throw new Error(`Unknown operation ${String(op)}`);
+  return handler(...args);
+});
+
+/** What a start (or a click on the Dock icon) shows: the last vault, else the selector. */
+async function openLastVaultOrLauncher(): Promise<void> {
+  const last = (await readConfig()).lastVault;
+  if (last && (await fs.stat(last).catch(() => null))?.isDirectory()) await openVault(last);
+  else await openLauncher();
+}
+
 function buildMenu(recent: string[] = []): void {
   const template: MenuItemConstructorOptions[] = [
     ...(OS === 'macos' ? [{ role: 'appMenu' as const }] : []),
@@ -456,8 +573,11 @@ function buildMenu(recent: string[] = []): void {
       label: 'File',
       submenu: [
         {
-          label: 'Open Vault…',
-          accelerator: 'CmdOrCtrl+Shift+O',
+          label: 'Manage Vaults…',
+          click: () => void openLauncher(),
+        },
+        {
+          label: 'Open Folder as Vault…',
           click: () => void pickAndOpenVault(),
         },
         {
@@ -509,12 +629,10 @@ app.whenReady().then(async () => {
       // `electron <app folder>` passes the app itself first.
       resolve(a) !== app.getAppPath(),
   );
-  const last = fromArgs
-    ? resolve(fromArgs)
-    : (process.env.PUMICE_VAULT ?? (await readConfig()).lastVault);
-  if (last && (await fs.stat(last).catch(() => null))?.isDirectory()) await openVault(last);
-  else await pickAndOpenVault();
-  if (BrowserWindow.getAllWindows().length === 0) app.quit();
+  const requested = fromArgs ? resolve(fromArgs) : process.env.PUMICE_VAULT;
+  if (requested && (await fs.stat(requested).catch(() => null))?.isDirectory())
+    await openVault(requested);
+  else await openLastVaultOrLauncher();
 });
 
 app.on('window-all-closed', () => {
@@ -522,5 +640,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) void pickAndOpenVault();
+  // macOS keeps the app running without windows: come back to the last vault.
+  if (BrowserWindow.getAllWindows().length === 0) void openLastVaultOrLauncher();
 });

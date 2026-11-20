@@ -33,6 +33,8 @@ export interface PumiceHost {
     /** Native folder dialog. */
     pick(newWindow: boolean): Promise<boolean>;
     forget(path: string): Promise<void>;
+    /** Opens the vault selector window. */
+    manage(): Promise<void>;
   };
   /** GET over https from the main process (the renderer's CSP blocks remote fetches). */
   fetchText(url: string): Promise<string>;
@@ -59,6 +61,30 @@ export interface PumiceHost {
   };
 }
 
+export interface LauncherVault {
+  path: string;
+  name: string;
+  /** The folder is gone (deleted, or on a drive that isn't connected). */
+  missing: boolean;
+}
+
+/** The API of the vault selector window (`window.pumiceLauncher`). */
+export interface LauncherHost {
+  platform: string;
+  info(): Promise<{ version: string; defaultLocation: string }>;
+  list(): Promise<LauncherVault[]>;
+  /** Opens a listed vault and closes the selector. */
+  open(path: string): Promise<void>;
+  /** Folder dialog, then opens the chosen folder as vault. */
+  pick(): Promise<void>;
+  /** Folder dialog for where to create a vault; resolves with the chosen folder. */
+  chooseFolder(): Promise<string | null>;
+  /** Creates `parent/name` and opens it. */
+  create(name: string, parent: string): Promise<void>;
+  forget(path: string): Promise<void>;
+  reveal(path: string): Promise<void>;
+}
+
 export type ChatGptMessage =
   | { id: number; event: Record<string, unknown> }
   | { id: number; done: true; error?: string; needsSignIn?: boolean };
@@ -76,4 +102,5 @@ export const IPC = {
   closeReady: 'pumice:close-ready',
   proc: 'pumice:proc',
   chatgpt: 'pumice:chatgpt',
+  launcher: 'pumice:launcher',
 } as const;

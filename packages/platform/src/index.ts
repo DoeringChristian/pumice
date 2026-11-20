@@ -132,6 +132,8 @@ export interface VaultSwitcher {
   create?(name: string): Promise<void>;
   /** Removes a vault from the list. Its files are not touched. */
   forget(id: string): Promise<void>;
+  /** Opens the shell's own vault manager, if it has one (desktop). */
+  manage?(): Promise<void>;
 }
 
 export interface Platform {

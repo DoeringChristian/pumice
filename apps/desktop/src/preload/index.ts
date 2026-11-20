@@ -2,6 +2,7 @@ import type { FsWatchEvent } from '@pumice/platform';
 import {
   IPC,
   type ChatGptMessage,
+  type LauncherHost,
   type ProcEvent,
   type PumiceHost,
 } from '@pumice/platform-electron/host';
@@ -46,6 +47,7 @@ const host: PumiceHost = {
     open: (path, newWindow) => invoke('vaults.open', path, newWindow),
     pick: (newWindow) => invoke('vaults.pick', newWindow),
     forget: (path) => invoke('vaults.forget', path),
+    manage: () => invoke('vaults.manage'),
   },
   fetchText: (url) => invoke('net.fetchText', url),
   closeWindow: () => invoke('window.close'),
@@ -76,4 +78,21 @@ const host: PumiceHost = {
   },
 };
 
+const launch = <T>(op: string, ...args: unknown[]) =>
+  ipcRenderer.invoke(IPC.launcher, op, ...args) as Promise<T>;
+
+/** The vault selector window's API; the main process only answers that window. */
+const launcher: LauncherHost = {
+  platform: process.platform,
+  info: () => launch('info'),
+  list: () => launch('list'),
+  open: (path) => launch('open', path),
+  pick: () => launch('pick'),
+  chooseFolder: () => launch('chooseFolder'),
+  create: (name, parent) => launch('create', name, parent),
+  forget: (path) => launch('forget', path),
+  reveal: (path) => launch('reveal', path),
+};
+
 contextBridge.exposeInMainWorld('pumiceHost', host);
+contextBridge.exposeInMainWorld('pumiceLauncher', launcher);

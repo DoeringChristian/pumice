@@ -19,9 +19,10 @@ flag so it opens normally. Android: download the APK from the
 [latest release](https://github.com/DoeringChristian/pumice/releases/latest). Other platforms:
 build from source (below).
 
-On first start Pumice asks for a folder to use as vault — any folder works, including an existing
-Obsidian vault. Switch vaults with the vault name at the top of the sidebar, **⌘/Ctrl+Shift+O**,
-or File → Open Recent Vault.
+On first start Pumice shows its vault selector: create a vault, or open any folder as one
+(including an existing Obsidian vault). After that it reopens the last vault. Switch vaults with
+the vault name at the top of the sidebar or **⌘/Ctrl+Shift+O**; "Manage vaults…" (also in the
+File menu) brings the selector back.
 
 ## Getting started
 

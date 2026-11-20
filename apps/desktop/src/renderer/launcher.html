@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    />
+    <title>Pumice</title>
+    <style>
+      :root {
+        --bg: #faf9f7;
+        --panel: #f2f0ec;
+        --hover: #e9e6e0;
+        --border: #e0dcd4;
+        --text: #2b2723;
+        --muted: #7a726a;
+        --accent: #c8582e;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1c1a18;
+          --panel: #23211e;
+          --hover: #2e2b27;
+          --border: #38342f;
+          --text: #e9e4dd;
+          --muted: #9a9188;
+          --accent: #e3825a;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        display: grid;
+        grid-template-columns: 300px 1fr;
+        font:
+          14px/1.45 -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+        color: var(--text);
+        background: var(--bg);
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      /* Left: known vaults. The top strip drags the window (and clears the macOS buttons). */
+      aside {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        background: var(--panel);
+        border-right: 1px solid var(--border);
+        padding-top: 44px;
+        -webkit-app-region: drag;
+      }
+      #vaults {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0 8px 8px;
+        -webkit-app-region: no-drag;
+      }
+      .vault {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        width: 100%;
+        padding: 8px 10px;
+        border: 0;
+        border-radius: 6px;
+        background: none;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .vault:hover,
+      .vault:focus-visible {
+        background: var(--hover);
+        outline: none;
+      }
+      .vault.is-missing {
+        opacity: 0.55;
+      }
+      .vault-text {
+        flex: 1;
+        min-width: 0;
+      }
+      .vault-name {
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .vault-path {
+        font-size: 12px;
+        color: var(--muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        direction: rtl;
+        text-align: left;
+      }
+      .vault-more {
+        flex: none;
+        width: 26px;
+        height: 26px;
+        border: 0;
+        border-radius: 5px;
+        background: none;
+        color: var(--muted);
+        font-size: 16px;
+        cursor: pointer;
+        opacity: 0;
+      }
+      .vault:hover .vault-more,
+      .vault-more:focus-visible {
+        opacity: 1;
+      }
+      .vault-more:hover {
+        background: var(--border);
+        color: var(--text);
+      }
+      .empty {
+        padding: 12px 10px;
+        color: var(--muted);
+      }
+      /* Right: the app and what you can do. */
+      main {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 44px 40px 28px;
+        overflow-y: auto;
+        -webkit-app-region: drag;
+      }
+      main > * {
+        -webkit-app-region: no-drag;
+      }
+      .logo {
+        width: 96px;
+        height: 96px;
+      }
+      h1 {
+        margin: 10px 0 0;
+        font-size: 26px;
+        letter-spacing: -0.01em;
+      }
+      .version {
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 26px;
+      }
+      .actions {
+        width: 100%;
+        max-width: 420px;
+      }
+      .action {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 14px 0;
+        border-top: 1px solid var(--border);
+      }
+      .action:first-child {
+        border-top: 0;
+      }
+      .action-text {
+        flex: 1;
+      }
+      .action-title {
+        font-weight: 600;
+      }
+      .action-desc {
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      button.btn {
+        flex: none;
+        min-width: 84px;
+        padding: 6px 14px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--panel);
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+      }
+      button.btn:hover {
+        background: var(--hover);
+      }
+      button.btn.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      button.btn.primary:hover {
+        filter: brightness(1.06);
+      }
+      button.btn:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      /* Create form */
+      #create {
+        width: 100%;
+        max-width: 420px;
+      }
+      #create[hidden],
+      .actions[hidden] {
+        display: none;
+      }
+      .back {
+        border: 0;
+        background: none;
+        color: var(--muted);
+        font: inherit;
+        padding: 0;
+        margin-bottom: 14px;
+        cursor: pointer;
+      }
+      .back:hover {
+        color: var(--text);
+      }
+      label.field {
+        display: block;
+        margin-bottom: 14px;
+      }
+      .field-title {
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      input[type='text'] {
+        width: 100%;
+        padding: 7px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--text);
+        font: inherit;
+        -webkit-user-select: text;
+        user-select: text;
+      }
+      input[type='text']:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+      .location {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .location-path {
+        flex: 1;
+        min-width: 0;
+        color: var(--muted);
+        font-size: 12.5px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .error {
+        color: #c0392b;
+        font-size: 12.5px;
+        min-height: 18px;
+        margin: 2px 0 8px;
+      }
+      .form-buttons {
+        display: flex;
+        justify-content: flex-end;
+      }
+      /* Per-vault menu */
+      #menu {
+        position: fixed;
+        z-index: 10;
+        min-width: 190px;
+        padding: 4px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+      }
+      #menu[hidden] {
+        display: none;
+      }
+      #menu button {
+        display: block;
+        width: 100%;
+        padding: 6px 10px;
+        border: 0;
+        border-radius: 5px;
+        background: none;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      #menu button:hover {
+        background: var(--hover);
+      }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <div id="vaults" role="list" aria-label="Vaults"></div>
+    </aside>
+    <main>
+      <img class="logo" src="./favicon.svg" alt="" />
+      <h1>Pumice</h1>
+      <div class="version" id="version"></div>
+      <div class="actions" id="actions">
+        <div class="action">
+          <div class="action-text">
+            <div class="action-title">Create new vault</div>
+            <div class="action-desc">Create a new Pumice vault under a folder.</div>
+          </div>
+          <button class="btn primary" id="show-create">Create</button>
+        </div>
+        <div class="action">
+          <div class="action-text">
+            <div class="action-title">Open folder as vault</div>
+            <div class="action-desc">
+              Choose an existing folder of Markdown files, such as an Obsidian vault.
+            </div>
+          </div>
+          <button class="btn" id="open-folder">Open</button>
+        </div>
+      </div>
+      <form id="create" hidden>
+        <button type="button" class="back" id="back">‹ Back</button>
+        <label class="field">
+          <div class="field-title">Vault name</div>
+          <input
+            type="text"
+            id="name"
+            placeholder="Vault name"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </label>
+        <div class="field">
+          <div class="field-title">Location</div>
+          <div class="location">
+            <div class="location-path" id="location"></div>
+            <button type="button" class="btn" id="browse">Browse</button>
+          </div>
+        </div>
+        <div class="error" id="error" role="alert"></div>
+        <div class="form-buttons">
+          <button type="submit" class="btn primary" id="create-submit">Create</button>
+        </div>
+      </form>
+    </main>
+    <div id="menu" hidden role="menu"></div>
+    <script type="module" src="./launcher.ts"></script>
+  </body>
+</html>

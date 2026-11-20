@@ -38,6 +38,13 @@ export default defineConfig({
         '@codemirror/language',
       ],
     },
-    build: { rollupOptions: { input: resolve(__dirname, 'src/renderer/index.html') } },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/renderer/index.html'),
+          launcher: resolve(__dirname, 'src/renderer/launcher.html'),
+        },
+      },
+    },
   },
 });

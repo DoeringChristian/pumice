@@ -12,6 +12,10 @@ pnpm install --frozen-lockfile
 (cd apps/desktop && CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-vite build &&
   CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --arm64 --x64 --publish never)
 
+# The unpacked apps are only a build step; left in place, Spotlight lists each as another Pumice.
+rm -rf "$out"/mac "$out"/mac-arm64
+touch apps/desktop/release/.metadata_never_index
+
 assets=("$out"/Pumice-"$version"-mac-*.dmg "$out"/Pumice-"$version"-mac-*.zip "$out"/latest-mac.yml)
 if [ -n "${ANDROID_HOME:-}" ]; then
   pnpm --filter @pumice/mobile android:apk
@@ -20,5 +24,5 @@ if [ -n "${ANDROID_HOME:-}" ]; then
 fi
 
 gh release create "v$version" "${assets[@]}" --title "Pumice $version" --generate-notes
-echo "Update the cask (DoeringChristian/homebrew-pumice, Casks/pumice.rb) with:"
+echo "Update the cask (DoeringChristian/homebrew-pumice, Casks/pumice.rb): version and"
 shasum -a 256 "$out"/Pumice-"$version"-mac-*.dmg

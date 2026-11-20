@@ -76,6 +76,12 @@ export const plugin = definePlugin({
         });
       }
       if (vaults.create) items.push({ label: 'Create a new vault…', run: createVault });
+      if (vaults.manage)
+        items.push({
+          label: 'Manage vaults…',
+          detail: 'Create a vault, or remove one from the list',
+          run: () => vaults.manage!(),
+        });
       return items;
     };
 

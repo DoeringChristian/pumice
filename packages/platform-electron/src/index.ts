@@ -52,6 +52,7 @@ export async function createElectronPlatform(host: PumiceHost): Promise<Platform
       open: (id, opts) => host.vaults.open(id, !!opts?.newWindow),
       pick: (opts) => host.vaults.pick(!!opts?.newWindow),
       forget: (id) => host.vaults.forget(id),
+      manage: () => host.vaults.manage(),
     },
     chatgpt: chatGptHost(host),
     process: processHost(host),
