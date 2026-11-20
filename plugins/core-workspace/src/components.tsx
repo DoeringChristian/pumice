@@ -258,6 +258,26 @@ function TabBar({ model }: { model: WorkspaceModel }) {
               model.closeTab(leaf);
             } else if (e.button === 0) model.activate(leaf);
           }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            const path = leaf.path;
+            model.showContextMenu(
+              [
+                ...(path && model.viewersFor(path).length > 1
+                  ? [
+                      {
+                        label: 'Open with…',
+                        icon: 'eye',
+                        run: () => void model.openFileWith(path),
+                      },
+                      'separator' as const,
+                    ]
+                  : []),
+                { label: 'Close', icon: 'x', run: () => model.closeTab(leaf) },
+              ],
+              { x: e.clientX, y: e.clientY },
+            );
+          }}
           title={leaf.path ?? leaf.title}
         >
           <span className="pm-tab-title">{leaf.title}</span>

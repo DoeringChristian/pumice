@@ -1,3 +1,4 @@
+import { newChatId, type ChatSnapshot, type SavedChat } from './chats';
 import {
   PROTOCOL_VERSION,
   client as acpClient,
@@ -33,6 +34,10 @@ export interface SlashCommand {
 /** What the chat panel needs from a running agent, whatever is behind it. */
 export interface ChatSession {
   readonly config: AgentConfig;
+  /** Id under which the conversation is saved. */
+  readonly chatId: string;
+  /** What is needed to show the conversation again and continue it. */
+  snapshot(): ChatSnapshot;
   readonly items: TranscriptItem[];
   status: SessionStatus;
   modes: Array<{ id: string; name: string }>;
@@ -171,7 +176,24 @@ export class AgentSession implements ChatSession {
     private readonly files: AgentFiles,
     /** Standing guidance about the app, given with the first message of a conversation. */
     private readonly guidance: () => string = () => '',
-  ) {}
+    /** A conversation to pick up again. */
+    private readonly saved?: SavedChat,
+  ) {
+    this.chatId = saved?.id ?? newChatId();
+    if (saved) {
+      for (const item of saved.items) this.items.push({ ...item, id: nextItemId++ });
+      // The agent was told about the app when the conversation began.
+      this.briefed = true;
+    }
+  }
+
+  readonly chatId: string;
+  /** While the agent replays a loaded conversation (it is already on screen). */
+  private replaying = false;
+
+  snapshot(): ChatSnapshot {
+    return { items: this.items, ...(this.sessionId ? { sessionId: this.sessionId } : {}) };
+  }
 
   private briefed = false;
 
@@ -233,9 +255,38 @@ export class AgentSession implements ChatSession {
         clientInfo: { name: 'Pumice', version: '0.1.0' },
       });
       this.authMethods = init.authMethods ?? [];
-      await this.newSession();
+      if (this.saved && !(await this.resume(!!init.agentCapabilities?.loadSession))) {
+        this.push({
+          kind: 'info',
+          text: `${this.config.name} could not pick this conversation up again. The messages above are kept, but it does not remember them: say what it needs to know.`,
+        });
+        this.briefed = false;
+      }
+      if (!this.sessionId) await this.newSession();
     } catch (e) {
       this.fail(e);
+    }
+  }
+
+  /** Asks the agent to continue the saved conversation. False if it cannot. */
+  private async resume(supported: boolean): Promise<boolean> {
+    if (!supported || !this.saved?.sessionId) return false;
+    this.replaying = true;
+    try {
+      const res = await this.conn!.agent.request('session/load', {
+        sessionId: this.saved.sessionId,
+        cwd: this.files.root,
+        mcpServers: [],
+      });
+      this.sessionId = this.saved.sessionId;
+      this.modes = res?.modes?.availableModes.map((m) => ({ id: m.id, name: m.name })) ?? [];
+      this.currentMode = res?.modes?.currentModeId;
+      this.setStatus('ready');
+      return true;
+    } catch {
+      return false;
+    } finally {
+      this.replaying = false;
     }
   }
 
@@ -368,6 +419,13 @@ export class AgentSession implements ChatSession {
 
   private onUpdate(n: SessionNotification): void {
     const u = n.update;
+    // A loaded conversation is replayed by the agent; it is already shown.
+    if (
+      this.replaying &&
+      u.sessionUpdate !== 'available_commands_update' &&
+      u.sessionUpdate !== 'current_mode_update'
+    )
+      return;
     switch (u.sessionUpdate) {
       case 'agent_message_chunk':
       case 'agent_thought_chunk': {

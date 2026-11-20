@@ -2,6 +2,8 @@
   /* Padding, not margin: the editor measures blocks without their margins. */
   margin: 0;
   padding: 8px 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .pm-frame-view {
   display: block;
@@ -40,4 +42,61 @@
 .pm-frame-page {
   height: 100%;
   background: var(--bg);
+}
+
+/* A file opened through a frame that offers itself as its viewer */
+.pm-frame-viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.pm-frame-viewer .pm-frame-page {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+.pm-frame-viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 30px;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--font-size-ui-small, 12px);
+}
+.pm-frame-viewer-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pm-frame-viewer-change {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.pm-frame-viewer-change:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.pm-frame-viewer-change[hidden] {
+  display: none;
+}
+
+/* A file from the file list is dragged over the app: frames let it through, and the one under
+   the pointer shows that it would take it. */
+.pm-dragging-file .pm-frame-view {
+  pointer-events: none;
+}
+.pm-frame.is-drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-m);
 }

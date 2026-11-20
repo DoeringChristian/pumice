@@ -53,7 +53,7 @@ export class MarkdownSyntaxImpl implements MarkdownSyntaxApi {
   }
 
   extract(text: string) {
-    return metadataFromTree(this.parse(text));
+    return metadataFromTree(this.parse(text), {}, text);
   }
 
   renderHtml: MarkdownSyntaxApi['renderHtml'] = (tree, opts) => renderHtml(tree, opts);

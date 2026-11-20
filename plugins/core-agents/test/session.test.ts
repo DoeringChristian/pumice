@@ -3,6 +3,7 @@ import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import type { ChildProcessHandle, ProcessHost } from '@pumice/api';
 import { describe, expect, it } from 'vitest';
+import type { SavedChat } from '../src/chats';
 import { AgentSession, type TranscriptItem } from '../src/session';
 
 const MOCK = fileURLToPath(new URL('./fixtures/mock-agent.mjs', import.meta.url));
@@ -109,6 +110,51 @@ describe('agent session (ACP)', () => {
     >;
     expect(tool.status).toBe('failed');
     session.dispose();
+  });
+
+  it('picks a saved conversation up again, or says that it could not', async () => {
+    const saved: SavedChat = {
+      version: 1,
+      id: 'chat1',
+      agent: 'mock',
+      title: 'Earlier',
+      created: '2026-11-20T10:00:00.000Z',
+      updated: '2026-11-20T10:00:00.000Z',
+      sessionId: 's1',
+      items: [
+        { kind: 'user', id: 1, text: 'Earlier question' },
+        { kind: 'agent', id: 2, text: 'Earlier answer' },
+      ],
+    };
+    const files = { root: '/vault', read: async () => 'Hello', write: async () => {} };
+    const make = (args: string[], chat: SavedChat) =>
+      new AgentSession(
+        { id: 'mock', name: 'Mock', command: process.execPath, args: [MOCK, ...args] },
+        nodeHost,
+        files,
+        () => 'GUIDE',
+        chat,
+      );
+
+    const resumed = make([], saved);
+    await resumed.start();
+    await waitFor(() => resumed.status === 'ready');
+    expect(resumed.chatId).toBe('chat1');
+    // What the agent replays is not shown a second time.
+    expect(resumed.items.map((i) => ('text' in i ? i.text : i.kind))).toEqual([
+      'Earlier question',
+      'Earlier answer',
+    ]);
+    expect(resumed.snapshot().sessionId).toBe('s1');
+    resumed.dispose();
+
+    const fresh = make(['--no-load'], saved);
+    await fresh.start();
+    await waitFor(() => fresh.status === 'ready');
+    expect(fresh.items).toHaveLength(3);
+    expect(fresh.items[2]).toMatchObject({ kind: 'info' });
+    expect(String((fresh.items[2] as { text: string }).text)).toContain('does not remember');
+    fresh.dispose();
   });
 
   it('reports a command that is not installed', async () => {

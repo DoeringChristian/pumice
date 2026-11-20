@@ -50,10 +50,13 @@ const host: PumiceHost = {
     manage: () => invoke('vaults.manage'),
   },
   frames: {
-    open: (folder, files, inject, network) => invoke('frames.open', folder, files, inject, network),
+    open: (folder, files, inject, network, remote) =>
+      invoke('frames.open', folder, files, inject, network, remote),
+    extend: (token, files, remote) => invoke('frames.extend', token, files, remote),
     close: (token) => invoke('frames.close', token),
   },
   fetchText: (url) => invoke('net.fetchText', url),
+  fetchBinary: (url) => invoke('net.fetchBinary', url),
   closeWindow: () => invoke('window.close'),
   chatgpt: {
     status: () => invoke('chatgpt.status'),

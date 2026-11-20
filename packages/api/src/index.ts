@@ -10,6 +10,7 @@ export * from './services/documents';
 export * from './services/workspace';
 export * from './services/editor';
 export * from './editor-reveal';
+export * from './editor-completion';
 export * from './services/plugins';
 export type {
   VaultPath,
@@ -32,6 +33,15 @@ export {
   parseWikiLinkContent,
   formatWikiLink,
   parseEmbedSize,
+  setEmbedSize,
+  numberItems,
+  figureLabel,
+  figureReference,
+  embedCaption,
+  isFigureTarget,
+  type NumberedItem,
+  type FigureKind,
+  type FigureRef,
   headingKey,
   listProperty,
   setProperty,
@@ -75,6 +85,7 @@ export * from './services/ids';
 export * from './services/comments';
 export * from './services/files';
 export * from './services/agents';
+export * from './services/frames';
 export { newNoteContent } from './notes';
 export * from './services/settings-ui';
 export * from './services/templates';

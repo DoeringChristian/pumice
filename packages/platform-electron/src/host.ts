@@ -38,11 +38,19 @@ export interface PumiceHost {
   };
   frames: {
     /** Returns the token of `app://frame.<token>/<vault path>`. */
-    open(folder: string, files: string[], inject: string, network: boolean): Promise<string>;
+    open(
+      folder: string,
+      files: string[],
+      inject: string,
+      network: boolean,
+      remote: string[],
+    ): Promise<string>;
+    extend(token: string, files: string[], remote: string[]): Promise<void>;
     close(token: string): Promise<void>;
   };
   /** GET over https from the main process (the renderer's CSP blocks remote fetches). */
   fetchText(url: string): Promise<string>;
+  fetchBinary(url: string): Promise<Uint8Array>;
   /** Closes the window through the main process, so pending edits are flushed first. */
   closeWindow(): Promise<void>;
   chatgpt: {

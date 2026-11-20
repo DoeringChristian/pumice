@@ -1,4 +1,5 @@
 export * from './links';
+export * from './figures';
 export * from './micromark';
 export * from './mdast';
 export * from './lezer';

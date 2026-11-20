@@ -20,6 +20,7 @@ import {
   type VaultPath,
   type WorkspaceApi,
 } from '@pumice/api';
+import { numberRendered, setEmbedCaption } from './figures';
 
 /** Note embeds deeper than this show a link instead (stops cycles like A embeds B embeds A). */
 const MAX_DEPTH = 4;
@@ -92,6 +93,11 @@ export class ReaderImpl implements ReaderApi {
     return toDisposable(() => this.embeds.splice(this.embeds.indexOf(renderer) >>> 0, 1));
   }
 
+  canEmbed(path: VaultPath): boolean {
+    const name = path.toLowerCase();
+    return this.embeds.some((r) => r.extensions.some((ext) => name.endsWith(`.${ext}`)));
+  }
+
   registerCodeBlockRenderer(renderer: CodeBlockRenderer): Disposable {
     this.codeBlocks.set(renderer.language, renderer);
     return toDisposable(() => {
@@ -114,7 +120,7 @@ export class ReaderImpl implements ReaderApi {
   async render(
     container: HTMLElement,
     markdown: string,
-    opts: { sourcePath: VaultPath; depth?: number },
+    opts: { sourcePath: VaultPath; depth?: number; numbered?: boolean },
   ): Promise<Disposable> {
     const store = new DisposableStore();
     const ctx: RenderContext = {
@@ -132,6 +138,8 @@ export class ReaderImpl implements ReaderApi {
         link.target,
     });
     container.classList.add('pm-rendered');
+    // Figures, tables and equations of a whole note are numbered.
+    const numbering = opts.numbered ? numberRendered(container, markdown) : undefined;
 
     const tasks: Array<Promise<unknown>> = [];
     for (const el of container.querySelectorAll<HTMLElement>('.pm-math')) {
@@ -146,6 +154,8 @@ export class ReaderImpl implements ReaderApi {
           sourcePath: opts.sourcePath,
           depth: ctx.depth,
           container: el,
+          // Whenever the embed is drawn (again), its caption goes back under it.
+          onDidRender: () => setEmbedCaption(el, numbering?.embed(el)),
         }).then((d) => store.add(d)),
       );
     }
@@ -156,6 +166,7 @@ export class ReaderImpl implements ReaderApi {
       const host = document.createElement('div');
       host.className = `pm-code-render pm-code-render-${renderer.language}`;
       pre.replaceWith(host);
+      numbering?.frame(pre, host);
       tasks.push(
         Promise.resolve(renderer.render(source, host, ctx)).catch((e) => {
           host.replaceWith(pre);

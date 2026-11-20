@@ -38,6 +38,13 @@ export const plugin = definePlugin({
 
     const hasTab = () => !!model.activeTab;
     ctx.commands.register({
+      id: 'workspace.open-with',
+      title: 'Open the current file with… (choose a viewer)',
+      category: 'Workspace',
+      when: () => !!model.activeFile,
+      run: () => (model.activeFile ? model.openFileWith(model.activeFile) : undefined),
+    });
+    ctx.commands.register({
       id: 'workspace.back',
       title: 'Go back',
       category: 'Workspace',

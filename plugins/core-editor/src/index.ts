@@ -20,11 +20,13 @@ import {
   type EditorApi,
   type EditorContextMenuItem,
   type MenuEntry,
+  type VaultPath,
   type EditorToolbarAction,
   type EditorExtensionContext,
   type PluginModule,
 } from '@pumice/api';
 import manifestJson from '../manifest.json';
+import { embedAt } from './resize';
 import './editor.css';
 import { MarkdownView } from './markdown-view';
 
@@ -108,6 +110,8 @@ export const plugin = definePlugin({
                 factories.map((f) => f({ path: () => view?.path, sourceMode: () => sourceMode })),
               sourceMode: () => sourceMode,
               openExternal: (url) => void shell.openExternal(url),
+              embedMenu: (v, host, path, at) => showEmbedMenu(v, host, path, at),
+              blockMenu: (v, block, at) => showBlockMenu(v, block, at),
               toolbarActions: () =>
                 [...toolbarActions].sort((a, b) => (a.order ?? 50) - (b.order ?? 50)),
               touch: () =>
@@ -212,6 +216,136 @@ export const plugin = definePlugin({
         },
       },
     ];
+    /** Edit or remove a rendered block (a frame block). */
+    const showBlockMenu = (
+      view: EditorView,
+      block: { from: number; to: number },
+      at: { x: number; y: number },
+    ) => {
+      const entries: MenuEntry[] = [
+        {
+          label: 'Edit the block',
+          icon: 'pencil',
+          run: () => {
+            // The cursor inside shows the block's source.
+            view.dispatch({ selection: { anchor: Math.min(block.from + 4, block.to) } });
+            view.focus();
+          },
+        },
+        ...(view.state.readOnly
+          ? []
+          : [
+              {
+                label: 'Remove from note…',
+                icon: 'x',
+                danger: true,
+                run: async () => {
+                  const ok = await workspace.confirm(
+                    'Remove this block from the note? The frame and its files stay in the vault.',
+                    { confirmLabel: 'Remove' },
+                  );
+                  if (!ok) return;
+                  const { doc } = view.state;
+                  // With the line break after it.
+                  const to = block.to < doc.length ? block.to + 1 : block.to;
+                  view.dispatch({ changes: { from: block.from, to }, userEvent: 'delete' });
+                },
+              },
+            ]),
+      ];
+      workspace.showContextMenu(entries, at);
+    };
+
+    /** Open, remove from the note, or delete the file of an embedded picture, video or frame. */
+    const showEmbedMenu = (
+      view: EditorView,
+      host: HTMLElement,
+      notePath: VaultPath,
+      at: { x: number; y: number },
+    ) => {
+      const where = () => {
+        const line = view.state.doc.lineAt(view.posAtDOM(host));
+        const found = embedAt(line.text, view.posAtDOM(host) - line.from);
+        return found && { line, ...found };
+      };
+      const first = where();
+      if (!first) return;
+      const index = ctx.tryUse(MetadataIndex);
+      const file =
+        index?.resolve(first.target, notePath)?.file.path ??
+        (vault.get(first.target)?.kind === 'file' ? first.target : undefined);
+      const name = (file ?? first.target).split('/').pop() ?? first.target;
+      const removeFromNote = () => {
+        const now = where();
+        if (!now) return;
+        // A line that held nothing else goes with it.
+        const rest = now.line.text.slice(0, now.from) + now.line.text.slice(now.to);
+        const whole = !rest.trim() && now.line.to < view.state.doc.length;
+        view.dispatch({
+          changes: whole
+            ? { from: now.line.from, to: now.line.to + 1 }
+            : { from: now.line.from + now.from, to: now.line.from + now.to },
+          userEvent: 'delete',
+        });
+      };
+      const entries: MenuEntry[] = [
+        ...(file
+          ? [
+              { label: 'Open', icon: 'arrow-up-right', run: () => workspace.openFile(file) },
+              {
+                label: 'Open in new tab',
+                icon: 'file',
+                run: () => workspace.openFile(file, { newTab: true }),
+              },
+              'separator' as const,
+            ]
+          : []),
+        ...(view.state.readOnly
+          ? []
+          : [
+              {
+                label: 'Remove from note…',
+                icon: 'x',
+                run: async () => {
+                  const ok = await workspace.confirm(
+                    `Remove ${name} from this note? The file stays in the vault.`,
+                    { confirmLabel: 'Remove' },
+                  );
+                  if (ok) removeFromNote();
+                },
+              },
+              ...(file
+                ? [
+                    {
+                      label: 'Delete file…',
+                      icon: 'trash',
+                      danger: true,
+                      run: async () => {
+                        const others = new Set(
+                          (index?.backlinks(file) ?? [])
+                            .map((l) => l.source)
+                            .filter((p) => p !== notePath),
+                        ).size;
+                        const ok = await workspace.confirm(
+                          `Delete ${name} from the vault and remove it from this note?${
+                            others
+                              ? ` It is also used in ${others} other note${others === 1 ? '' : 's'}, where it will be missing.`
+                              : ''
+                          }`,
+                          { confirmLabel: 'Delete', danger: true },
+                        );
+                        if (!ok) return;
+                        removeFromNote();
+                        await vault.delete(file);
+                      },
+                    },
+                  ]
+                : []),
+            ]),
+      ];
+      if (entries.length) workspace.showContextMenu(entries, at);
+    };
+
     factories.push((ectx) =>
       EditorView.domEventHandlers({
         contextmenu(event, view) {

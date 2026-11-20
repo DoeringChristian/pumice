@@ -6,7 +6,7 @@ let cwd = '';
 const app = agent({ name: 'mock' })
   .onRequest('initialize', () => ({
     protocolVersion: PROTOCOL_VERSION,
-    agentCapabilities: {},
+    agentCapabilities: { loadSession: !process.argv.includes('--no-load') },
     authMethods: [],
   }))
   .onRequest('session/new', ({ params }) => {
@@ -21,6 +21,16 @@ const app = agent({ name: 'mock' })
         ],
       },
     };
+  })
+  .onRequest('session/load', async ({ params, client }) => {
+    if (params.sessionId !== 's1') throw new Error('unknown session');
+    cwd = params.cwd;
+    // Agents replay the conversation when one is loaded.
+    await client.notify('session/update', {
+      sessionId: 's1',
+      update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'REPLAYED' } },
+    });
+    return {};
   })
   .onRequest('session/set_mode', () => ({}))
   .onRequest('session/prompt', async ({ params, client }) => {

@@ -21,6 +21,30 @@ export interface FrameGrant {
   /** HTML put in front of every HTML file's own content (theme and helpers). */
   inject: string;
   network: boolean;
+  /** Web resources fetched on the frame's behalf (`/__remote/<index>`). */
+  remote: string[];
+}
+
+/** An https address of a public host: nothing on this computer or the local network. */
+export function isPublicHttps(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  const host = url.hostname.toLowerCase();
+  return (
+    url.protocol === 'https:' &&
+    !url.username &&
+    !url.password &&
+    host.includes('.') &&
+    !host.includes(':') &&
+    host !== 'localhost' &&
+    !host.endsWith('.local') &&
+    !host.endsWith('.internal') &&
+    !/^(127|10|0)\.|^192\.168\.|^169\.254\.|^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  );
 }
 
 const TYPES: Record<string, string> = {
@@ -83,6 +107,15 @@ export class FrameServer {
     return token;
   }
 
+  /** More files for a frame that is already shown (dropped onto it). */
+  extend(token: string, owner: number, files: string[], remote: string[]): void {
+    const grant = this.grants.get(token);
+    if (!grant || grant.owner !== owner) return;
+    files.forEach((f) => grant.files.add(f));
+    // Appended: the addresses already handed out keep their numbers.
+    for (const url of remote) if (!grant.remote.includes(url)) grant.remote.push(url);
+  }
+
   close(token: string, owner: number): void {
     if (this.grants.get(token)?.owner === owner) this.grants.delete(token);
   }
@@ -112,9 +145,34 @@ export class FrameServer {
         headers: { 'Access-Control-Allow-Origin': '*' },
       });
     if (!grant) return refuse(404);
+    const path = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+    // A web resource the note referred to: fetched here, so the frame needs no network access.
+    const remote = /^__remote\/(\d+)$/.exec(path);
+    if (remote) {
+      const address = grant.remote[Number(remote[1])];
+      if (!address || !isPublicHttps(address)) return refuse(404);
+      try {
+        const range = request.headers.get('Range');
+        const res = await net.fetch(address, {
+          redirect: 'follow',
+          headers: range ? { Range: range } : {},
+        });
+        const headers: Record<string, string> = {
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'private, max-age=3600',
+        };
+        for (const name of ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges']) {
+          const value = res.headers.get(name);
+          if (value) headers[name] = value;
+        }
+        return new Response(res.body, { status: res.status, headers });
+      } catch {
+        return refuse(404);
+      }
+    }
     let file: string;
     try {
-      file = resolve(grant.owner, decodeURIComponent(url.pathname).replace(/^\/+/, ''));
+      file = resolve(grant.owner, path);
     } catch {
       return refuse(403);
     }

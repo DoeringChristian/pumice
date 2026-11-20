@@ -3,6 +3,7 @@ import {
   basename,
   type Disposable,
   type FileHandlerRegistration,
+  type FileViewer,
   type MenuEntry,
   type PluginContext,
   type PromptOptions,
@@ -216,38 +217,135 @@ export class WorkspaceModel implements WorkspaceApi {
     return this.activeTab?.path;
   }
 
-  handlerFor(path: VaultPath): FileHandlerRegistration | undefined {
+  /** Every registered way to open the file: regular views first, longer endings first. */
+  private candidates(path: VaultPath): Array<{ handler: FileHandlerRegistration; ext: string }> {
     const name = basename(path).toLowerCase();
-    let best: { handler: FileHandlerRegistration; length: number } | undefined;
+    const found = new Map<string, { handler: FileHandlerRegistration; ext: string }>();
     for (const handler of this.fileHandlers) {
       for (const ext of handler.extensions) {
-        if (name.endsWith(`.${ext}`) && (!best || ext.length > best.length))
-          best = { handler, length: ext.length };
+        if (!name.endsWith(`.${ext.toLowerCase()}`)) continue;
+        const id = handler.id ?? handler.viewType;
+        const known = found.get(id);
+        if (!known || ext.length > known.ext.length) found.set(id, { handler, ext });
       }
     }
-    return best?.handler;
+    return [...found.values()].sort(
+      (a, b) =>
+        Number(!!a.handler.optional) - Number(!!b.handler.optional) || b.ext.length - a.ext.length,
+    );
   }
 
-  async openFile(
-    path: VaultPath,
-    opts: { newTab?: boolean; state?: ViewState } = {},
-  ): Promise<void> {
+  /** The ending the user's choice of viewer is remembered under. */
+  private typeOf(path: VaultPath): string {
+    const name = basename(path).toLowerCase();
+    return name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : '';
+  }
+
+  /**
+   * The view for a file: the one the user chose for the type, else its regular view, else the
+   * only additional viewer. Undefined when there is none, or several to choose from.
+   */
+  handlerFor(path: VaultPath, viewer?: string): FileHandlerRegistration | undefined {
+    const all = this.candidates(path);
+    const byId = (id: string | undefined) =>
+      id ? all.find((c) => (c.handler.id ?? c.handler.viewType) === id)?.handler : undefined;
+    const chosen =
+      byId(viewer) ??
+      byId(this.ctx.settings.get<Record<string, string>>('openWith', {})[this.typeOf(path)]);
+    if (chosen) return chosen;
+    const regular = all.find((c) => !c.handler.optional);
+    if (regular) return regular.handler;
+    return all.length === 1 ? all[0]!.handler : undefined;
+  }
+
+  private titleOf(handler: FileHandlerRegistration): string {
+    return handler.title ?? this.views.get(handler.viewType)?.title ?? handler.viewType;
+  }
+
+  /** Whether a tab shows its file through this handler. */
+  private shows(leaf: Leaf, handler: FileHandlerRegistration): boolean {
+    if (leaf.viewType !== handler.viewType) return false;
+    const state = leaf.instance?.getState?.() ?? leaf.state;
+    return Object.entries(handler.state ?? {}).every(([key, value]) => state[key] === value);
+  }
+
+  viewersFor(path: VaultPath): FileViewer[] {
+    const tab = this.tabs.find((t) => t.path === path);
+    const fallback = this.handlerFor(path);
+    return this.candidates(path).map(({ handler }) => ({
+      id: handler.id ?? handler.viewType,
+      title: this.titleOf(handler),
+      current: tab ? this.shows(tab, handler) : handler === fallback,
+    }));
+  }
+
+  private async activateFileType(path: VaultPath): Promise<void> {
     // Let lazy plugins that handle this file type register their handler first.
     const parts = basename(path).toLowerCase().split('.').slice(1);
     for (let i = 0; i < parts.length; i++)
       await this.ctx.activate(`onFileType:${parts.slice(i).join('.')}`);
-    const handler = this.handlerFor(path);
-    if (!handler) {
+  }
+
+  /** Asks which viewer to use for a file. */
+  private async pickViewer(path: VaultPath): Promise<string | undefined> {
+    const viewers = this.viewersFor(path);
+    const picked = await this.showQuickPick({
+      placeholder: `Open ${basename(path)} with…`,
+      items: viewers.map((v) => ({
+        label: v.title,
+        ...(v.current ? { hint: 'current' } : {}),
+        id: v.id,
+      })),
+    });
+    return picked?.id;
+  }
+
+  async openFileWith(path: VaultPath): Promise<void> {
+    await this.activateFileType(path);
+    if (!this.candidates(path).length) {
       this.notify(`No view can open '${basename(path)}'`, { kind: 'warning' });
       return;
     }
+    const viewer = await this.pickViewer(path);
+    if (!viewer) return;
+    // The choice holds for this type of file from now on.
+    const type = this.typeOf(path);
+    if (type) {
+      const openWith = { ...this.ctx.settings.get<Record<string, string>>('openWith', {}) };
+      openWith[type] = viewer;
+      await this.ctx.settings.set('openWith', openWith);
+    }
+    await this.openFile(path, { viewer });
+  }
+
+  async openFile(
+    path: VaultPath,
+    opts: { newTab?: boolean; state?: ViewState; viewer?: string } = {},
+  ): Promise<void> {
+    await this.activateFileType(path);
+    const handler = this.handlerFor(path, opts.viewer);
+    if (!handler) {
+      const all = this.candidates(path);
+      if (!all.length) {
+        this.notify(`No view can open '${basename(path)}'`, { kind: 'warning' });
+        return;
+      }
+      // Several additional viewers and no regular one: the user chooses (once per type).
+      return this.openFileWith(path);
+    }
+    const state = { ...handler.state, ...opts.state, path };
     const existing = this.tabs.find((t) => t.path === path);
     if (existing && !opts.newTab) {
       this.activate(existing);
+      // Another viewer was asked for: the tab changes to it.
+      if (!this.shows(existing, handler)) {
+        await this.navigate(existing, { type: handler.viewType, state }, true);
+        return;
+      }
       if (opts.state) await existing.instance?.setState?.({ ...opts.state, path });
       return;
     }
-    await this.openView(handler.viewType, { state: { ...opts.state, path }, newTab: opts.newTab });
+    await this.openView(handler.viewType, { state, newTab: opts.newTab });
   }
 
   async openView(

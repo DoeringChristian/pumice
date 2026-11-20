@@ -67,9 +67,13 @@
 }
 
 .pm-markdown-page .cm-selectionBackground,
-.pm-markdown-page .cm-focused .cm-selectionBackground,
-.pm-markdown-page .cm-content ::selection {
+.pm-markdown-page .cm-focused .cm-selectionBackground {
   background: var(--selection) !important;
+}
+/* The editor draws the selection itself; the browser's own would tint the text a second time. */
+.pm-markdown-page .cm-line::selection,
+.pm-markdown-page .cm-line ::selection {
+  background: transparent !important;
 }
 
 .pm-markdown-page .cm-placeholder {
@@ -417,4 +421,178 @@
 }
 .pm-editor-toolbar-button:active {
   background: var(--bg-active);
+}
+
+/* The resize handle of an embedded picture, video or frame */
+.cm-pm-resizable {
+  position: relative;
+}
+.cm-pm-resize {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 0.1s;
+  touch-action: none;
+}
+.cm-pm-resize svg {
+  transform: rotate(45deg);
+}
+.cm-pm-resizable:hover > .cm-pm-resize,
+.cm-pm-resizable.is-resizing > .cm-pm-resize {
+  opacity: 1;
+}
+.cm-pm-resize:hover,
+.cm-pm-resizable.is-resizing > .cm-pm-resize {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.cm-pm-resize-label {
+  position: absolute;
+  right: 20px;
+  bottom: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font: 11px var(--font-ui);
+  white-space: nowrap;
+}
+/* The pointer must reach the handle, not the frame's page, while dragging. */
+.cm-pm-resizable.is-resizing iframe {
+  pointer-events: none;
+}
+@media (pointer: coarse) {
+  .cm-pm-resize {
+    opacity: 0.8;
+    width: 22px;
+    height: 22px;
+  }
+}
+
+/* Several embeds on one line stand beside each other: pictures, videos, frames, notes. Those
+   with a width keep it, the others share the remaining space; too many wrap. */
+.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+}
+.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-pm-embed {
+  flex: 1 1 0;
+  min-width: min(160px, 100%);
+}
+.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-pm-embed.is-sized {
+  flex: 0 1 auto;
+}
+.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-pm-embed .pm-embed,
+.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-pm-embed .pm-frame {
+  margin: 0;
+}
+/* The invisible helpers the editor puts around widgets take no room in the row. */
+.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-widgetBuffer {
+  display: none;
+}
+
+/* The "more" button of an embedded picture, video or frame */
+.cm-pm-has-menu {
+  position: relative;
+}
+.cm-pm-embed-menu {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.cm-pm-has-menu:hover > .cm-pm-embed-menu,
+.cm-pm-embed-menu:focus-visible {
+  opacity: 1;
+}
+.cm-pm-embed-menu:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.cm-pm-has-menu.is-resizing > .cm-pm-embed-menu {
+  opacity: 0;
+}
+@media (pointer: coarse) {
+  .cm-pm-embed-menu {
+    opacity: 0.85;
+    width: 28px;
+    height: 28px;
+  }
+}
+
+/* Captions and numbers of figures, tables and equations */
+.cm-pm-caption {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-ui);
+  line-height: 1.4;
+  text-align: center;
+  white-space: normal;
+}
+.cm-pm-caption-label {
+  color: var(--text);
+  font-weight: 600;
+}
+/* A frame block draws its own caption: the number goes in front of it, or stands alone. */
+.cm-pm-block[data-figure] .pm-frame-caption::before {
+  content: var(--pm-figure) ': ';
+  color: var(--text);
+  font-weight: 600;
+}
+.cm-pm-block-code[data-figure]:not(:has(.pm-frame-caption))::after {
+  content: var(--pm-figure);
+  display: block;
+  padding-bottom: 6px;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-ui);
+  font-weight: 600;
+  text-align: center;
+}
+/* An equation's number, at the right of it. */
+.cm-pm-block-math[data-figure] {
+  display: flex;
+  align-items: center;
+}
+.cm-pm-block-math[data-figure] > .pm-math {
+  flex: 1;
+  min-width: 0;
+}
+.cm-pm-block-math[data-figure]::after {
+  content: var(--pm-figure);
+  flex: none;
+  padding-left: 12px;
+  color: var(--text-muted);
+}
+.pm-markdown-page .cm-line.cm-pm-caption-line {
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-ui);
+  text-align: center;
 }

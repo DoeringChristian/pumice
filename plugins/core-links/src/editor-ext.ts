@@ -1,5 +1,4 @@
 import {
-  autocompletion,
   type Completion,
   type CompletionContext,
   type CompletionResult,
@@ -21,6 +20,7 @@ import {
   type ViewUpdate,
 } from '@codemirror/view';
 import {
+  editorCompletions,
   parseWikiLinkContent,
   revealChanged,
   revealedLines,
@@ -256,12 +256,7 @@ function linkCompletion(deps: LinkEditorDeps, ctx: EditorExtensionContext): Exte
     }));
     return { from: before.from + (embed ? 3 : 2), to: context.pos, options, filter: false };
   };
-  return autocompletion({
-    override: [source],
-    icons: false,
-    activateOnTyping: true,
-    closeOnBlur: true,
-  });
+  return editorCompletions.of(source);
 }
 
 export function linkEditorExtension(deps: LinkEditorDeps, ctx: EditorExtensionContext): Extension {

@@ -76,6 +76,41 @@ export function Explorer({ vault, workspace, settings, actions }: Props) {
     }
   };
 
+  /** A drag this list takes: one of its own entries, or files from outside the app. */
+  const accepts = (data: DataTransfer) =>
+    data.types.includes(DRAG_TYPE) || data.types.includes('Files');
+
+  /** Copies files dropped from outside (Finder, another program) into a folder of the vault. */
+  const addOutside = async (files: File[], folder: string) => {
+    if (!files.length) return;
+    let added = 0;
+    for (const file of files) {
+      try {
+        const dot = file.name.lastIndexOf('.');
+        const base = dot > 0 ? file.name.slice(0, dot) : file.name || 'file';
+        const extension = dot > 0 ? file.name.slice(dot + 1) : '';
+        // An existing file of that name is kept: the new one gets a number.
+        const path = extension
+          ? vault.availablePath(folder, base, extension)
+          : joinPath(folder, base);
+        await vault.create(path, new Uint8Array(await file.arrayBuffer()));
+        added++;
+      } catch (e) {
+        workspace.notify(
+          `Could not add ${file.name}: ${e instanceof Error ? e.message : String(e)}`,
+          { kind: 'error' },
+        );
+      }
+    }
+    if (added) {
+      persist(new Set([...expanded, folder]));
+      workspace.notify(
+        `Added ${added === 1 ? files[0]!.name : `${added} files`} to ${folder || 'the vault'}.`,
+        { timeout: 2500 },
+      );
+    }
+  };
+
   const menuFor = (entry: VaultEntry): MenuEntry[] => {
     const folder = entry.kind === 'folder' ? entry.path : dirname(entry.path);
     const items: MenuEntry[] = [];
@@ -85,6 +120,12 @@ export function Explorer({ vault, workspace, settings, actions }: Props) {
         icon: 'file',
         run: () => workspace.openFile(entry.path, { newTab: true }),
       });
+      if (workspace.viewersFor(entry.path).length > 1)
+        items.push({
+          label: 'Open with…',
+          icon: 'eye',
+          run: () => workspace.openFileWith(entry.path),
+        });
       items.push('separator');
     }
     items.push(
@@ -125,10 +166,11 @@ export function Explorer({ vault, workspace, settings, actions }: Props) {
             title={entry.path}
             onDragStart={(e) => {
               e.dataTransfer.setData(DRAG_TYPE, entry.path);
-              e.dataTransfer.effectAllowed = 'move';
+              // Moved within the file list, or dropped into a note.
+              e.dataTransfer.effectAllowed = 'copyMove';
             }}
             onDragOver={(e) => {
-              if (!e.dataTransfer.types.includes(DRAG_TYPE)) return;
+              if (!accepts(e.dataTransfer)) return;
               e.preventDefault();
               setDropTarget(isFolder ? entry.path : dirname(entry.path) || '/');
             }}
@@ -137,8 +179,10 @@ export function Explorer({ vault, workspace, settings, actions }: Props) {
               e.preventDefault();
               e.stopPropagation();
               setDropTarget(undefined);
+              const folder = isFolder ? entry.path : dirname(entry.path);
               const from = e.dataTransfer.getData(DRAG_TYPE);
-              if (from) void move(from, isFolder ? entry.path : dirname(entry.path));
+              if (from) void move(from, folder);
+              else void addOutside([...e.dataTransfer.files], folder);
             }}
             onClick={(e) => {
               if (isFolder) toggle(entry.path);
@@ -230,7 +274,7 @@ export function Explorer({ vault, workspace, settings, actions }: Props) {
         }}
         data-drop={dropTarget === '/'}
         onDragOver={(e) => {
-          if (!e.dataTransfer.types.includes(DRAG_TYPE)) return;
+          if (!accepts(e.dataTransfer)) return;
           e.preventDefault();
           setDropTarget('/');
         }}
@@ -239,6 +283,7 @@ export function Explorer({ vault, workspace, settings, actions }: Props) {
           setDropTarget(undefined);
           const from = e.dataTransfer.getData(DRAG_TYPE);
           if (from) void move(from, '');
+          else void addOutside([...e.dataTransfer.files], '');
         }}
         onContextMenu={(e) => {
           if (e.target !== e.currentTarget) return;

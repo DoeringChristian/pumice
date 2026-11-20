@@ -46,7 +46,10 @@ export async function createElectronPlatform(host: PumiceHost): Promise<Platform
       openExternal: (url) => host.openExternal(url),
       revealInFileManager: (p) => host.revealInFileManager(p),
     },
-    net: { fetchText: (url) => host.fetchText(url) },
+    net: {
+      fetchText: (url) => host.fetchText(url),
+      fetchBinary: async (url) => new Uint8Array(await host.fetchBinary(url)),
+    },
     vaults: {
       list: () => host.vaults.list(),
       open: (id, opts) => host.vaults.open(id, !!opts?.newWindow),
@@ -57,9 +60,17 @@ export async function createElectronPlatform(host: PumiceHost): Promise<Platform
     chatgpt: chatGptHost(host),
     process: processHost(host),
     frames: {
-      open: async ({ folder, files, inject, network }) => {
-        const token = await host.frames.open(folder, files, inject, network);
+      open: async ({ folder, files, inject, network, remote = [] }) => {
+        // Numbered in the order given; later additions are appended in the same order here
+        // and in the main process.
+        const known = [...remote];
+        const token = await host.frames.open(folder, files, inject, network, known);
         return {
+          remoteUrl: (url) => `app://frame.${token}/__remote/${Math.max(0, known.indexOf(url))}`,
+          extend: async (moreFiles, moreRemote) => {
+            for (const url of moreRemote) if (!known.includes(url)) known.push(url);
+            await host.frames.extend(token, moreFiles, moreRemote);
+          },
           url: (path) =>
             `app://frame.${token}/${path.split('/').map(encodeURIComponent).join('/')}`,
           dispose: () => void host.frames.close(token),

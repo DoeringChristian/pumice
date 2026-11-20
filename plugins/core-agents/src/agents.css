@@ -338,3 +338,101 @@
 .pm-agent-info {
   white-space: pre-wrap;
 }
+
+/* Replying to a passage of an answer */
+.pm-agent-panel,
+.pm-agent {
+  position: relative;
+}
+.pm-agent-quote-button {
+  position: absolute;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pm-agent-quote-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.pm-agent-chip.is-quote {
+  max-width: 100%;
+}
+.pm-agent-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pm-agent-msg-quote {
+  margin: 0 0 4px;
+  padding: 0 0 0 8px;
+  border-left: 2px solid var(--accent);
+  color: var(--text-muted);
+  font-size: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Long addresses and titles wrap instead of widening the panel. */
+.pm-agent-transcript > * {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.pm-agent-permission-title,
+.pm-agent-permission-result {
+  overflow-wrap: anywhere;
+}
+.pm-agent-permission-options .pm-button {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+/* Messages waiting for the agent to finish */
+.pm-agent-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.pm-agent-queue[hidden] {
+  display: none;
+}
+.pm-agent-queued {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 6px 3px 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-m);
+  font-size: 12px;
+}
+.pm-agent-queued-label {
+  flex: none;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+.pm-agent-queued-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}

@@ -62,9 +62,24 @@ export function formatWikiLink(
 
 /** Parses an embed size alias: `300` → width, `300x200` → width and height. */
 export function parseEmbedSize(alias: string | undefined): { width?: number; height?: number } {
-  const m = alias ? /^(\d+)(?:x(\d+))?$/.exec(alias.trim()) : null;
+  // As in Obsidian: `300` or `300x200`; with a caption before it, the last part (`Fig 1|300`).
+  const last = alias?.split('|').pop();
+  const m = last ? /^(\d+)(?:x(\d+))?$/.exec(last.trim()) : null;
   if (!m) return {};
   return { width: Number(m[1]), ...(m[2] ? { height: Number(m[2]) } : {}) };
+}
+
+/**
+ * The inside of an embed (`target#sub|alias`, without the brackets) with its size set:
+ * `|300` or `|300x200`, replacing a size that is there and keeping a caption.
+ */
+export function setEmbedSize(inner: string, size: { width: number; height?: number }): string {
+  // In a table cell the bar is written `\|`.
+  const sep = /\\\|/.test(inner) ? '\\|' : '|';
+  const parts = inner.split(/\\?\|/);
+  const spec = `${Math.round(size.width)}${size.height ? `x${Math.round(size.height)}` : ''}`;
+  if (parts.length > 1 && /^\s*\d+(x\d+)?\s*$/.test(parts[parts.length - 1]!)) parts.pop();
+  return [...parts, spec].join(sep);
 }
 
 /** Obsidian-style heading match: case-insensitive, ignoring punctuation and spacing differences. */

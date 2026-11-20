@@ -35,6 +35,25 @@ export interface FileHandlerRegistration {
   viewType: string;
   /** Matched against the end of the file name, longest match wins. */
   extensions: string[];
+  /** Tells this way of opening a file apart from others for the same type (default: the view type). */
+  id?: string;
+  /** What the user sees when choosing how to open a file (default: the view's title). */
+  title?: string;
+  /** State given to the view together with the file. */
+  state?: ViewState;
+  /**
+   * An additional viewer: used when nothing else opens the type, or when the user chose it,
+   * but never taking a type over from its regular view.
+   */
+  optional?: boolean;
+}
+
+/** One of the views that can show a file. */
+export interface FileViewer {
+  id: string;
+  title: string;
+  /** The one that shows the file right now. */
+  current: boolean;
 }
 
 export interface QuickPickItem {
@@ -108,7 +127,14 @@ export interface WorkspaceApi {
   addStatusBarItem(order?: number): StatusBarItem;
 
   /** Opens a file with its registered handler. */
-  openFile(path: VaultPath, opts?: { newTab?: boolean; state?: ViewState }): Promise<void>;
+  openFile(
+    path: VaultPath,
+    opts?: { newTab?: boolean; state?: ViewState; viewer?: string },
+  ): Promise<void>;
+  /** The views that can show this file (one, for most files). */
+  viewersFor(path: VaultPath): FileViewer[];
+  /** Lets the user choose a viewer for the file, remembers it for the file type and opens it. */
+  openFileWith(path: VaultPath): Promise<void>;
   openView(
     type: string,
     opts?: { location?: ViewLocation; state?: ViewState; newTab?: boolean },

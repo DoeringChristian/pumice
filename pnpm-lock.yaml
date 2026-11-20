@@ -216,6 +216,9 @@ importers:
 
   packages/api:
     dependencies:
+      '@codemirror/autocomplete':
+        specifier: ^6.18.2
+        version: 6.20.4
       '@codemirror/state':
         specifier: ^6.4.1
         version: 6.7.6
@@ -776,6 +779,15 @@ importers:
 
   plugins/core-frames:
     dependencies:
+      '@codemirror/autocomplete':
+        specifier: ^6.18.2
+        version: 6.20.4
+      '@codemirror/state':
+        specifier: ^6.4.1
+        version: 6.7.6
+      '@codemirror/view':
+        specifier: ^6.34.1
+        version: 6.43.15
       '@pumice/api':
         specifier: workspace:*
         version: link:../../packages/api

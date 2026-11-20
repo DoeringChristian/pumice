@@ -42,7 +42,12 @@ export interface ReaderApi {
   render(
     container: HTMLElement,
     markdown: string,
-    opts: { sourcePath: VaultPath; depth?: number },
+    opts: {
+      sourcePath: VaultPath;
+      depth?: number;
+      /** The markdown is a whole note: number its figures, tables and equations. */
+      numbered?: boolean;
+    },
   ): Promise<Disposable>;
   /** Renders TeX with KaTeX (loaded on first use). */
   renderMath(tex: string, display: boolean, container: HTMLElement): Promise<void>;
@@ -52,6 +57,8 @@ export interface ReaderApi {
     ctx: Omit<EmbedContext, 'file' | 'register'> & { onDidRender?: () => void },
   ): Promise<Disposable>;
   registerEmbedRenderer(renderer: EmbedRenderer): Disposable;
+  /** Whether `![[file]]` shows this file (a picture, a note, a PDF, …) rather than a link. */
+  canEmbed(path: VaultPath): boolean;
   registerCodeBlockRenderer(renderer: CodeBlockRenderer): Disposable;
   /** Whether fenced blocks in this language have a renderer (e.g. `mermaid`). */
   hasCodeBlockRenderer(language: string): boolean;

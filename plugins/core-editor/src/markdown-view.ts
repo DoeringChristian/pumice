@@ -38,6 +38,7 @@ import {
 import { createIcon } from '@pumice/ui';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import * as Y from 'yjs';
+import { completionExtension } from './completion';
 import { livePreview, previewDeps, sourceModeStyling } from './live-preview';
 
 const highlightStyle = HighlightStyle.define([
@@ -73,6 +74,19 @@ export interface EditorShared {
   contributed: () => Extension[];
   sourceMode: () => boolean;
   openExternal: (url: string) => void;
+  /** The right-click menu of an embedded picture, video or frame. */
+  embedMenu: (
+    view: EditorView,
+    host: HTMLElement,
+    path: string,
+    at: { x: number; y: number },
+  ) => void;
+  /** The menu of a rendered block (a frame block). */
+  blockMenu: (
+    view: EditorView,
+    block: { from: number; to: number },
+    at: { x: number; y: number },
+  ) => void;
   onActiveChange: (view: MarkdownView | undefined) => void;
   /** Toolbar actions for touch devices, sorted. */
   toolbarActions: () => EditorToolbarAction[];
@@ -148,6 +162,26 @@ export class MarkdownView implements ViewInstance {
     page.append(this.readingEl);
     this.editor.contentDOM.addEventListener('focus', () => shared.onActiveChange(this));
     this.editor.dom.addEventListener('mousedown', (e) => this.onMouseDown(e));
+    // A file dragged into the empty space below the text is dropped at the end of the note.
+    const below = (e: DragEvent) => {
+      if (this.reading || this.editor.dom.contains(e.target as Node)) return;
+      const content = this.editor.contentDOM.getBoundingClientRect();
+      if (e.clientY < content.bottom) return;
+      const passed = new DragEvent(e.type, {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: e.dataTransfer,
+        // The end of the last line.
+        clientX: content.right - 2,
+        clientY: content.bottom - 2,
+      });
+      if (!this.editor.contentDOM.dispatchEvent(passed)) e.preventDefault();
+    };
+    queueMicrotask(() => {
+      const scroller = this.page.parentElement;
+      scroller?.addEventListener('dragover', below);
+      scroller?.addEventListener('drop', below);
+    });
   }
 
   get path(): string | undefined {
@@ -164,6 +198,7 @@ export class MarkdownView implements ViewInstance {
       if (typeof state.offset === 'number') this.revealOffset(state.offset);
       return;
     }
+    this.restoreToken++;
     const handle = await this.shared.documents.open(state.path);
     if (this.disposed) {
       handle.dispose();
@@ -181,7 +216,46 @@ export class MarkdownView implements ViewInstance {
     this.editor.setState(this.createState(handle));
     if (this.reading) this.renderReading();
     if (typeof state.subpath === 'string') this.revealSubpath(state.subpath);
-    if (typeof state.offset === 'number') this.revealOffset(state.offset);
+    else if (typeof state.offset === 'number') this.revealOffset(state.offset);
+    else this.restorePlace(state);
+  }
+
+  private restoreToken = 0;
+
+  /**
+   * Puts the cursor and the scroll position back where they were (going back or forward, or
+   * reopening the app); a note opened fresh starts at its top.
+   */
+  private restorePlace(state: ViewState): void {
+    const scroller = this.page.parentElement;
+    if (typeof state.cursor === 'number') {
+      const pos = Math.max(0, Math.min(state.cursor, this.editor.state.doc.length));
+      this.editor.dispatch({ selection: { anchor: pos } });
+    }
+    if (!scroller) return;
+    const top = typeof state.scroll === 'number' ? Math.max(0, state.scroll) : 0;
+    scroller.scrollTop = top;
+    if (!top) return;
+    // The note is still being laid out (embeds, images): keep at it until the place is
+    // reachable, unless the user scrolls or opens something else first.
+    const token = ++this.restoreToken;
+    const started = performance.now();
+    const stop = () => {
+      this.restoreToken++;
+      scroller.removeEventListener('wheel', stop);
+      scroller.removeEventListener('pointerdown', stop);
+      scroller.removeEventListener('keydown', stop);
+    };
+    scroller.addEventListener('wheel', stop, { passive: true });
+    scroller.addEventListener('pointerdown', stop);
+    scroller.addEventListener('keydown', stop);
+    const again = () => {
+      if (token !== this.restoreToken || this.disposed) return;
+      if (Math.abs(scroller.scrollTop - top) > 1) scroller.scrollTop = top;
+      if (performance.now() - started < 1500) requestAnimationFrame(again);
+      else stop();
+    };
+    requestAnimationFrame(again);
   }
 
   revealOffset(offset: number): void {
@@ -195,7 +269,12 @@ export class MarkdownView implements ViewInstance {
   }
 
   getState(): ViewState {
-    return { path: this.handle?.path, mode: this.reading ? 'reading' : 'editing' };
+    return {
+      path: this.handle?.path,
+      mode: this.reading ? 'reading' : 'editing',
+      scroll: Math.round(this.page.parentElement?.scrollTop ?? 0),
+      cursor: this.editor.state.selection.main.head,
+    };
   }
 
   get isReading(): boolean {
@@ -228,7 +307,7 @@ export class MarkdownView implements ViewInstance {
     }
     const text = this.editor.state.doc.toString();
     const scroll = this.page.parentElement?.scrollTop ?? 0;
-    void reader.render(this.readingEl, text, { sourcePath: path }).then((d) => {
+    void reader.render(this.readingEl, text, { sourcePath: path, numbered: true }).then((d) => {
       this.readingRender?.dispose();
       this.readingRender = d;
       if (this.page.parentElement) this.page.parentElement.scrollTop = scroll;
@@ -381,6 +460,11 @@ export class MarkdownView implements ViewInstance {
             return shared.reader();
           },
           sourcePath: () => this.handle?.path,
+          embedMenu: (v, host, at) => {
+            const path = this.handle?.path;
+            if (path !== undefined) shared.embedMenu(v, host, path, at);
+          },
+          blockMenu: (v, block, at) => shared.blockMenu(v, block, at),
         }),
         syntaxHighlighting(highlightStyle),
         EditorView.lineWrapping,
@@ -388,6 +472,7 @@ export class MarkdownView implements ViewInstance {
         dropCursor(),
         rectangularSelection(),
         closeBrackets(),
+        completionExtension(),
         search({ top: true }),
         highlightSelectionMatches(),
         placeholder('Start writing…'),

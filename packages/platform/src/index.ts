@@ -60,6 +60,8 @@ export type PlatformOs = 'macos' | 'windows' | 'linux' | 'ios' | 'android' | 'un
 export interface Net {
   /** GETs a text resource over https. */
   fetchText(url: string): Promise<string>;
+  /** GETs a file over https (absent where only text can be fetched). */
+  fetchBinary?(url: string): Promise<Uint8Array>;
 }
 
 /** A child process (an agent CLI) started in the vault folder. */
@@ -135,12 +137,18 @@ export interface FrameHost {
     inject: string;
     /** Whether the page may reach the network. */
     network: boolean;
+    /** Web resources the frame may load although it has no network access (fetched for it). */
+    remote?: string[];
   }): Promise<FrameAccess>;
 }
 
 export interface FrameAccess {
   /** The address of a vault file for this frame. */
   url(path: VaultPath): string;
+  /** The address under which the frame loads one of the `remote` resources. */
+  remoteUrl(url: string): string;
+  /** Lets the frame load further files and web resources (added while it is shown). */
+  extend(files: VaultPath[], remote: string[]): Promise<void>;
   dispose(): void;
 }
 

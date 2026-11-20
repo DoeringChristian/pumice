@@ -283,3 +283,88 @@
 .callout-content > :last-child {
   margin-bottom: 0;
 }
+
+/* An embedded picture or video is never wider than the text; it keeps its proportions unless
+   the note gives both a width and a height. */
+.pm-embed img,
+.pm-embed video,
+.cm-pm-embed img,
+.cm-pm-embed video {
+  max-width: 100%;
+}
+.pm-embed img:not([height]),
+.pm-embed video:not([height]),
+.cm-pm-embed img:not([height]),
+.cm-pm-embed video:not([height]) {
+  height: auto;
+}
+
+/* Several embeds in one paragraph stand beside each other (see the editor's rule). */
+.pm-rendered p:has(> .pm-embed ~ .pm-embed) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+}
+.pm-rendered p:has(> .pm-embed ~ .pm-embed) > .pm-embed {
+  flex: 1 1 0;
+  min-width: min(160px, 100%);
+  margin: 0;
+}
+.pm-rendered p:has(> .pm-embed ~ .pm-embed) > .pm-embed[data-alias] {
+  flex: 0 1 auto;
+}
+
+/* Captions and numbers of figures, tables and equations (reading view) */
+.pm-caption {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-ui);
+  line-height: 1.4;
+  text-align: center;
+}
+.pm-caption-label {
+  color: var(--text);
+  font-weight: 600;
+}
+.pm-rendered p.pm-caption-line {
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-ui);
+  text-align: center;
+  margin-bottom: 4px;
+}
+.pm-code-render[data-figure] .pm-frame-caption::before {
+  content: var(--pm-figure) ': ';
+  color: var(--text);
+  font-weight: 600;
+}
+.pm-code-render[data-figure]:not(:has(.pm-frame-caption))::after {
+  content: var(--pm-figure);
+  display: block;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-ui);
+  font-weight: 600;
+  text-align: center;
+}
+.pm-math.is-display[data-figure] {
+  display: flex;
+  align-items: center;
+}
+.pm-math.is-display[data-figure] > * {
+  flex: 1;
+  min-width: 0;
+}
+.pm-math.is-display[data-figure]::after {
+  content: var(--pm-figure);
+  flex: none;
+  padding-left: 12px;
+  color: var(--text-muted);
+}
+/* A label is for linking, not for reading. */
+.pm-rendered .pm-block-id {
+  display: none;
+}

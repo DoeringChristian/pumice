@@ -126,6 +126,33 @@ examples/             example community plugins (word-goal, kbd-syntax)
   is written right there. Stored in `.pumice/comments/<note path>.json`, not in the markdown; they
   follow their text through edits. A comment or reply with `@agent` (or `@claude`, `@chatgpt`,
   `@codex`, `@gemini`) is answered by that agent in the thread, and it can edit the note.
+- **Side by side**: several embeds on one line (`![[a.png]] ![[b.png]]`, also videos, frames and
+  notes) stand beside each other; those with a width keep it and the others share the rest.
+- **Drag and drop**: drag a file from the file list into a note to embed it (a note is linked).
+  A file that a frame can show becomes a `frame` block, asking which frame if several can; a
+  dropped frame asks which files it should show (several, for a frame that compares). Files
+  dragged in from outside go to the attachments folder, or into the folder of the file list
+  they are dropped on; a picture dragged from a web page is saved the same way.
+- **Right-click an embed** (picture, video, frame) to open it, remove it from the note, or
+  delete the file; both ask first, and deleting says in how many other notes the file is used.
+- **Web resources in frames**: a setting written `[label](https://…)` or `<https://…>` refers to
+  a file on the web the same way `[[file]]` refers to one in the vault.
+- **Sizing embeds**: an embedded picture, video or frame has a handle in its bottom-right corner;
+  dragging it writes the size into the note as in Obsidian (`![[pic.png|300]]`,
+  `![[frames/bars/index.html|600x400]]`, or `width:`/`height:` in a frame block).
+- **Completion while typing**: after ``` the language (choosing one closes the block; `frame`
+  starts a frame block); inside a frame block the frames of the vault, the settings a frame
+  documents in its `frame.json` with their values, and the files it takes; in math, LaTeX
+  commands after `\\` and environments after `\\begin{`. Enter after an opening ``` or `$$`
+  closes the block, and `$` closes like a quote. Plugins add their own suggestions through
+  `editorCompletions`.
+- **Captions, numbering and references**: a figure's caption is the alias of its embed
+  (`![[loss.png|Loss over time|400]]`) or the `caption:` of a frame block; a table's is a
+  `Table: …` line above it. A block ID after it is its label (`^fig-loss`, `^tab-runs`,
+  `^eq-energy`; for a frame block, a table or a `$$` block on the line after it). Figures,
+  tables and equations are numbered in the order of the note, and `[[#^fig-loss]]` reads
+  "Figure 2" (from another note, `[[Results#^fig-loss]]` reads "Figure 2 in Results"). Nothing but
+  Obsidian syntax is written; the numbers are worked out when the note is shown.
 - **Back and forward**: arrows in the tab bar, `Mod+Alt+←/→` and the mouse's back/forward buttons
   move through what a tab has shown.
 - **Media**: images (including SVG), audio and video open in a tab, with zoom for images;
@@ -151,6 +178,16 @@ examples/             example community plugins (word-goal, kbd-syntax)
   in Settings → Frames) the network. They reload when their files change. The assistant is told
   how frames work and to follow `frames/README.md`, the style guide written by "Frames: write
   the style guide". In Obsidian a frame block shows as a code block.
+- **Adding to a frame**: drag a file from the file list onto a frame and it is added to what the
+  frame shows (its `frame.json` says which types it takes, and whether several); the block in
+  the note is rewritten, an embed becomes a block. A frame can change its own settings with
+  `pumice.update({ … })` (remove an item, reorder, pick a colormap): they are written to the
+  note too, without reloading the frame. A frame cannot name files it was not given.
+- **Frames as viewers**: a frame with a `frame.json` beside its `index.html`
+  (`{"name": "Mesh viewer", "opens": {"extensions": ["ply", "obj"], "setting": "mesh"}}`) opens
+  files of those types in a tab. The app's own views stay the default for their types; with
+  several viewers and no default the app asks once and remembers the answer per file type.
+  "Open with…" (tab and file menus, the viewer's bar, the command palette) switches.
 - **PDF annotator**: PDFs open in a tab. Select text to highlight it, add notes, list the
   highlights, and copy a quote with a link (`[[paper.pdf#page=3]]` opens that page). Annotations
   are kept in `.pumice/annotations/<pdf path>.json`, the PDF is never changed; highlights made
@@ -161,6 +198,19 @@ examples/             example community plugins (word-goal, kbd-syntax)
   through OpenAI's "Sign in with ChatGPT" (nothing to install; it can search, read and, with your
   approval, edit notes). Also Claude Code, Codex and Gemini CLI through the Agent Client Protocol
   if you have them. `Mod+Alt+A` asks about the selection.
+- **Chats are kept**: every conversation is saved in `.pumice/chats/` as it goes. The clock
+  button in the chat lists earlier chats; picking one shows it and continues it (the built-in
+  assistant from its saved state, the other agents by asking them to load their session; an
+  agent that cannot is started fresh below the old messages). The built-in assistant reopens
+  its last chat when the app starts.
+- **Web access** for the built-in assistant: it can search the web (DuckDuckGo) and read pages.
+  It can also download a file (a library, a dataset, a model) into the vault. It asks before
+  the first page of a website is opened (once, per chat, or never again), never opens local
+  addresses, and can be switched off in Settings → Agents.
+- **Write while the agent works**: a message sent while the agent is busy waits in a queue above
+  the input and goes out when the agent is done; `Mod+Enter` stops the agent and sends it now.
+- **Reply to a passage**: select part of an answer in the chat and click "Reply"; the passage is
+  quoted in your next message.
 - **Slash commands** in the chat: type `/` for the agent's own commands (for example `/compact`);
   the built-in assistant has `/compact`, `/clear` and `/help`, and `/new` starts a new chat.
 - **Files**: paste or drop images and files into a note; they go to the attachment folder set

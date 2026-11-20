@@ -11,6 +11,9 @@
   },
   "optionalDependencies": {
     "core.editor": "^0.1.0",
-    "core.settings": "^0.1.0"
+    "core.settings": "^0.1.0",
+    "core.frames": "^0.1.0",
+    "core.reader": "^0.1.0",
+    "core.links": "^0.1.0"
   }
 }

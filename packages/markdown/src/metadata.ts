@@ -1,5 +1,6 @@
 import type { Nodes, Parent, Root } from 'mdast';
 import { parse as parseYaml } from 'yaml';
+import { numberItems, type NumberedItem } from './figures';
 import { parseMarkdown, type ParseOptions } from './mdast';
 
 export interface LinkRef {
@@ -54,7 +55,12 @@ export interface FileMetadata {
   headings: HeadingRef[];
   blocks: BlockRef[];
   tasks: TaskRef[];
+  /** Numbered figures, tables and equations, in order (see `figures.ts`). */
+  figures: FigureRef[];
 }
+
+/** A numbered figure, table or equation of a note. */
+export type FigureRef = Pick<NumberedItem, 'kind' | 'number' | 'id' | 'caption'>;
 
 const EXTERNAL_URL = /^[a-z][a-z0-9+.-]*:/i;
 
@@ -87,10 +93,15 @@ export interface ExtractOptions extends ParseOptions {
 }
 
 export function extractMetadata(text: string, opts: ExtractOptions = {}): FileMetadata {
-  return metadataFromTree(parseMarkdown(text, opts), opts);
+  return metadataFromTree(parseMarkdown(text, opts), opts, text);
 }
 
-export function metadataFromTree(tree: Root, opts: ExtractOptions = {}): FileMetadata {
+export function metadataFromTree(
+  tree: Root,
+  opts: ExtractOptions = {},
+  /** The note's text, for what is read from it directly (figure numbering). */
+  text?: string,
+): FileMetadata {
   const meta: FileMetadata = {
     aliases: [],
     tags: [],
@@ -98,6 +109,15 @@ export function metadataFromTree(tree: Root, opts: ExtractOptions = {}): FileMet
     headings: [],
     blocks: [],
     tasks: [],
+    figures:
+      text === undefined
+        ? []
+        : numberItems(text).map(({ kind, number, id, caption }) => ({
+            kind,
+            number,
+            ...(id ? { id } : {}),
+            ...(caption ? { caption } : {}),
+          })),
   };
   const idKey = opts.idKey ?? 'id';
   const start = (n: Nodes) => n.position?.start.offset ?? 0;

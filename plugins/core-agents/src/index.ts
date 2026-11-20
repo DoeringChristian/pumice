@@ -15,9 +15,10 @@ import {
   type PluginModule,
   type VaultPath,
 } from '@pumice/api';
-import { button, h, settingItem, textInput } from '@pumice/ui';
+import { button, h, settingItem, textInput, toggle } from '@pumice/ui';
 import '@pumice/ui/panel.css';
 import manifestJson from '../manifest.json';
+import { ChatStore, type SavedChat } from './chats';
 import { AgentPanelState, renderAgentPanel, type Attachment } from './panel';
 import { ChatGptSession } from './chatgpt-session';
 import {
@@ -153,23 +154,63 @@ export const plugin = definePlugin({
         .filter(Boolean)
         .join('\n\n');
 
-    const startSession = (agentId: string) => {
-      sessions.get(agentId)?.dispose();
+    // Conversations are saved as they go, and can be picked up again from the panel.
+    const chats = new ChatStore(platform.fs);
+    const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const saveNow = (s: ChatSession) => {
+      clearTimeout(saveTimers.get(s.chatId));
+      saveTimers.delete(s.chatId);
+      void chats
+        .save(s.chatId, s.config.id, s.snapshot())
+        .then(() => ctx.settings.set(`lastChat.${s.config.id}`, s.chatId))
+        .catch((e: unknown) => console.error('[pumice] could not save the chat', e));
+    };
+    const keepSaved = (s: ChatSession) => {
+      s.onDidChange(() => {
+        if (!s.items.some((i) => i.kind === 'user')) return;
+        clearTimeout(saveTimers.get(s.chatId));
+        saveTimers.set(
+          s.chatId,
+          setTimeout(() => saveNow(s), 1000),
+        );
+      });
+    };
+
+    const startSession = (agentId: string, saved?: SavedChat) => {
+      const previous = sessions.get(agentId);
+      if (previous) {
+        // Write what is pending before the conversation is replaced.
+        if (saveTimers.has(previous.chatId)) saveNow(previous);
+        previous.dispose();
+      }
       const config = agents().find((a) => a.id === agentId) ?? agents()[0]!;
       const s: ChatSession =
         config.kind === 'chatgpt'
-          ? new ChatGptSession(config, {
-              host: platform.chatgpt!,
-              files,
-              index: ctx.use(MetadataIndex),
-              vault,
-              savedModel: () => ctx.settings.get<string | undefined>('chatgptModel', undefined),
-              saveModel: (id) => void ctx.settings.set('chatgptModel', id),
-              savedMode: () => ctx.settings.get<string | undefined>('chatgptMode', undefined),
-              saveMode: (id) => void ctx.settings.set('chatgptMode', id),
-              guidance,
-            })
-          : new AgentSession(config, host!, files, guidance);
+          ? new ChatGptSession(
+              config,
+              {
+                host: platform.chatgpt!,
+                files,
+                index: ctx.use(MetadataIndex),
+                vault,
+                savedModel: () => ctx.settings.get<string | undefined>('chatgptModel', undefined),
+                saveModel: (id) => void ctx.settings.set('chatgptModel', id),
+                savedMode: () => ctx.settings.get<string | undefined>('chatgptMode', undefined),
+                saveMode: (id) => void ctx.settings.set('chatgptMode', id),
+                guidance,
+                ...(platform.net ? { net: platform.net } : {}),
+                webAccess: () => ctx.settings.get('webAccess', true),
+                webAlwaysAllowed: () => !ctx.settings.get('webAsk', true),
+                allowWebAlways: () => void ctx.settings.set('webAsk', false),
+                saveFile: async (path, bytes) => {
+                  if (vault.get(path)) throw new Error(`${path} already exists.`);
+                  await vault.create(path, bytes);
+                },
+              },
+              saved,
+            )
+          : new AgentSession(config, host!, files, guidance, saved);
+      keepSaved(s);
       sessions.set(agentId, s);
       void s.start();
       return s;
@@ -199,7 +240,21 @@ export const plugin = definePlugin({
               available: (!!host || !!platform.chatgpt) && !!root,
               root,
               sessionFor: (id) => sessions.get(id),
-              startSession,
+              startSession: (id) => startSession(id),
+              listChats: () => chats.list(),
+              resumeChat: async (id) => {
+                const saved = await chats.load(id);
+                // Deleted meanwhile: nothing to say.
+                if (!saved) return undefined;
+                if (!agents().some((a) => a.id === saved.agent)) {
+                  workspace.notify('This chat can’t be opened here.', { kind: 'warning' });
+                  return undefined;
+                }
+                startSession(saved.agent, saved);
+                return saved.agent;
+              },
+              deleteChat: (id) => chats.remove(id),
+              lastChat: (id) => ctx.settings.get<string | undefined>(`lastChat.${id}`, undefined),
               currentAgent,
               setCurrentAgent: (id) => void ctx.settings.set('agent', id),
               currentNote,
@@ -450,7 +505,29 @@ export const plugin = definePlugin({
                 { class: 'pm-setting-note' },
                 'The ChatGPT assistant is built in. The other agents are programs on this computer (Agent Client Protocol), signed in with your own account; the first time one starts, Pumice asks before running its command.',
               ),
-              ...(platform.chatgpt ? [chatgptRow(platform.chatgpt)] : []),
+              ...(platform.chatgpt
+                ? [
+                    chatgptRow(platform.chatgpt),
+                    settingItem(
+                      'Web access for the ChatGPT assistant',
+                      'Lets it search the web and read pages. Searches go to DuckDuckGo; before the first page of a website is opened, it asks. The other agents use their own tools and settings.',
+                      toggle(
+                        ctx.settings.get('webAccess', true),
+                        (on) => void ctx.settings.set('webAccess', on),
+                        { label: 'Web access for the ChatGPT assistant' },
+                      ),
+                    ),
+                    settingItem(
+                      'Ask before opening a website',
+                      'On: it asks before the first page of each website (you can allow a site, or all sites, for a chat). Off: it opens pages and downloads without asking about the website. Saving a file into the vault still follows the chat’s mode.',
+                      toggle(
+                        ctx.settings.get('webAsk', true),
+                        (on) => void ctx.settings.set('webAsk', on),
+                        { label: 'Ask before opening a website' },
+                      ),
+                    ),
+                  ]
+                : []),
               ...(host ? rows : [h('p', {}, 'Agents need the desktop app.')]),
               settingItem(
                 'Reset commands',

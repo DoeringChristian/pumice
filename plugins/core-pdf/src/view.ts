@@ -737,6 +737,7 @@ export function createPdfView(
     slots.forEach((s) => observer.observe(s.el));
     const target = parseTarget(state.subpath);
     if (target.page || target.annotation) goTo(target);
+    else if (typeof state.top === 'number') scroller.scrollTop = state.top * scale();
     else if (typeof state.page === 'number') goTo({ page: state.page });
     updatePageLabel();
   };
@@ -762,7 +763,15 @@ export function createPdfView(
 
   return {
     getState: (): ViewState =>
-      path ? { path, page: currentPage() + 1, ...(zoom === 'fit' ? {} : { zoom }) } : {},
+      path
+        ? {
+            path,
+            page: currentPage() + 1,
+            // Independent of the zoom: the distance from the top in page units.
+            top: Math.round(scroller.scrollTop / scale()),
+            ...(zoom === 'fit' ? {} : { zoom }),
+          }
+        : {},
     setState: async (state) => {
       const next = typeof state.path === 'string' ? state.path : undefined;
       // A link into the PDF that is already open only moves to its target.

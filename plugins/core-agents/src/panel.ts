@@ -1,6 +1,7 @@
 import type { ContentBlock, ToolCallContent } from '@agentclientprotocol/sdk';
-import type { MarkdownSyntaxApi, VaultPath, WorkspaceApi } from '@pumice/api';
+import type { MarkdownSyntaxApi, MenuEntry, VaultPath, WorkspaceApi } from '@pumice/api';
 import { button, createIcon, h } from '@pumice/ui';
+import { age, type ChatSummary } from './chats';
 import { vaultPathOf, type AgentConfig, type ChatSession, type TranscriptItem } from './session';
 
 /** Text attached to the next prompt (a selection, a comment thread, the current note). */
@@ -18,6 +19,13 @@ export interface AgentPanelDeps {
   root: string;
   sessionFor(agentId: string): ChatSession | undefined;
   startSession(agentId: string): ChatSession;
+  /** Saved conversations, most recent first. */
+  listChats(): Promise<ChatSummary[]>;
+  /** Opens a saved conversation; resolves to its agent, or undefined if it cannot be opened. */
+  resumeChat(id: string): Promise<string | undefined>;
+  deleteChat(id: string): Promise<void>;
+  /** The conversation last used with an agent. */
+  lastChat(agentId: string): string | undefined;
   currentAgent(): string;
   setCurrentAgent(id: string): void;
   /** Attachment for the active note (offered by default). */
@@ -27,6 +35,8 @@ export interface AgentPanelDeps {
 /** State shared between commands ("Ask agent about selection") and the panel. */
 export class AgentPanelState {
   attachments: Attachment[] = [];
+  /** Passages of the agent's answers the next message replies to. */
+  quotes: string[] = [];
   draft = '';
   listeners = new Set<() => void>();
   fire() {
@@ -61,6 +71,36 @@ function lineDiff(oldText: string, newText: string): HTMLElement {
   for (const l of b.slice(start, endB)) line('is-added', '+', l);
   if (endA < a.length) line('is-context', ' ', a[endA]!);
   return pre;
+}
+
+/** A message that replies to passages: each as a Markdown quote, then the message. */
+export function withQuotes(quotes: string[], text: string): string {
+  const blocks = quotes.map((q) =>
+    q
+      .split('\n')
+      .map((line) => `> ${line}`.trimEnd())
+      .join('\n'),
+  );
+  return [...blocks, text].join('\n\n');
+}
+
+/** The quotes a message starts with, and the rest of it. */
+export function splitQuotes(text: string): { quotes: string[]; rest: string } {
+  const quotes: string[] = [];
+  let rest = text;
+  for (;;) {
+    const m = /^((?:>.*(?:\n|$))+)\n*/.exec(rest);
+    if (!m) break;
+    quotes.push(
+      m[1]!
+        .trimEnd()
+        .split('\n')
+        .map((line) => line.replace(/^> ?/, ''))
+        .join('\n'),
+    );
+    rest = rest.slice(m[0].length);
+  }
+  return { quotes, rest };
 }
 
 export function renderAgentPanel(
@@ -142,7 +182,13 @@ export function renderAgentPanel(
     { class: 'pm-icon-button', title: 'New chat', 'aria-label': 'New chat' },
     createIcon('plus', 15),
   );
+  const history = h(
+    'button',
+    { class: 'pm-icon-button', title: 'Earlier chats', 'aria-label': 'Earlier chats' },
+    createIcon('history', 15),
+  );
   const transcript = h('div', { class: 'pm-panel-scroll pm-agent-transcript', role: 'log' });
+  const queueEl = h('div', { class: 'pm-agent-queue', hidden: true });
   const chips = h('div', { class: 'pm-agent-chips' });
   const input = h('textarea', {
     class: 'pm-agent-input',
@@ -162,11 +208,19 @@ export function renderAgentPanel(
     ' Stop',
   );
   root.append(
-    h('div', { class: 'pm-panel-toolbar pm-agent-toolbar' }, agentPill.button, status, newChat),
+    h(
+      'div',
+      { class: 'pm-panel-toolbar pm-agent-toolbar' },
+      agentPill.button,
+      status,
+      history,
+      newChat,
+    ),
     transcript,
     h(
       'div',
       { class: 'pm-agent-composer' },
+      queueEl,
       chips,
       input,
       h(
@@ -185,9 +239,23 @@ export function renderAgentPanel(
   let sub: { dispose(): void } | undefined;
   let includeNote = true;
 
-  const attach = (agentId: string, start: boolean) => {
+  const attach = (id: string, start: boolean) => {
     sub?.dispose();
-    session = deps.sessionFor(agentId) ?? (start ? deps.startSession(agentId) : undefined);
+    session = deps.sessionFor(id);
+    if (!session && start) {
+      // Pick up where the last conversation with this agent stopped.
+      const last = deps.lastChat(id);
+      if (last) {
+        void deps.resumeChat(last).then((resumed) => {
+          if (agentId !== id) return;
+          if (!resumed && !deps.sessionFor(id)) deps.startSession(id);
+          attach(id, false);
+        });
+        render();
+        return;
+      }
+      session = deps.startSession(id);
+    }
     sub = session?.onDidChange(() => scheduleRender());
     render();
   };
@@ -197,13 +265,169 @@ export function renderAgentPanel(
     deps.setCurrentAgent(id);
     attach(id, deps.agents().find((a) => a.id === id)?.kind === 'chatgpt');
   };
+  // Select part of an answer: a button offers to reply to just that passage.
+  let quoteButton: HTMLElement | undefined;
+  const hideQuoteButton = () => {
+    quoteButton?.remove();
+    quoteButton = undefined;
+  };
+  const selectedAnswerText = () => {
+    const sel = document.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return undefined;
+    const inAnswer = (node: Node | null) =>
+      !!(node instanceof Element ? node : node?.parentElement)?.closest('.pm-agent-msg.is-agent');
+    if (
+      !transcript.contains(sel.anchorNode) ||
+      !inAnswer(sel.anchorNode) ||
+      !inAnswer(sel.focusNode)
+    )
+      return undefined;
+    const text = sel.toString().trim();
+    return text
+      ? { text: text.slice(0, 4000), rect: sel.getRangeAt(0).getBoundingClientRect() }
+      : undefined;
+  };
+  transcript.addEventListener('mouseup', () => {
+    // After the browser has settled the selection.
+    setTimeout(() => {
+      hideQuoteButton();
+      const picked = selectedAnswerText();
+      if (!picked) return;
+      const el = h(
+        'button',
+        { class: 'pm-agent-quote-button', type: 'button', title: 'Reply to the selected text' },
+        createIcon('quote', 13),
+        ' Reply',
+      );
+      // Keep the selection while the button is pressed.
+      el.addEventListener('mousedown', (e) => e.preventDefault());
+      el.addEventListener('click', () => {
+        const now = selectedAnswerText();
+        if (now) state.quotes.push(now.text);
+        document.getSelection()?.removeAllRanges();
+        hideQuoteButton();
+        renderChips();
+        input.focus();
+      });
+      root.append(el);
+      const box = root.getBoundingClientRect();
+      const left = Math.max(
+        8,
+        Math.min(picked.rect.right - box.left - 40, box.width - el.offsetWidth - 8),
+      );
+      const below = picked.rect.bottom - box.top + 6;
+      el.style.left = `${left}px`;
+      el.style.top = `${below + el.offsetHeight > box.height ? picked.rect.top - box.top - el.offsetHeight - 6 : below}px`;
+      quoteButton = el;
+    });
+  });
+  transcript.addEventListener('scroll', hideQuoteButton, { passive: true });
+  const onSelectionGone = () => {
+    if (quoteButton && document.getSelection()?.isCollapsed) hideQuoteButton();
+  };
+  document.addEventListener('selectionchange', onSelectionGone);
+
+  history.addEventListener('click', () => {
+    const r = history.getBoundingClientRect();
+    void deps.listChats().then((chats) => {
+      const names = new Map(deps.agents().map((a) => [a.id, a.name.replace(/\s*\(.*\)$/, '')]));
+      const current = session?.chatId;
+      const entries: MenuEntry[] = chats.slice(0, 30).map((c) => ({
+        label: `${c.title}  ·  ${names.get(c.agent) ?? c.agent}, ${age(c.updated)}`,
+        checked: c.id === current,
+        disabled: !names.has(c.agent),
+        run: () => {
+          if (c.id === current) return;
+          void deps.resumeChat(c.id).then((agent) => {
+            if (!agent) return;
+            agentId = agent;
+            deps.setCurrentAgent(agent);
+            attach(agent, false);
+          });
+        },
+      }));
+      if (!entries.length)
+        entries.push({ label: 'No earlier chats', disabled: true, run: () => undefined });
+      if (current && chats.some((c) => c.id === current)) {
+        entries.push({
+          label: 'Delete this chat',
+          icon: 'trash',
+          danger: true,
+          run: () => {
+            void deps.deleteChat(current).then(() => newChat.click());
+          },
+        });
+      }
+      workspace.showContextMenu(entries, { x: Math.max(8, r.right - 300), y: r.bottom + 4 });
+    });
+  });
   newChat.addEventListener('click', () => {
     session?.dispose();
     session = deps.startSession(agentId);
     attach(agentId, false);
   });
 
-  const submit = () => {
+  // Messages written while the agent is busy wait their turn.
+  interface Queued {
+    message: string;
+    blocks: ContentBlock[];
+    label: string | undefined;
+  }
+  const queues = new WeakMap<ChatSession, Queued[]>();
+  const watched = new WeakSet<ChatSession>();
+  const handing = new WeakSet<ChatSession>();
+  const queueOf = (s: ChatSession) => {
+    let q = queues.get(s);
+    if (!q) queues.set(s, (q = []));
+    return q;
+  };
+  /** Sends the next waiting message once the agent is free. */
+  const flush = (s: ChatSession) => {
+    if (s.status !== 'ready' || handing.has(s)) return;
+    const next = queueOf(s).shift();
+    if (!next) return;
+    renderQueue();
+    // Starting a turn reports changes before the agent counts as busy: one message at a time.
+    handing.add(s);
+    try {
+      void s.prompt(next.message, next.blocks, next.label);
+    } finally {
+      handing.delete(s);
+    }
+  };
+  const renderQueue = () => {
+    const waiting = session ? queueOf(session) : [];
+    queueEl.hidden = !waiting.length;
+    queueEl.replaceChildren(
+      ...waiting.map((item, i) =>
+        h(
+          'div',
+          { class: 'pm-agent-queued', title: item.message },
+          h('span', { class: 'pm-agent-queued-label' }, i === 0 ? 'Next' : 'Queued'),
+          h('span', { class: 'pm-agent-queued-text' }, item.message.replace(/\s+/g, ' ')),
+          h(
+            'button',
+            {
+              class: 'pm-agent-chip-remove',
+              title: 'Don’t send this',
+              'aria-label': 'Don’t send this',
+              onclick: () => {
+                waiting.splice(i, 1);
+                renderQueue();
+              },
+            },
+            createIcon('x', 11),
+          ),
+        ),
+      ),
+    );
+  };
+
+  /**
+   * Sends what is in the input. While the agent is working the message waits in the queue;
+   * with `interrupt` the agent is stopped and the message goes next.
+   */
+  const submit = (interrupt = false) => {
     const text = input.value.trim();
     if (!text) return;
     commandList.hidden = true;
@@ -221,26 +445,29 @@ export function renderAgentPanel(
     const note = includeNote ? deps.currentNote() : undefined;
     const atts = [...(note ? [note] : []), ...state.attachments];
     const s = session;
+    const item: Queued = {
+      message: withQuotes(state.quotes, text),
+      blocks: atts.flatMap((a) => a.blocks),
+      label: atts.map((a) => a.label).join(', ') || undefined,
+    };
     input.value = '';
     state.draft = '';
     state.attachments = [];
+    state.quotes = [];
     renderChips();
-    const go = () =>
-      void s.prompt(
-        text,
-        atts.flatMap((a) => a.blocks),
-        atts.map((a) => a.label).join(', ') || undefined,
-      );
-    // The first prompt waits for the agent to start.
-    if (s.status === 'starting') {
-      const wait = s.onDidChange(() => {
-        if (s.status === 'starting') return;
-        wait.dispose();
-        if (s.status === 'ready') go();
-      });
-    } else go();
+    if (!watched.has(s)) {
+      watched.add(s);
+      // Also covers the first message, which waits for the agent to start.
+      s.onDidChange(() => flush(s));
+    }
+    if (interrupt && s.status === 'working') {
+      queueOf(s).unshift(item);
+      s.cancel();
+    } else queueOf(s).push(item);
+    renderQueue();
+    flush(s);
   };
-  send.addEventListener('click', submit);
+  send.addEventListener('click', () => submit());
   stop.addEventListener('click', () => session?.cancel());
   // ---- slash commands: "/" at the start of the message lists what the agent understands -----
 
@@ -313,7 +540,8 @@ export function renderAgentPanel(
     }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
-      submit();
+      // Cmd/Ctrl+Enter: stop what the agent is doing and send this now.
+      submit(e.metaKey || e.ctrlKey);
     }
   });
   input.addEventListener('input', () => {
@@ -343,6 +571,28 @@ export function renderAgentPanel(
       );
       chips.append(chip);
     }
+    state.quotes.forEach((q, i) => {
+      chips.append(
+        h(
+          'span',
+          { class: 'pm-agent-chip is-quote', title: q },
+          createIcon('quote', 12),
+          h('span', { class: 'pm-agent-chip-text' }, q.replace(/\s+/g, ' ')),
+          h(
+            'button',
+            {
+              class: 'pm-agent-chip-remove',
+              title: 'Remove',
+              onclick: () => {
+                state.quotes.splice(i, 1);
+                renderChips();
+              },
+            },
+            createIcon('x', 11),
+          ),
+        ),
+      );
+    });
     state.attachments.forEach((a, i) => {
       chips.append(
         h(
@@ -405,7 +655,14 @@ export function renderAgentPanel(
                 ` ${it.context}`,
               )
             : null,
-          h('div', { class: 'pm-agent-msg-text' }, it.text),
+          ...(() => {
+            // Replies to passages of an answer show them as quotes.
+            const { quotes, rest } = splitQuotes(it.text);
+            return [
+              ...quotes.map((q) => h('blockquote', { class: 'pm-agent-msg-quote' }, q)),
+              h('div', { class: 'pm-agent-msg-text' }, rest),
+            ];
+          })(),
         );
       case 'agent': {
         const el = h('div', { class: 'pm-agent-msg is-agent pm-rendered' });
@@ -517,7 +774,12 @@ export function renderAgentPanel(
       status.textContent = 'Sign in needed';
     status.dataset.status = session?.status ?? '';
     stop.hidden = session?.status !== 'working';
-    send.disabled = session?.status === 'working';
+    const busy = session?.status === 'working';
+    send.title = busy ? 'Queue this message (⌘/Ctrl+Enter: stop the agent and send now)' : 'Send';
+    input.placeholder = busy
+      ? 'Write the next message… (Enter queues it, ⌘/Ctrl+Enter interrupts and sends)'
+      : 'Ask the agent… (Enter to send, Shift+Enter for a new line)';
+    renderQueue();
     agentPill.set(
       deps.agents().map((a) => ({ id: a.id, name: a.name })),
       agentId,
@@ -581,6 +843,8 @@ export function renderAgentPanel(
       activeSub.dispose();
       sub?.dispose();
       cancelAnimationFrame(frame);
+      document.removeEventListener('selectionchange', onSelectionGone);
+      hideQuoteButton();
     },
   };
 }

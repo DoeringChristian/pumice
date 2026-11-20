@@ -26,7 +26,7 @@ import { nameKey, resolveTarget, type Lookup } from './resolve';
 import { SearchIndex } from './search';
 
 /** Bump when the snapshot format or the parser output changes: forces a rebuild. */
-export const INDEX_VERSION = 2;
+export const INDEX_VERSION = 3;
 const SNAPSHOT_KEY = 'snapshot';
 
 interface Snapshot {

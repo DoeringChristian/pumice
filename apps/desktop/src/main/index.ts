@@ -17,7 +17,7 @@ import * as fs from 'node:fs/promises';
 import { basename, dirname, join, normalize, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ChatGptError, createChatGpt, type ChatGpt } from './chatgpt';
-import { FrameServer } from './frames';
+import { FrameServer, isPublicHttps } from './frames';
 import { ProcessManager } from './processes';
 
 const OS: PlatformOs =
@@ -325,14 +325,22 @@ const handlers: Record<string, Handler> = {
   },
   'vaults.pick': (s, newWindow) => pickAndOpenVault(newWindow ? undefined : s.window),
   'vaults.manage': () => openLauncher(),
-  'frames.open': (s, folder, files, inject, network) =>
+  'frames.open': (s, folder, files, inject, network, remote) =>
     frames.open({
       owner: s.window.webContents.id,
       folder: s.abs(String(folder)),
       files: new Set((Array.isArray(files) ? files : []).map((f) => s.abs(String(f)))),
       inject: String(inject ?? ''),
       network: network === true,
+      remote: (Array.isArray(remote) ? remote : []).map(String).filter(isPublicHttps),
     }),
+  'frames.extend': (s, token, files, remote) =>
+    frames.extend(
+      String(token),
+      s.window.webContents.id,
+      (Array.isArray(files) ? files : []).map((f) => s.abs(String(f))),
+      (Array.isArray(remote) ? remote : []).map(String).filter(isPublicHttps),
+    ),
   'frames.close': (s, token) => frames.close(String(token), s.window.webContents.id),
   'vaults.forget': async (_s, path) => {
     const config = await readConfig();
@@ -348,6 +356,17 @@ const handlers: Record<string, Handler> = {
     const text = await res.text();
     if (text.length > 20_000_000) throw new Error('Response too large');
     return text;
+  },
+  'net.fetchBinary': async (_s, url) => {
+    if (typeof url !== 'string' || !/^https:\/\//i.test(url))
+      throw new Error('Only https URLs can be fetched');
+    const res = await fetch(url, { redirect: 'follow' });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    const limit = 200_000_000;
+    if (Number(res.headers.get('content-length') ?? 0) > limit) throw new Error('File too large');
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.byteLength > limit) throw new Error('File too large');
+    return bytes;
   },
   'window.close': (s) => s.window.close(),
   'chatgpt.status': () => chatgpt().status(),

@@ -1,4 +1,6 @@
 import {
+  EllipsisVertical,
+  History,
   AlertTriangle,
   ArrowDownAZ,
   ArrowUpRight,
@@ -133,6 +135,8 @@ const registry = new Map<string, IconNode>(
     hash: Hash,
     'help-circle': HelpCircle,
     image: Image,
+    'more-vertical': EllipsisVertical,
+    history: History,
     info: Info,
     'layout-template': LayoutTemplate,
     lightbulb: Lightbulb,

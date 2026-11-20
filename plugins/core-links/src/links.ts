@@ -1,4 +1,5 @@
 import {
+  figureReference,
   basename,
   dirname,
   formatWikiLink,
@@ -115,6 +116,16 @@ export class LinksImpl implements LinksApi {
   displayText(link: Pick<LinkRef, 'target' | 'subpath' | 'alias'>, sourcePath: VaultPath): string {
     if (link.alias) return link.alias;
     const resolved = this.opts.index.resolve(link.target, sourcePath);
+    // A link to a numbered figure, table or equation reads as its number.
+    if (link.subpath?.startsWith('^')) {
+      const file = link.target ? resolved?.file : this.opts.index.getFile(sourcePath);
+      const id = link.subpath.slice(1);
+      const item = file?.meta?.figures?.find((f) => f.id === id);
+      if (item) {
+        const text = figureReference(item);
+        return file!.path === sourcePath ? text : `${text} in ${file!.title}`;
+      }
+    }
     const sub = link.subpath?.replace(/^\^/, '').replace(/#/g, ' › ');
     if (!link.target) return sub ?? '';
     // A link written by name shows as written; others (paths, plugin-resolved) show the title.

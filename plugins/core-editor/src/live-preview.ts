@@ -1,3 +1,10 @@
+import {
+  attachMenuButton,
+  attachResizeHandle,
+  blockSizeEdit,
+  embedSizeEdit,
+  type Size,
+} from './resize';
 import { syntaxTree } from '@codemirror/language';
 import type { TreeCursor } from '@lezer/common';
 import { Facet, StateField, type EditorState, type Extension, type Range } from '@codemirror/state';
@@ -18,6 +25,15 @@ import {
   type MarkdownSyntaxApi,
   type ReaderApi,
   type VaultPath,
+  parseEmbedSize,
+  setEmbedSize,
+  embedCaption,
+  figureLabel,
+  figureReference,
+  isFigureTarget,
+  numberItems,
+  type FigureKind,
+  type NumberedItem,
 } from '@pumice/api';
 import { calloutStyle, createIcon } from '@pumice/ui';
 
@@ -26,6 +42,14 @@ export interface PreviewDeps {
   syntax: MarkdownSyntaxApi;
   reader?: ReaderApi;
   sourcePath(): VaultPath | undefined;
+  /** Shows the menu of an embedded picture, video or frame (right-click). */
+  embedMenu?(view: EditorView, host: HTMLElement, at: { x: number; y: number }): void;
+  /** Shows the menu of a rendered block (a frame block): edit its source, remove it. */
+  blockMenu?(
+    view: EditorView,
+    block: { from: number; to: number },
+    at: { x: number; y: number },
+  ): void;
 }
 
 export const previewDeps = Facet.define<PreviewDeps, PreviewDeps | undefined>({
@@ -156,6 +180,64 @@ class MathWidget extends WidgetType {
   }
 }
 
+// Numbered figures, tables and equations of the note, by the line they start on. Counted once
+// per version of the text.
+const numbered = new WeakMap<object, Map<number, NumberedItem[]>>();
+function itemsByLine(state: EditorState): Map<number, NumberedItem[]> {
+  let map = numbered.get(state.doc);
+  if (!map) {
+    map = new Map();
+    for (const item of numberItems(state.doc.toString())) {
+      const at = map.get(item.line);
+      if (at) at.push(item);
+      else map.set(item.line, [item]);
+    }
+    numbered.set(state.doc, map);
+  }
+  return map;
+}
+/** The numbered item that starts at `pos` (an embed), or on its line (a block). */
+function itemAt(state: EditorState, pos: number, kind: FigureKind, exact = false) {
+  const line = state.doc.lineAt(pos);
+  return itemsByLine(state)
+    .get(line.number - 1)
+    ?.find((i) => i.kind === kind && (!exact || i.column === pos - line.from));
+}
+
+/** Puts the caption (and number) under an embedded picture, video or frame. */
+function setCaption(host: HTMLElement, label: string | undefined, caption: string | undefined) {
+  host.querySelector(':scope > .cm-pm-caption')?.remove();
+  if (!label && !caption) return;
+  const el = document.createElement('span');
+  el.className = 'cm-pm-caption';
+  if (label) {
+    const number = document.createElement('span');
+    number.className = 'cm-pm-caption-label';
+    number.textContent = caption ? `${label}: ` : label;
+    el.append(number);
+  }
+  if (caption) el.append(caption);
+  host.append(el);
+}
+
+/** Text standing in for something of the note (the number of a table in its caption line). */
+class LabelWidget extends WidgetType {
+  constructor(readonly text: string) {
+    super();
+  }
+  override eq(other: LabelWidget): boolean {
+    return other.text === this.text;
+  }
+  toDOM(): HTMLElement {
+    const el = document.createElement('span');
+    el.className = 'cm-pm-caption-label';
+    el.textContent = this.text;
+    return el;
+  }
+}
+
+const embedOf = new WeakMap<HTMLElement, EmbedWidget>();
+
 class EmbedWidget extends WidgetType {
   private disposable: { dispose(): void } | undefined;
 
@@ -164,11 +246,13 @@ class EmbedWidget extends WidgetType {
     readonly subpath: string | undefined,
     readonly alias: string | undefined,
     readonly sourcePath: string,
+    /** "Figure 2", if it is a numbered figure. */
+    readonly label?: string,
   ) {
     super();
   }
 
-  override eq(other: EmbedWidget): boolean {
+  private same(other: EmbedWidget): boolean {
     return (
       other.target === this.target &&
       other.subpath === this.subpath &&
@@ -177,10 +261,56 @@ class EmbedWidget extends WidgetType {
     );
   }
 
+  override eq(other: EmbedWidget): boolean {
+    return this.same(other) && other.label === this.label;
+  }
+
+  private get caption(): string | undefined {
+    return isFigureTarget(this.target) ? embedCaption(this.alias) : undefined;
+  }
+
+  /** Only the number changed (a figure was added above): what is shown stays. */
+  override updateDOM(dom: HTMLElement): boolean {
+    const shown = embedOf.get(dom);
+    if (!shown || !this.same(shown)) return false;
+    embedOf.set(dom, this);
+    setCaption(dom, this.label, this.caption);
+    return true;
+  }
+
   toDOM(view: EditorView): HTMLElement {
     const el = document.createElement('span');
-    el.className = 'cm-pm-embed';
+    // An embed with a width keeps it when several stand on one line; the others share the rest.
+    el.className = `cm-pm-embed${parseEmbedSize(this.alias).width ? ' is-sized' : ''}`;
+    embedOf.set(el, this);
+    // The number may change while the embed stays (see `updateDOM`).
+    const caption = () => {
+      const now = embedOf.get(el) ?? this;
+      setCaption(el, now.label, now.caption);
+    };
     const reader = view.state.facet(previewDeps)?.reader;
+    // Events inside the widget do not reach the editor's own handlers.
+    el.addEventListener('contextmenu', (e) => {
+      if (!el.querySelector('img, video, audio, iframe')) return;
+      const menu = view.state.facet(previewDeps)?.embedMenu;
+      if (!menu) return;
+      e.preventDefault();
+      e.stopPropagation();
+      menu(view, el, { x: e.clientX, y: e.clientY });
+    });
+    const menuAt = (at: { x: number; y: number }) =>
+      view.state.facet(previewDeps)?.embedMenu?.(view, el, at);
+    /** Writes a new size into the embed's text (`![[x.png|300]]`). */
+    const resize = (size: Size) => {
+      const line = view.state.doc.lineAt(view.posAtDOM(el));
+      const pos = view.posAtDOM(el) - line.from;
+      const edit = embedSizeEdit(line.text, pos, size, setEmbedSize);
+      if (!edit) return;
+      view.dispatch({
+        changes: { from: line.from + edit.from, to: line.from + edit.to, insert: edit.insert },
+        userEvent: 'input.resize',
+      });
+    };
     if (reader) {
       void reader
         .renderEmbed({
@@ -191,11 +321,19 @@ class EmbedWidget extends WidgetType {
           depth: 0,
           container: el,
           // The embed's size may have changed: let the editor measure again.
-          onDidRender: () => view.requestMeasure(),
+          onDidRender: () => {
+            view.requestMeasure();
+            caption();
+            attachResizeHandle(view, el, resize);
+            attachMenuButton(el, menuAt);
+          },
         })
         .then((d) => {
           this.disposable = d;
           view.requestMeasure();
+          caption();
+          attachResizeHandle(view, el, resize);
+          attachMenuButton(el, menuAt);
         });
     }
     return el;
@@ -211,23 +349,66 @@ class EmbedWidget extends WidgetType {
 }
 
 /** A table, math block or frontmatter rendered as a block; clicking it reveals the source. */
+/** Where a rendered block is in the note and what it was rendered from, kept current. */
+const blockOf = new WeakMap<HTMLElement, { source: string; from: number }>();
+
 class BlockWidget extends WidgetType {
   constructor(
     readonly kind: 'table' | 'math' | 'properties' | 'code',
     readonly source: string,
     readonly from: number,
+    /** "Figure 2" for a frame block, "(3)" for an equation, if it is numbered. */
+    readonly label?: string,
   ) {
     super();
   }
 
   override eq(other: BlockWidget): boolean {
-    return other.kind === this.kind && other.source === this.source && other.from === this.from;
+    return (
+      other.kind === this.kind &&
+      other.source === this.source &&
+      other.from === this.from &&
+      other.label === this.label
+    );
+  }
+
+  /** The number is drawn by the style sheet from this (it can change while the block stays). */
+  private applyLabel(dom: HTMLElement): void {
+    dom.toggleAttribute('data-figure', !!this.label);
+    if (this.label) dom.style.setProperty('--pm-figure', JSON.stringify(this.label));
+    else dom.style.removeProperty('--pm-figure');
+  }
+
+  /**
+   * Keeps what is on screen when only the block's place in the note changed (text was typed
+   * above it), or when its content can take the new source itself (a frame whose settings
+   * changed): rendering anew would reload a frame and lose what the reader did in it.
+   */
+  override updateDOM(dom: HTMLElement): boolean {
+    const known = blockOf.get(dom);
+    if (!known || !dom.classList.contains(`cm-pm-block-${this.kind}`)) return false;
+    if (known.source !== this.source) {
+      if (this.kind !== 'code') return false;
+      const content = dom.querySelector('.pm-code-render');
+      const taken =
+        !!content &&
+        !content.dispatchEvent(
+          new CustomEvent('pumice-block-source', { cancelable: true, detail: this.source }),
+        );
+      if (!taken) return false;
+    }
+    blockOf.set(dom, { source: this.source, from: this.from });
+    this.applyLabel(dom);
+    return true;
   }
 
   toDOM(view: EditorView): HTMLElement {
     const deps = view.state.facet(previewDeps);
     const el = document.createElement('div');
     el.className = `cm-pm-block cm-pm-block-${this.kind}`;
+    blockOf.set(el, { source: this.source, from: this.from });
+    this.applyLabel(el);
+    const { kind } = this;
     if (this.kind === 'math') {
       const tex = this.source.replace(/^\$\$+/, '').replace(/\$\$+\s*$/, '');
       // Inner element: `.pm-math.is-display` has vertical margins (see the CSS note on blocks).
@@ -246,15 +427,39 @@ class BlockWidget extends WidgetType {
       renderProperties(el, deps, this.source);
     } else if (this.kind === 'code' && deps?.reader) {
       // A fenced block with a renderer (mermaid, …): render it like the reading view does.
-      void deps.reader.render(el, this.source, { sourcePath: deps.sourcePath() ?? '' });
+      void deps.reader.render(el, this.source, { sourcePath: deps.sourcePath() ?? '' }).then(() => {
+        // A frame block can be sized: the size goes into its `width` and `height` lines.
+        const attach = () =>
+          attachResizeHandle(view, el, (size) => {
+            const { source, from } = blockOf.get(el)!;
+            const next = blockSizeEdit(source, size);
+            if (next === source) return;
+            view.dispatch({
+              changes: { from, to: from + source.length, insert: next },
+              userEvent: 'input.resize',
+            });
+          });
+        const menu = () =>
+          attachMenuButton(el, (at) => {
+            const { source, from } = blockOf.get(el)!;
+            deps.blockMenu?.(view, { from, to: from + source.length }, at);
+          });
+        attach();
+        menu();
+        // The frame itself appears a moment after the block.
+        el.addEventListener('pumice-resize', () => {
+          attach();
+          if (!el.querySelector(':scope > .cm-pm-embed-menu')) menu();
+        });
+      });
     }
     el.addEventListener('mousedown', (e) => {
       if ((e.target as HTMLElement).closest('a') && (e.metaKey || e.ctrlKey)) return;
       e.preventDefault();
+      const { source, from } = blockOf.get(el)!;
       view.dispatch({
         selection: {
-          anchor:
-            this.kind === 'properties' ? Math.min(4, this.from + this.source.length) : this.from,
+          anchor: kind === 'properties' ? Math.min(4, from + source.length) : from,
         },
       });
       view.focus();
@@ -370,6 +575,9 @@ function buildDecorations(view: EditorView): DecorationSet {
           decorations.push(
             Decoration.mark({ class: MARK_CLASSES[name] }).range(node.from, node.to),
           );
+          // A label (`^fig-loss`) is for linking, not for reading.
+          if (name === 'BlockId' && !isActive(node.from) && node.to > node.from)
+            decorations.push(Decoration.replace({}).range(node.from, node.to));
           if (name === 'Comment' || name === 'Tag' || name === 'BlockId') return false;
           return;
         }
@@ -413,6 +621,9 @@ function buildDecorations(view: EditorView): DecorationSet {
                       ? ''
                       : undefined,
                   source,
+                  ((item) => (item ? figureLabel(item) : undefined))(
+                    itemAt(state, node.from, 'fig', true),
+                  ),
                 ),
               }).range(node.from, node.to),
             );
@@ -551,7 +762,36 @@ function buildDecorations(view: EditorView): DecorationSet {
       },
     });
   }
-  return Decoration.set(decorations, true);
+  // A table's caption line: "Table: …" reads "Table 2: …" unless it is being edited.
+  for (const items of itemsByLine(state).values()) {
+    for (const item of items) {
+      if (item.kind !== 'tab' || item.captionLine === undefined) continue;
+      if (item.captionLine + 1 > state.doc.lines) continue;
+      const line = state.doc.line(item.captionLine + 1);
+      const at = line.text.search(/Table:/i);
+      if (at < 0) continue;
+      decorations.push(Decoration.line({ class: 'cm-pm-caption-line' }).range(line.from));
+      if (!isActive(line.from)) {
+        decorations.push(
+          Decoration.replace({ widget: new LabelWidget(`${figureLabel(item)}:`) }).range(
+            line.from + at,
+            line.from + at + 'Table:'.length,
+          ),
+        );
+      }
+    }
+  }
+  // Something replaced within a line must stay within it: while a note is being typed, the
+  // parser may briefly pair marks across lines (a `$` with one further down), and a
+  // replacement over a line break breaks the editor's drawing.
+  const { doc } = view.state;
+  return Decoration.set(
+    decorations.filter(
+      // `point`: a replacement or a widget (marks and line classes may span lines).
+      (r) => !(r.value.point && r.to > r.from) || doc.lineAt(r.from).to >= r.to,
+    ),
+    true,
+  );
 }
 
 const inlinePreview = ViewPlugin.fromClass(
@@ -621,7 +861,16 @@ function buildBlocks(state: EditorState): DecorationSet {
       const end = state.doc.lineAt(to).to;
       decorations.push(
         Decoration.replace({
-          widget: new BlockWidget(kind, state.doc.sliceString(start, end), start),
+          widget: new BlockWidget(
+            kind,
+            state.doc.sliceString(start, end),
+            start,
+            kind === 'math'
+              ? ((item) => (item ? figureReference(item) : undefined))(itemAt(state, start, 'eq'))
+              : kind === 'code'
+                ? ((item) => (item ? figureLabel(item) : undefined))(itemAt(state, start, 'fig'))
+                : undefined,
+          ),
           block: true,
         }).range(start, end),
       );
