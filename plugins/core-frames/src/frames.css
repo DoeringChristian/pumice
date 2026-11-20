@@ -1,0 +1,43 @@
+.pm-frame {
+  /* Padding, not margin: the editor measures blocks without their margins. */
+  margin: 0;
+  padding: 8px 0;
+}
+.pm-frame-view {
+  display: block;
+  width: 100%;
+  height: 240px;
+  border: 0;
+  /* The frame's page is transparent: it sits on the note. */
+  background: transparent;
+  color-scheme: inherit;
+}
+.pm-frame-caption {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: var(--font-size-ui);
+  text-align: center;
+}
+.pm-frame-error {
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-m);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-ui);
+}
+.pm-frame.is-fill {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+}
+.pm-frame.is-fill .pm-frame-view {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+.pm-frame-page {
+  height: 100%;
+  background: var(--bg);
+}

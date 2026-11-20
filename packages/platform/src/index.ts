@@ -121,6 +121,29 @@ export interface KnownVault {
   lastOpened?: number;
 }
 
+/**
+ * Serves a folder of the vault to a sandboxed frame under its own address, so an HTML file can
+ * load the files beside it by relative path.
+ */
+export interface FrameHost {
+  open(request: {
+    /** Folder of the HTML file; everything below it can be loaded. */
+    folder: VaultPath;
+    /** Other files the frame may load (its data). */
+    files: VaultPath[];
+    /** HTML put in front of the content of every HTML file served. */
+    inject: string;
+    /** Whether the page may reach the network. */
+    network: boolean;
+  }): Promise<FrameAccess>;
+}
+
+export interface FrameAccess {
+  /** The address of a vault file for this frame. */
+  url(path: VaultPath): string;
+  dispose(): void;
+}
+
 /** Choosing and switching vaults; absent where there is only one (web demo). */
 export interface VaultSwitcher {
   list(): Promise<KnownVault[]>;
@@ -154,6 +177,8 @@ export interface Platform {
   readonly vaults?: VaultSwitcher;
   /** Absent where the shell can't keep tokens out of the page (web, mobile for now). */
   readonly chatgpt?: ChatGptHost;
+  /** Absent where vault files can't be served under an address of their own (web, mobile). */
+  readonly frames?: FrameHost;
   /** Absent where programs can't be started (web, mobile). */
   readonly process?: ProcessHost;
 }

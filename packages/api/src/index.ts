@@ -18,6 +18,7 @@ export type {
   PlatformFs,
   ProcessHost,
   ChatGptHost,
+  FrameHost,
   ChildProcessHandle,
 } from '@pumice/platform';
 export { normalizePath, dirname, basename, joinPath } from '@pumice/platform';

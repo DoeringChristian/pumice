@@ -13,12 +13,17 @@ import './media.css';
 
 export const manifest = manifestJson;
 
-const IMAGE = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico'];
-const AUDIO = ['mp3', 'wav', 'm4a', 'ogg', 'flac', '3gp'];
-const VIDEO = ['mp4', 'mov', 'mkv', 'ogv', 'webm'];
+const IMAGE = ['png', 'apng', 'jpg', 'jpeg', 'jfif', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico'];
+const AUDIO = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'flac', '3gp'];
+const VIDEO = ['mp4', 'm4v', 'mov', 'mkv', 'ogv', 'webm'];
 const MIME: Record<string, string> = {
   svg: 'image/svg+xml',
   jpg: 'image/jpeg',
+  jfif: 'image/jpeg',
+  apng: 'image/apng',
+  oga: 'audio/ogg',
+  opus: 'audio/ogg',
+  m4v: 'video/mp4',
   ico: 'image/x-icon',
   mp3: 'audio/mpeg',
   m4a: 'audio/mp4',
@@ -92,36 +97,79 @@ export const plugin = definePlugin({
               zoom === null ? `Fit (${Math.round(scale * 100)}%)` : `${Math.round(scale * 100)}%`;
             stage.classList.toggle('is-fit', zoom === null);
           };
+          /**
+           * Changes the zoom and keeps the point of the picture under (x, y) where it is on
+           * screen. Without a point, the middle of the view stays put.
+           */
+          const zoomTo = (next: number | null, at?: { x: number; y: number }) => {
+            if (!image) return;
+            const view = stage.getBoundingClientRect();
+            const x = at?.x ?? view.left + view.width / 2;
+            const y = at?.y ?? view.top + view.height / 2;
+            const before = image.getBoundingClientRect();
+            const fx = (x - before.left) / before.width;
+            const fy = (y - before.top) / before.height;
+            zoom = next;
+            applyZoom();
+            const after = image.getBoundingClientRect();
+            stage.scrollLeft += after.left + fx * after.width - x;
+            stage.scrollTop += after.top + fy * after.height - y;
+          };
           const step = (dir: 1 | -1) => {
             const current = zoom ?? fitScale();
             const next =
               dir > 0
                 ? ZOOMS.find((z) => z > current + 0.001)
                 : [...ZOOMS].reverse().find((z) => z < current - 0.001);
-            if (next === undefined) return;
-            zoom = next;
-            applyZoom();
+            if (next !== undefined) zoomTo(next);
           };
-          zoomLabel.addEventListener('click', () => {
-            zoom = zoom === null ? 1 : null;
-            applyZoom();
-          });
+          zoomLabel.addEventListener('click', () => zoomTo(zoom === null ? 1 : null));
           stage.addEventListener(
             'wheel',
             (e) => {
-              // Pinch or Ctrl/Cmd+wheel zooms; plain scrolling pans.
+              // Pinch or Ctrl/Cmd+wheel zooms at the pointer; plain scrolling pans.
               if (!image || !(e.ctrlKey || e.metaKey)) return;
               e.preventDefault();
               const current = zoom ?? fitScale();
-              zoom = Math.min(8, Math.max(0.05, current * Math.exp(-e.deltaY / 300)));
-              applyZoom();
+              const next = Math.min(16, Math.max(0.05, current * Math.exp(-e.deltaY / 200)));
+              zoomTo(next, { x: e.clientX, y: e.clientY });
             },
             { passive: false },
           );
-          stage.addEventListener('dblclick', () => {
+          stage.addEventListener('dblclick', (e) => {
             if (!image) return;
-            zoom = zoom === null ? 1 : null;
-            applyZoom();
+            zoomTo(zoom === null ? Math.max(1, fitScale() * 2) : null, {
+              x: e.clientX,
+              y: e.clientY,
+            });
+          });
+          // Drag to move around a picture that is larger than the view.
+          let drag: { x: number; y: number; left: number; top: number } | undefined;
+          stage.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0 || !image) return;
+            drag = { x: e.clientX, y: e.clientY, left: stage.scrollLeft, top: stage.scrollTop };
+            stage.setPointerCapture(e.pointerId);
+            stage.classList.add('is-dragging');
+          });
+          stage.addEventListener('pointermove', (e) => {
+            if (!drag) return;
+            stage.scrollLeft = drag.left - (e.clientX - drag.x);
+            stage.scrollTop = drag.top - (e.clientY - drag.y);
+          });
+          const endDrag = (e: PointerEvent) => {
+            drag = undefined;
+            stage.classList.remove('is-dragging');
+            if (stage.hasPointerCapture(e.pointerId)) stage.releasePointerCapture(e.pointerId);
+          };
+          stage.addEventListener('pointerup', endDrag);
+          stage.addEventListener('pointercancel', endDrag);
+          stage.addEventListener('keydown', (e) => {
+            if (e.key === '+' || e.key === '=') step(1);
+            else if (e.key === '-') step(-1);
+            else if (e.key === '0') zoomTo(null);
+            else if (e.key === '1') zoomTo(1);
+            else return;
+            e.preventDefault();
           });
           const resize = new ResizeObserver(() => zoom === null && applyZoom());
           resize.observe(stage);

@@ -14,6 +14,7 @@ import editor from '@pumice/core-editor';
 import excalidraw from '@pumice/core-excalidraw';
 import explorer from '@pumice/core-explorer';
 import files from '@pumice/core-files';
+import frames from '@pumice/core-frames';
 import graph from '@pumice/core-graph';
 import ids from '@pumice/core-ids';
 import index from '@pumice/core-index';
@@ -57,6 +58,7 @@ export const bundledPlugins: PluginModule[] = [
   ids,
   files,
   media,
+  frames,
   pdf,
   vaults,
   explorer,

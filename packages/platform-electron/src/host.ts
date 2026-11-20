@@ -36,6 +36,11 @@ export interface PumiceHost {
     /** Opens the vault selector window. */
     manage(): Promise<void>;
   };
+  frames: {
+    /** Returns the token of `app://frame.<token>/<vault path>`. */
+    open(folder: string, files: string[], inject: string, network: boolean): Promise<string>;
+    close(token: string): Promise<void>;
+  };
   /** GET over https from the main process (the renderer's CSP blocks remote fetches). */
   fetchText(url: string): Promise<string>;
   /** Closes the window through the main process, so pending edits are flushed first. */

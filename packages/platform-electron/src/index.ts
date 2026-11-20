@@ -56,6 +56,16 @@ export async function createElectronPlatform(host: PumiceHost): Promise<Platform
     },
     chatgpt: chatGptHost(host),
     process: processHost(host),
+    frames: {
+      open: async ({ folder, files, inject, network }) => {
+        const token = await host.frames.open(folder, files, inject, network);
+        return {
+          url: (path) =>
+            `app://frame.${token}/${path.split('/').map(encodeURIComponent).join('/')}`,
+          dispose: () => void host.frames.close(token),
+        };
+      },
+    },
   };
 }
 

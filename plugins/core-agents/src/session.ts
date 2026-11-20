@@ -169,7 +169,11 @@ export class AgentSession implements ChatSession {
     readonly config: AgentConfig,
     private readonly host: ProcessHost,
     private readonly files: AgentFiles,
+    /** Standing guidance about the app, given with the first message of a conversation. */
+    private readonly guidance: () => string = () => '',
   ) {}
+
+  private briefed = false;
 
   private push(item: NewItem): TranscriptItem {
     const full = { ...item, id: nextItemId++ } as TranscriptItem;
@@ -286,10 +290,23 @@ export class AgentSession implements ChatSession {
     if (!this.conn || !this.sessionId || this.status === 'working') return;
     this.push({ kind: 'user', text, ...(contextLabel ? { context: contextLabel } : {}) });
     this.setStatus('working');
+    const about = this.briefed ? '' : this.guidance();
+    this.briefed = true;
     try {
       const res = await this.conn.agent.request('session/prompt', {
         sessionId: this.sessionId,
-        prompt: [...context, { type: 'text', text }],
+        prompt: [
+          ...(about
+            ? [
+                {
+                  type: 'text' as const,
+                  text: `About Pumice, the note app this conversation runs in (background, not a request):\n${about}`,
+                },
+              ]
+            : []),
+          ...context,
+          { type: 'text', text },
+        ],
       });
       if (res.stopReason === 'refusal') this.push({ kind: 'info', text: 'The agent declined.' });
       else if (res.stopReason === 'max_tokens' || res.stopReason === 'max_turn_requests')

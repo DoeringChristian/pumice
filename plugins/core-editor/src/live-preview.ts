@@ -648,7 +648,15 @@ const blockPreview = StateField.define<DecorationSet>({
 });
 
 /** Live preview: syntax hidden except around the cursor, rich widgets elsewhere. */
-export const livePreview: Extension = [revealTracking, inlinePreview, blockPreview];
+/** A rendered block (an embedded frame, …) changed its height after it was drawn. */
+const remeasure = EditorView.domEventHandlers({
+  'pumice-resize': (_event, view) => {
+    view.requestMeasure();
+    return false;
+  },
+} as Parameters<typeof EditorView.domEventHandlers>[0]);
+
+export const livePreview: Extension = [revealTracking, inlinePreview, blockPreview, remeasure];
 
 /** Line classes that also apply in source mode (heading sizes, code blocks). */
 export const sourceModeStyling = ViewPlugin.fromClass(

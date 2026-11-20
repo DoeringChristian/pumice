@@ -130,6 +130,27 @@ examples/             example community plugins (word-goal, kbd-syntax)
   move through what a tab has shown.
 - **Media**: images (including SVG), audio and video open in a tab, with zoom for images;
   double-click an embedded image to open it.
+- **Frames**: HTML files (visualizations, interactive figures, small tools) shown inside notes.
+  `![[frames/bars/index.html]]` shows one; a `frame` block passes settings and data files to it,
+  so one HTML file serves many notes and the note itself stays small:
+
+  ````markdown
+  ```frame
+  file: [[frames/field/index.html]]
+  caption: Pressure field, run 12
+  data: [[runs/field-12.json]]
+  colormap: viridis
+  ```
+  ````
+
+  `file`, `caption` and `height` are reserved; every other key is the file's own setting, and a
+  value that is one `[[link]]` arrives as a URL the page can fetch. The page gets the app's theme
+  (CSS variables, base styles, light/dark) and `window.pumice.settings`; the settings are also
+  the JSON in the URL fragment, so a frame runs without Pumice too. Frames are sandboxed: they
+  see their own folder and the files passed to them, not the vault, the app or (unless allowed
+  in Settings → Frames) the network. They reload when their files change. The assistant is told
+  how frames work and to follow `frames/README.md`, the style guide written by "Frames: write
+  the style guide". In Obsidian a frame block shows as a code block.
 - **PDF annotator**: PDFs open in a tab. Select text to highlight it, add notes, list the
   highlights, and copy a quote with a link (`[[paper.pdf#page=3]]` opens that page). Annotations
   are kept in `.pumice/annotations/<pdf path>.json`, the PDF is never changed; highlights made

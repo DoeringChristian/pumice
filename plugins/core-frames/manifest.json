@@ -1,0 +1,18 @@
+{
+  "id": "core.frames",
+  "name": "Frames",
+  "version": "0.1.0",
+  "description": "Shows HTML files (visualizations, small tools) inside notes: ![[file.html]], or a frame block that passes settings and data files to a reusable HTML file. Frames run sandboxed and follow the app's theme.",
+  "api": "^0.1.0",
+  "permissions": ["platform"],
+  "dependencies": {
+    "core.vault": "^0.1.0",
+    "core.workspace": "^0.1.0",
+    "core.index": "^0.1.0",
+    "core.reader": "^0.1.0"
+  },
+  "optionalDependencies": {
+    "core.settings": "^0.1.0",
+    "core.agents": "^0.1.0"
+  }
+}

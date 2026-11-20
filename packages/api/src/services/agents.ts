@@ -1,4 +1,5 @@
 import type { VaultPath } from '@pumice/platform';
+import type { Disposable } from '../lifecycle';
 import { defineService } from '../service';
 
 /** The assistant, for other plugins (provided by `core.agents`). */
@@ -11,6 +12,11 @@ export interface AgentsApi {
    * (`chatgpt`, `claude`, …) or `agent` for the one selected in the chat panel.
    */
   replyToComment(request: { path: VaultPath; threadId: string; agent?: string }): Promise<void>;
+  /**
+   * Adds standing guidance for every agent (how a feature of the app is used). The text is
+   * read when a conversation starts.
+   */
+  registerGuidance(text: () => string): Disposable;
 }
 
 export const Agents = defineService<AgentsApi>('core.agents');

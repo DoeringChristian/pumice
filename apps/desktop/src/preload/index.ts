@@ -49,6 +49,10 @@ const host: PumiceHost = {
     forget: (path) => invoke('vaults.forget', path),
     manage: () => invoke('vaults.manage'),
   },
+  frames: {
+    open: (folder, files, inject, network) => invoke('frames.open', folder, files, inject, network),
+    close: (token) => invoke('frames.close', token),
+  },
   fetchText: (url) => invoke('net.fetchText', url),
   closeWindow: () => invoke('window.close'),
   chatgpt: {

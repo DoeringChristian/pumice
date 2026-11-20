@@ -77,11 +77,12 @@
   flex: none;
   max-width: none;
   height: auto;
-  cursor: zoom-in;
+  cursor: grab;
+  user-select: none;
   -webkit-user-drag: none;
 }
-.pm-media-stage:not(.is-fit) .pm-media-image {
-  cursor: zoom-out;
+.pm-media-stage.is-dragging .pm-media-image {
+  cursor: grabbing;
 }
 .pm-media-video {
   margin: auto;

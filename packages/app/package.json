@@ -26,6 +26,7 @@
     "@pumice/core-links": "workspace:*",
     "@pumice/core-agents": "workspace:*",
     "@pumice/core-backlinks": "workspace:*",
+    "@pumice/core-frames": "workspace:*",
     "@pumice/core-media": "workspace:*",
     "@pumice/core-outline": "workspace:*",
     "@pumice/core-pdf": "workspace:*",

@@ -307,6 +307,9 @@ importers:
       '@pumice/core-files':
         specifier: workspace:*
         version: link:../../plugins/core-files
+      '@pumice/core-frames':
+        specifier: workspace:*
+        version: link:../../plugins/core-frames
       '@pumice/core-graph':
         specifier: workspace:*
         version: link:../../plugins/core-graph
@@ -770,6 +773,18 @@ importers:
       '@pumice/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+
+  plugins/core-frames:
+    dependencies:
+      '@pumice/api':
+        specifier: workspace:*
+        version: link:../../packages/api
+      '@pumice/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
 
   plugins/core-graph:
     dependencies:

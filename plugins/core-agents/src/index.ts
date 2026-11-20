@@ -145,6 +145,14 @@ export const plugin = definePlugin({
 
     const sessions = new Map<string, ChatSession>();
     ctx.register(() => sessions.forEach((s) => s.dispose()));
+    // How features of the app are used, contributed by other plugins (frames, …).
+    const guidanceSources = new Set<() => string>();
+    const guidance = () =>
+      [...guidanceSources]
+        .map((text) => text())
+        .filter(Boolean)
+        .join('\n\n');
+
     const startSession = (agentId: string) => {
       sessions.get(agentId)?.dispose();
       const config = agents().find((a) => a.id === agentId) ?? agents()[0]!;
@@ -159,8 +167,9 @@ export const plugin = definePlugin({
               saveModel: (id) => void ctx.settings.set('chatgptModel', id),
               savedMode: () => ctx.settings.get<string | undefined>('chatgptMode', undefined),
               saveMode: (id) => void ctx.settings.set('chatgptMode', id),
+              guidance,
             })
-          : new AgentSession(config, host!, files);
+          : new AgentSession(config, host!, files, guidance);
       sessions.set(agentId, s);
       void s.start();
       return s;
@@ -373,6 +382,10 @@ export const plugin = definePlugin({
     ctx.provide(Agents, {
       available: () => agents().length > 0 && !!root,
       replyToComment,
+      registerGuidance: (text) => {
+        guidanceSources.add(text);
+        return { dispose: () => void guidanceSources.delete(text) };
+      },
     });
 
     ctx.commands.register({

@@ -33,6 +33,8 @@ export interface ChatGptSessionDeps {
   saveModel(id: string): void;
   savedMode(): string | undefined;
   saveMode(id: string): void;
+  /** Standing guidance other plugins added (how features of the app are used). */
+  guidance?(): string;
 }
 
 const MODES = [
@@ -93,7 +95,8 @@ const TOOLS: Array<{ name: string; description: string; parameters: Record<strin
   },
   {
     name: 'create_note',
-    description: 'Creates a new note with the given Markdown content. Fails if the file exists.',
+    description:
+      "Creates a new text file: a note (Markdown), or another file such as a frame's HTML or a JSON data file. Fails if the file exists.",
     parameters: {
       type: 'object',
       properties: { path: { type: 'string' }, content: { type: 'string' } },
@@ -465,7 +468,7 @@ export class ChatGptSession implements ChatSession {
     await this.deps.host.responses(
       {
         model: this.currentModel,
-        instructions: INSTRUCTIONS,
+        instructions: [INSTRUCTIONS, this.deps.guidance?.()].filter(Boolean).join('\n\n'),
         input: this.input,
         tools: TOOLS.filter((t) => this.currentMode !== 'read' || !WRITE_TOOLS.has(t.name)).map(
           (t) => ({ type: 'function', strict: false, ...t }),

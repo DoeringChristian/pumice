@@ -17,6 +17,7 @@ import * as fs from 'node:fs/promises';
 import { basename, dirname, join, normalize, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ChatGptError, createChatGpt, type ChatGpt } from './chatgpt';
+import { FrameServer } from './frames';
 import { ProcessManager } from './processes';
 
 const OS: PlatformOs =
@@ -36,14 +37,25 @@ protocol.registerSchemesAsPrivileged([
       supportFetchAPI: true,
       stream: true,
       codeCache: true,
+      // Frames (sandboxed, so another origin) fetch their own files from this scheme.
+      corsEnabled: true,
     },
   },
 ]);
+
+const frames = new FrameServer();
 
 function serveRenderer(): void {
   const root = resolve(__dirname, '../renderer');
   protocol.handle('app', (request) => {
     const url = new URL(request.url);
+    if (FrameServer.isFrameHost(url.host)) {
+      return frames.respond(request, (owner, path) => {
+        const session = sessions.get(owner);
+        if (!session) throw new Error('The window of this frame is closed');
+        return session.abs(path);
+      });
+    }
     const file = normalize(join(root, decodeURIComponent(url.pathname)));
     if (url.host !== 'pumice' || (file !== root && !file.startsWith(root + sep)))
       return new Response('Not found', { status: 404 });
@@ -313,6 +325,15 @@ const handlers: Record<string, Handler> = {
   },
   'vaults.pick': (s, newWindow) => pickAndOpenVault(newWindow ? undefined : s.window),
   'vaults.manage': () => openLauncher(),
+  'frames.open': (s, folder, files, inject, network) =>
+    frames.open({
+      owner: s.window.webContents.id,
+      folder: s.abs(String(folder)),
+      files: new Set((Array.isArray(files) ? files : []).map((f) => s.abs(String(f)))),
+      inject: String(inject ?? ''),
+      network: network === true,
+    }),
+  'frames.close': (s, token) => frames.close(String(token), s.window.webContents.id),
   'vaults.forget': async (_s, path) => {
     const config = await readConfig();
     const recent = (config.recent ?? []).filter((v) => v.path !== path);
@@ -425,6 +446,7 @@ async function openVault(root: string): Promise<void> {
   window.on('closed', () => {
     session.dispose();
     sessions.delete(contentsId);
+    frames.closeAll(contentsId);
   });
   window.once('ready-to-show', () => window.show());
 
