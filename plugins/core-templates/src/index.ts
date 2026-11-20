@@ -28,7 +28,12 @@ export const plugin = definePlugin({
     const editor = ctx.use(Editor);
     const documents = ctx.use(Documents);
     const syntax = ctx.use(MarkdownSyntax);
-    const folder = () => ctx.settings.get('folder', 'Templates').replace(/\/+$/, '');
+    // Lowercase by default; a vault that already has a "Templates" folder keeps it.
+    const folder = () => {
+      const set = ctx.settings.get('folder', '').replace(/\/+$/, '');
+      if (set) return set;
+      return !vault.get('templates') && vault.get('Templates') ? 'Templates' : 'templates';
+    };
 
     const api: TemplatesApi = {
       list: () =>
@@ -122,7 +127,7 @@ export const plugin = definePlugin({
       run: async () => {
         const templatePath = await pick();
         if (!templatePath) return;
-        const name = await workspace.showPrompt({ title: 'Note name', value: 'Untitled' });
+        const name = await workspace.showPrompt({ title: 'Note name', value: 'untitled' });
         if (!name?.trim()) return;
         const active = workspace.activeFile;
         const target = vault.availablePath(active ? dirname(active) : '', name.trim(), 'md');
@@ -144,7 +149,7 @@ export const plugin = definePlugin({
             input.setAttribute('aria-label', 'Template folder');
             input.addEventListener(
               'change',
-              () => void ctx.settings.set('folder', input.value.trim() || 'Templates'),
+              () => void ctx.settings.set('folder', input.value.trim()),
             );
             const row = document.createElement('div');
             row.className = 'pm-setting';

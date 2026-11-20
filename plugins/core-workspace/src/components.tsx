@@ -220,6 +220,26 @@ function TabBar({ model }: { model: WorkspaceModel }) {
   if (model.tabs.length === 0) return <div className="pm-tabbar" />;
   return (
     <div className="pm-tabbar" role="tablist">
+      <div className="pm-nav">
+        <button
+          className="pm-icon-button"
+          title="Back"
+          aria-label="Back"
+          disabled={!model.canGo(-1)}
+          onClick={() => void model.go(-1)}
+        >
+          <Icon name="arrow-left" size={15} />
+        </button>
+        <button
+          className="pm-icon-button"
+          title="Forward"
+          aria-label="Forward"
+          disabled={!model.canGo(1)}
+          onClick={() => void model.go(1)}
+        >
+          <Icon name="arrow-right" size={15} />
+        </button>
+      </div>
       {model.tabs.map((leaf, i) => (
         <div
           key={leaf.id}
@@ -588,6 +608,11 @@ function ContextMenu({
                 void entry.run();
               }}
             >
+              {entry.checked !== undefined && (
+                <span className="pm-menu-check">
+                  {entry.checked && <Icon name="check" size={14} />}
+                </span>
+              )}
               {entry.icon && <Icon name={entry.icon} size={15} />}
               {entry.label}
             </button>

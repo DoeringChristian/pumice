@@ -1,0 +1,11 @@
+{
+  "id": "core.media",
+  "name": "Media viewer",
+  "version": "0.1.0",
+  "description": "Opens images (including SVG), audio and video files in a tab.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.vault": "^0.1.0",
+    "core.workspace": "^0.1.0"
+  }
+}

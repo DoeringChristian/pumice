@@ -51,7 +51,7 @@ tags: [pumice]
 
 The kernel only knows about plugins, services and commands. See the [[Welcome]] note.
 
-![[Attachments/plugins.svg|360]]
+![[attachments/plugins.svg|360]]
 
 A drawing, embedded:
 
@@ -102,7 +102,7 @@ Decisions are recorded in [[Architecture#Core plugins]].[^1]
 - Publish to the web #idea/later
 - An idea about the architecture of plugins.
 `,
-  'Daily/2026-10-31.md': `# 2026-10-31
+  'daily/2026-10-31.md': `# 2026-10-31
 
 Worked on the [[Roadmap]]. Mentioned Architecture without linking it.
 `,
@@ -317,5 +317,5 @@ box2: [[Architecture]]
 }
 \`\`\`
 %%`,
-  'Attachments/plugins.svg': `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="120" viewBox="0 0 360 120"><rect width="360" height="120" rx="12" fill="#f2e4dc"/><g font-family="sans-serif" font-size="14" fill="#2b2723"><rect x="20" y="40" width="90" height="40" rx="8" fill="#e3825a"/><text x="38" y="65">kernel</text><rect x="135" y="40" width="90" height="40" rx="8" fill="#fff"/><text x="152" y="65">plugins</text><rect x="250" y="40" width="90" height="40" rx="8" fill="#fff"/><text x="275" y="65">you</text></g></svg>`,
+  'attachments/plugins.svg': `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="120" viewBox="0 0 360 120"><rect width="360" height="120" rx="12" fill="#f2e4dc"/><g font-family="sans-serif" font-size="14" fill="#2b2723"><rect x="20" y="40" width="90" height="40" rx="8" fill="#e3825a"/><text x="38" y="65">kernel</text><rect x="135" y="40" width="90" height="40" rx="8" fill="#fff"/><text x="152" y="65">plugins</text><rect x="250" y="40" width="90" height="40" rx="8" fill="#fff"/><text x="275" y="65">you</text></g></svg>`,
 };

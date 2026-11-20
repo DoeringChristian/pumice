@@ -1,6 +1,7 @@
 import {
   Documents,
   Editor,
+  FileLocations,
   Links,
   MarkdownSyntax,
   MetadataIndex,
@@ -66,6 +67,9 @@ export const plugin = definePlugin({
         const r = index.resolve(target, sourcePath);
         if (r) await workspace.openFile(r.file.path, { newTab, state: subpath ? { subpath } : {} });
       },
+      attachmentPath: (source, name, extension) =>
+        ctx.tryUse(FileLocations)?.attachmentPath(source, name, extension) ??
+        vault.availablePath(dirname(source), name, extension),
       openExternal(url) {
         void ctx.tryUse(ShellService)?.openExternal(url);
       },
@@ -183,8 +187,10 @@ export const plugin = definePlugin({
       category: 'Excalidraw',
       run: async () => {
         const active = workspace.activeFile;
-        const folder = active && vault.get(active) ? dirname(active) : '';
-        const path = vault.availablePath(folder, 'Drawing', 'excalidraw.md');
+        const source = active && vault.get(active) ? active : undefined;
+        const path =
+          ctx.tryUse(FileLocations)?.drawingPath(source, 'drawing') ??
+          vault.availablePath(source ? dirname(source) : '', 'drawing', 'excalidraw.md');
         await vault.create(path, newDrawing());
         await workspace.openFile(path);
       },
@@ -195,11 +201,9 @@ export const plugin = definePlugin({
       const active = editor?.active();
       if (!editor || !active) return;
       const noteName = (active.path.split('/').pop() ?? 'Note').replace(/\.[^.]+$/, '');
-      const path = vault.availablePath(
-        dirname(active.path),
-        `${noteName} drawing`,
-        'excalidraw.md',
-      );
+      const path =
+        ctx.tryUse(FileLocations)?.drawingPath(active.path, `${noteName} drawing`) ??
+        vault.availablePath(dirname(active.path), `${noteName} drawing`, 'excalidraw.md');
       await vault.create(path, newDrawing());
       // As Obsidian writes it: `![[Name.excalidraw]]`.
       const embed = `![[${(path.split('/').pop() ?? '').replace(/\.md$/i, '')}]]`;

@@ -13,12 +13,15 @@ import documents from '@pumice/core-documents';
 import editor from '@pumice/core-editor';
 import excalidraw from '@pumice/core-excalidraw';
 import explorer from '@pumice/core-explorer';
+import files from '@pumice/core-files';
 import graph from '@pumice/core-graph';
 import ids from '@pumice/core-ids';
 import index from '@pumice/core-index';
 import links from '@pumice/core-links';
 import markdown from '@pumice/core-markdown';
+import media from '@pumice/core-media';
 import outline from '@pumice/core-outline';
+import pdf from '@pumice/core-pdf';
 import palette from '@pumice/core-palette';
 import properties from '@pumice/core-properties';
 import reader from '@pumice/core-reader';
@@ -52,6 +55,9 @@ export const bundledPlugins: PluginModule[] = [
   reader,
   links,
   ids,
+  files,
+  media,
+  pdf,
   vaults,
   explorer,
   switcher,

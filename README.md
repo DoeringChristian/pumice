@@ -122,14 +122,29 @@ examples/             example community plugins (word-goal, kbd-syntax)
   switcher, command palette, graph, new drawing, templates, agent chat.
 - **Tables**: in live preview a table is a grid — type in cells, Tab/Enter/arrows to move, handles
   for insert/move/delete/align/sort, `+` bars to add rows and columns. `Mod+Alt+T` inserts one.
-- **Comments**: `Mod+Alt+M` (or right-click) comments the selection. Stored in
-  `.pumice/comments/<note path>.json`, not in the markdown; they follow their text through edits.
+- **Comments**: select text and click the comment button next to it (or `Mod+Alt+M`); the comment
+  is written right there. Stored in `.pumice/comments/<note path>.json`, not in the markdown; they
+  follow their text through edits. A comment or reply with `@agent` (or `@claude`, `@chatgpt`,
+  `@codex`, `@gemini`) is answered by that agent in the thread, and it can edit the note.
+- **Back and forward**: arrows in the tab bar, `Mod+Alt+←/→` and the mouse's back/forward buttons
+  move through what a tab has shown.
+- **Media**: images (including SVG), audio and video open in a tab, with zoom for images;
+  double-click an embedded image to open it.
+- **PDF annotator**: PDFs open in a tab. Select text to highlight it, add notes, list the
+  highlights, and copy a quote with a link (`[[paper.pdf#page=3]]` opens that page). Annotations
+  are kept in `.pumice/annotations/<pdf path>.json`, the PDF is never changed; highlights made
+  with Obsidian's "PDF Annotator" plugin are taken over on first open.
 - **Copy location**: `Mod+Alt+C` copies `path:line` for pasting into an agent; also "with text"
   and "link to block" in the right-click menu.
 - **Assistant** (desktop): a chat in the right sidebar. Built in: **ChatGPT on your own plan**
   through OpenAI's "Sign in with ChatGPT" (nothing to install; it can search, read and, with your
   approval, edit notes). Also Claude Code, Codex and Gemini CLI through the Agent Client Protocol
   if you have them. `Mod+Alt+A` asks about the selection.
+- **Slash commands** in the chat: type `/` for the agent's own commands (for example `/compact`);
+  the built-in assistant has `/compact`, `/clear` and `/help`, and `/new` starts a new chat.
+- **Files**: paste or drop images and files into a note; they go to the attachment folder set
+  in Settings → Files (vault folder, a fixed folder, next to the note, or a subfolder), with a
+  separate default folder for new drawings. Unset, both follow the vault's Obsidian settings.
 - **LaTeX in drawings**: Excalidraw is built from our fork (`vendor/excalidraw`, upstream master +
   the MathJax subtypes PR #6037/#6936). Select a text, switch on "Math (LaTeX)" in its style panel and write `$…$`.
 

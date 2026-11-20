@@ -31,6 +31,14 @@ export interface Leaf {
   instance?: ViewInstance;
   /** Sidebar panel this leaf belongs to. */
   panelId?: string;
+  /** What this tab has shown, for back and forward (main tabs only). */
+  history: HistoryEntry[];
+  historyIndex: number;
+}
+
+export interface HistoryEntry {
+  type: string;
+  state: ViewState;
 }
 
 export interface SidebarState {
@@ -265,24 +273,78 @@ export class WorkspaceModel implements WorkspaceApi {
     const current = this.activeTab;
     // Like Obsidian: navigating replaces the current tab unless asked for a new one.
     if (current && !opts.newTab) {
-      if (current.viewType === type && current.instance?.setState) {
-        current.state = state;
-        current.path = state.path;
-        await current.instance.setState(state);
-        this.activate(current);
-        return;
-      }
-      const index = this.tabs.indexOf(current);
-      this.destroyLeaf(current);
-      const leaf = await this.createLeaf('main', type, state);
-      this.tabs.splice(index, 0, leaf);
-      this.activate(leaf);
+      await this.navigate(current, { type, state }, true);
       return;
     }
     const leaf = await this.createLeaf('main', type, state);
     const index = current ? this.tabs.indexOf(current) + 1 : this.tabs.length;
     this.tabs.splice(index, 0, leaf);
     this.activate(leaf);
+  }
+
+  /**
+   * Shows something else in a tab. `record` adds it to the tab's history (false when moving
+   * through the history itself).
+   */
+  private async navigate(
+    current: Leaf,
+    to: HistoryEntry,
+    record: boolean,
+    targetIndex?: number,
+  ): Promise<void> {
+    const { history } = current;
+    // Remember where the tab was (cursor, mode, …) so coming back restores it.
+    const leaving = history[current.historyIndex];
+    if (leaving) leaving.state = current.instance?.getState?.() ?? current.state;
+    let index = targetIndex ?? current.historyIndex;
+    if (record) {
+      const same = leaving && leaving.type === to.type && leaving.state.path === to.state.path;
+      if (same) history[index] = to;
+      else {
+        history.splice(index + 1, history.length, to);
+        if (history.length > 50) history.shift();
+        index = history.length - 1;
+      }
+    }
+    if (current.viewType === to.type && current.instance?.setState) {
+      current.state = to.state;
+      current.path = to.state.path;
+      current.historyIndex = index;
+      await current.instance.setState(to.state);
+      this.activate(current);
+      return;
+    }
+    const at = this.tabs.indexOf(current);
+    this.destroyLeaf(current);
+    const leaf = await this.createLeaf('main', to.type, to.state);
+    leaf.history = history;
+    leaf.historyIndex = index;
+    this.tabs.splice(at, 0, leaf);
+    this.activate(leaf);
+  }
+
+  canGo(delta: -1 | 1): boolean {
+    const tab = this.activeTab;
+    return !!tab && tab.historyIndex + delta >= 0 && tab.historyIndex + delta < tab.history.length;
+  }
+
+  /** Back (-1) or forward (1) in the active tab's history. */
+  async go(delta: -1 | 1): Promise<void> {
+    const tab = this.activeTab;
+    if (!tab || !this.canGo(delta)) return;
+    // Skip entries whose file is gone.
+    let index = tab.historyIndex + delta;
+    while (
+      index >= 0 &&
+      index < tab.history.length &&
+      tab.history[index]!.state.path !== undefined &&
+      !this.handlerFor(tab.history[index]!.state.path as VaultPath)
+    )
+      index += delta;
+    const entry = tab.history[index];
+    if (!entry) return;
+    await this.navigate(tab, entry, false, index);
+    this.update();
   }
 
   closeFile(path: VaultPath): void {
@@ -499,6 +561,8 @@ export class WorkspaceModel implements WorkspaceApi {
       title: view.title,
       path: state.path,
       container,
+      history: [{ type: viewType, state }],
+      historyIndex: 0,
     };
     leaf.instance = await view.create(
       {

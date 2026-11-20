@@ -84,6 +84,8 @@ export interface MenuItem {
   icon?: string;
   danger?: boolean;
   disabled?: boolean;
+  /** For a list of choices: shows a check mark column, ticked on the current one. */
+  checked?: boolean;
   run: () => unknown;
 }
 

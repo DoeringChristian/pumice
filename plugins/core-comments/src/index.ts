@@ -7,6 +7,8 @@ import {
   PlatformService,
   SettingsUi,
   Workspace,
+  Agents,
+  agentMention,
   definePlugin,
   type LocatedThread,
   type PluginModule,
@@ -15,6 +17,7 @@ import {
 import { h, settingItem, textInput } from '@pumice/ui';
 import '@pumice/ui/panel.css';
 import manifestJson from '../manifest.json';
+import { commentBubble, openComposer } from './bubble';
 import { commentEditorExtension, setActiveThread } from './editor-ext';
 import { PanelState, renderPanel } from './panel';
 import { COMMENTS_DIR, CommentStore } from './store';
@@ -63,6 +66,43 @@ export const plugin = definePlugin({
     };
     const showPanel = () => workspace.openView('comments', { location: 'right' });
 
+    // Comments that mention an agent (`@agent`, `@claude`, …) are answered by it, in the thread.
+    const agentAvailable = () => !!ctx.tryUse(Agents)?.available();
+    const maybeAskAgent = (path: VaultPath, threadId: string, body: string) => {
+      const mention = agentMention(body);
+      if (!mention) return;
+      if (!agentAvailable()) {
+        workspace.notify('No assistant is available to answer this comment.', { kind: 'warning' });
+        return;
+      }
+      void ctx
+        .tryUse(Agents)!
+        .replyToComment({ path, threadId, agent: mention })
+        .catch((e: unknown) =>
+          workspace.notify(e instanceof Error ? e.message : String(e), { kind: 'error' }),
+        );
+    };
+    const commentMode = () => ctx.settings.get('commentMode', false);
+
+    ctx.register(
+      editor.registerExtension((ectx) =>
+        commentBubble(
+          {
+            commentMode,
+            agentAvailable,
+            submit: async (path, range, body) => {
+              const thread = await store.addThread(path, range, body, author());
+              state.focusThread = thread.id;
+              state.fire();
+              void showPanel();
+              maybeAskAgent(path, thread.id, body);
+            },
+          },
+          ectx,
+        ),
+      ),
+    );
+
     ctx.register(
       editor.registerExtension((ectx) =>
         commentEditorExtension(
@@ -94,17 +134,17 @@ export const plugin = definePlugin({
               workspace,
               editorFor,
               author,
-              hasAgent: () => ctx.commands.list().some((c) => c.id === 'agents.ask'),
+              hasAgent: agentAvailable,
+              onReply: maybeAskAgent,
+              commentMode,
+              setCommentMode: (on: boolean) => void ctx.settings.set('commentMode', on),
               askAgent: (path: VaultPath, thread: LocatedThread) =>
-                void ctx.commands.execute('agents.ask', {
-                  path,
-                  ...(thread.range ? { range: thread.range } : {}),
-                  prompt: `Address this comment thread on ${path}:\n\n${thread.comments
-                    .map((c) => `${c.author}: ${c.body}`)
-                    .join(
-                      '\n',
-                    )}\n\nCommented text:\n> ${thread.anchor.exact.replace(/\n/g, '\n> ')}`,
-                }),
+                void ctx
+                  .tryUse(Agents)
+                  ?.replyToComment({ path, threadId: thread.id, agent: 'agent' })
+                  .catch((e: unknown) =>
+                    workspace.notify(e instanceof Error ? e.message : String(e), { kind: 'error' }),
+                  ),
             },
             state,
           );
@@ -132,14 +172,8 @@ export const plugin = definePlugin({
         const word = active.view.state.wordAt(from);
         if (word) range = { from: word.from, to: word.to };
       }
-      state.draft = {
-        path: active.path,
-        ...range,
-        quote: active.view.state.sliceDoc(range.from, range.to),
-      };
-      // Render first, then open: the panel focuses the comment box once it is visible.
-      state.fire();
-      void showPanel();
+      // The comment box opens next to the text.
+      active.view.dispatch({ effects: openComposer.of(range) });
     };
 
     ctx.commands.register({
@@ -149,6 +183,21 @@ export const plugin = definePlugin({
       hotkeys: ['Mod+Alt+M'],
       when: () => !!editor.active(),
       run: addComment,
+    });
+    ctx.commands.register({
+      id: 'comments.toggle-mode',
+      title: 'Comment mode: comment as soon as text is selected (on/off)',
+      category: 'Comments',
+      run: async () => {
+        await ctx.settings.set('commentMode', !commentMode());
+        state.fire();
+        workspace.notify(
+          commentMode() ? 'Comment mode on: select text to comment' : 'Comment mode off',
+          {
+            timeout: 2000,
+          },
+        );
+      },
     });
     ctx.commands.register({
       id: 'comments.show',

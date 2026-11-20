@@ -1,0 +1,16 @@
+{
+  "id": "core.files",
+  "name": "Files",
+  "version": "0.1.0",
+  "description": "Default folders for attachments and drawings, and adding images and files to notes by pasting or dropping them.",
+  "api": "^0.1.0",
+  "permissions": ["platform"],
+  "dependencies": {
+    "core.vault": "^0.1.0",
+    "core.workspace": "^0.1.0"
+  },
+  "optionalDependencies": {
+    "core.editor": "^0.1.0",
+    "core.settings": "^0.1.0"
+  }
+}

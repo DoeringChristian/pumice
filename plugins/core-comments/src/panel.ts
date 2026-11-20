@@ -21,6 +21,10 @@ export interface PanelDeps {
   /** Whether an agent plugin is available to hand threads to. */
   hasAgent(): boolean;
   askAgent(path: VaultPath, thread: LocatedThread): void;
+  /** Called after a reply was added (replies that mention an agent are sent to it). */
+  onReply(path: VaultPath, threadId: string, body: string): void;
+  commentMode(): boolean;
+  setCommentMode(on: boolean): void;
 }
 
 /** Shared state between the commands and the panel. */
@@ -88,6 +92,8 @@ function composer(
 export function renderPanel(container: HTMLElement, deps: PanelDeps, state: PanelState) {
   const { store, workspace } = deps;
   const body = h('div', { class: 'pm-panel-scroll pm-comments' });
+  const modeToggle = h('input', { type: 'checkbox', checked: deps.commentMode() });
+  modeToggle.addEventListener('change', () => deps.setCommentMode(modeToggle.checked));
   const resolvedToggle = h('input', { type: 'checkbox', checked: state.showResolved });
   resolvedToggle.addEventListener('change', () => {
     state.showResolved = resolvedToggle.checked;
@@ -100,6 +106,15 @@ export function renderPanel(container: HTMLElement, deps: PanelDeps, state: Pane
       h(
         'div',
         { class: 'pm-panel-toolbar pm-comments-toolbar' },
+        h(
+          'label',
+          {
+            class: 'pm-comments-filter',
+            title: 'Open the comment box as soon as text is selected',
+          },
+          modeToggle,
+          ' Comment mode',
+        ),
         h('label', { class: 'pm-comments-filter' }, resolvedToggle, ' Show resolved'),
       ),
       body,
@@ -246,7 +261,11 @@ export function renderPanel(container: HTMLElement, deps: PanelDeps, state: Pane
       card.append(entry);
     }
     if (focused && !t.resolved) {
-      card.append(composer('Reply…', 'Reply', (b) => run(store.reply(path, t.id, b))));
+      card.append(
+        composer(deps.hasAgent() ? 'Reply… (@agent asks the assistant)' : 'Reply…', 'Reply', (b) =>
+          run(store.reply(path, t.id, b).then(() => deps.onReply(path, t.id, b))),
+        ),
+      );
     } else if (!t.resolved) {
       card.append(
         h(
@@ -338,7 +357,7 @@ export function renderPanel(container: HTMLElement, deps: PanelDeps, state: Pane
           { class: 'pm-panel-empty' },
           resolved
             ? `No open comments (${resolved} resolved).`
-            : 'No comments. Select text and press ⌘/Ctrl+Alt+M, or right-click → Add comment.',
+            : 'No comments. Select text and click the comment button next to it (or press ⌘/Ctrl+Alt+M).',
         ),
       );
     }

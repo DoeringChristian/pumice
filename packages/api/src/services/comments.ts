@@ -41,13 +41,22 @@ export interface CommentsApi {
     body: string,
     author?: string,
   ): Promise<CommentThread>;
-  reply(path: VaultPath, threadId: string, body: string, author?: string): Promise<void>;
+  reply(path: VaultPath, threadId: string, body: string, author?: string): Promise<CommentEntry>;
   editComment(path: VaultPath, threadId: string, commentId: string, body: string): Promise<void>;
   deleteComment(path: VaultPath, threadId: string, commentId: string): Promise<void>;
   setResolved(path: VaultPath, threadId: string, resolved: boolean): Promise<void>;
   deleteThread(path: VaultPath, threadId: string): Promise<void>;
   /** Fires with the note whose comments changed. */
   readonly onDidChange: Event<VaultPath>;
+}
+
+/**
+ * Who a comment addresses with an `@mention` of an agent: `@agent` (the default one) or an
+ * agent by name (`@chatgpt`, `@claude`, `@codex`, `@gemini`). Undefined when it mentions none.
+ */
+export function agentMention(body: string): string | undefined {
+  const m = /(^|[\s(])@(agent|assistant|chatgpt|claude|codex|gemini)\b/i.exec(body);
+  return m ? m[2]!.toLowerCase() : undefined;
 }
 
 export const Comments = defineService<CommentsApi>('core.comments');

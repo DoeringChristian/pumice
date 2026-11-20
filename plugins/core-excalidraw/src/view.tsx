@@ -456,11 +456,10 @@ export class ExcalidrawView implements ViewInstance {
     const { bytes, mime } = dataUrlToBytes(file.dataURL);
     const ext = MIME_EXT[mime] ?? 'png';
     const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
-    const path = this.services.vault.availablePath(
-      dirname(handle.path),
-      `Pasted Image ${stamp}`,
-      ext,
-    );
+    const name = `Pasted Image ${stamp}`;
+    const path =
+      this.services.attachmentPath?.(handle.path, name, ext) ??
+      this.services.vault.availablePath(dirname(handle.path), name, ext);
     await this.services.vault.create(path, bytes);
     handle.doc.transact(() => {
       handle.doc.getMap<string>('embedded').set(file.id, `[[${basename(path)}]]`);

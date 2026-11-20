@@ -86,6 +86,11 @@ describe('agent session (ACP)', () => {
       { kind: 'tool' }
     >;
     expect(tool.status).toBe('completed');
+    // The agent's own slash commands are offered in the chat box.
+    expect(session.commands).toEqual([
+      { name: 'compact', description: 'Summarize the conversation', hint: 'focus' },
+      { name: 'review', description: 'Review changes' },
+    ]);
     expect(tool.content[0]).toMatchObject({ type: 'diff', newText: 'Hello (edited by agent)' });
     expect(tool.locations).toEqual(['/vault/note.md']);
     session.dispose();

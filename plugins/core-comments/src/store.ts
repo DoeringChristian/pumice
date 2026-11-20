@@ -152,6 +152,7 @@ export class CommentStore implements CommentsApi {
     return this.mutate(path, (file) => {
       const c: CommentEntry = { id: newId(), author, body, created: new Date().toISOString() };
       this.thread(file, threadId).comments.push(c);
+      return c;
     });
   }
 

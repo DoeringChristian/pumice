@@ -13,6 +13,7 @@
     "core.vault": "^0.1.0"
   },
   "optionalDependencies": {
-    "core.settings": "^0.1.0"
+    "core.settings": "^0.1.0",
+    "core.agents": "^0.1.0"
   }
 }

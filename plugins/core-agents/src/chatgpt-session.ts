@@ -10,6 +10,7 @@ import type {
   AgentConfig,
   AgentFiles,
   ChatSession,
+  SlashCommand,
   SessionStatus,
   TranscriptItem,
 } from './session';
@@ -166,6 +167,15 @@ export class ChatGptSession implements ChatSession {
   models: Array<{ id: string; name: string }> = [];
   currentModel: string | undefined;
   loginOptions: Array<{ id: string; name: string }> = [];
+  commands: SlashCommand[] = [
+    {
+      name: 'compact',
+      description: 'Summarize the conversation so far to free up context',
+      hint: 'what to keep (optional)',
+    },
+    { name: 'clear', description: 'Forget the conversation and start over' },
+    { name: 'help', description: 'List the commands' },
+  ];
   private readonly changed = new Emitter<void>();
   readonly onDidChange = (listener: () => void) => this.changed.event(listener);
   /** The conversation as Responses API input items (resent on every request). */
@@ -284,6 +294,9 @@ export class ChatGptSession implements ChatSession {
 
   async prompt(text: string, context: ContentBlock[] = [], contextLabel?: string): Promise<void> {
     if (this.status !== 'ready') return;
+    const command = /^\/([a-z][\w-]*)(?:\s+([\s\S]*))?$/i.exec(text.trim());
+    if (command && this.commands.some((c) => c.name === command[1]!.toLowerCase()))
+      return this.runCommand(command[1]!.toLowerCase(), command[2]?.trim() ?? '');
     this.push({ kind: 'user', text, ...(contextLabel ? { context: contextLabel } : {}) });
     const parts: string[] = [];
     for (const block of context) {
@@ -326,6 +339,109 @@ export class ChatGptSession implements ChatSession {
         this.push({ kind: 'error', text: e instanceof Error ? e.message : String(e) });
         this.setStatus('ready');
       }
+    }
+  }
+
+  // ---- slash commands -------------------------------------------------------------------------
+
+  private async runCommand(name: string, args: string): Promise<void> {
+    this.push({ kind: 'user', text: `/${name}${args ? ` ${args}` : ''}` });
+    if (name === 'help') {
+      this.push({
+        kind: 'info',
+        text: this.commands.map((c) => `/${c.name} — ${c.description}`).join('\n'),
+      });
+    } else if (name === 'clear') {
+      this.input.length = 0;
+      this.alwaysAllowed.clear();
+      this.items.length = 0;
+      this.push({
+        kind: 'info',
+        text: 'Started over. The assistant no longer knows the earlier conversation.',
+      });
+    } else if (name === 'compact') {
+      await this.compact(args);
+    }
+  }
+
+  /**
+   * Replaces the conversation the model sees with a summary of it. Every request resends the
+   * whole conversation, so long chats get slow and hit the plan's limits sooner.
+   */
+  private async compact(focus: string): Promise<void> {
+    if (!this.input.length) {
+      this.push({ kind: 'info', text: 'Nothing to compact yet.' });
+      return;
+    }
+    if (!this.currentModel) return;
+    this.setStatus('working');
+    this.abort = new AbortController();
+    let summary = '';
+    let failure: TurnError | undefined;
+    try {
+      await this.deps.host.responses(
+        {
+          model: this.currentModel,
+          instructions:
+            'You compress conversations. Write a summary another assistant can continue from: what the user wants, what was found (note paths, facts, decisions), what was changed in which notes, and what is still open. Be complete but brief. No preamble.',
+          input: [
+            ...this.input,
+            {
+              type: 'message',
+              role: 'user',
+              content: [
+                {
+                  type: 'input_text',
+                  text: `Summarize our conversation so far.${focus ? ` Pay particular attention to: ${focus}` : ''}`,
+                },
+              ],
+            },
+          ],
+          tool_choice: 'none',
+          store: false,
+          stream: true,
+        },
+        (event) => {
+          const type = event.type as string;
+          if (type === 'response.output_text.delta' && typeof event.delta === 'string')
+            summary += event.delta;
+          else if (type === 'response.failed')
+            failure = providerError(0, { error: (event.response as { error?: unknown })?.error });
+          else if (type === 'error') failure = providerError(0, event);
+          else if (type === 'http_error')
+            failure = providerError(Number(event.status) || 0, event.body);
+        },
+        this.abort.signal,
+      );
+      if (failure) throw failure;
+      if (!summary.trim())
+        throw new TurnError('The summary came back empty; the conversation was kept.');
+      const before = this.input.length;
+      this.input.length = 0;
+      this.input.push({
+        type: 'message',
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text: `Summary of our conversation so far (the full text was dropped to save space):\n\n${summary.trim()}`,
+          },
+        ],
+      });
+      this.push({ kind: 'thought', text: summary.trim() });
+      this.push({
+        kind: 'info',
+        text: `Compacted ${before} conversation items into a summary (open "Thinking" above to read it).`,
+      });
+      this.setStatus('ready');
+    } catch (e) {
+      if (this.disposed) return;
+      if (this.abort.signal.aborted)
+        this.push({ kind: 'info', text: 'Stopped; the conversation was kept.' });
+      else if ((e as { needsSignIn?: boolean }).needsSignIn)
+        return this.needSignIn((e as Error).message);
+      else this.push({ kind: 'error', text: e instanceof Error ? e.message : String(e) });
+      this.setStatus('ready');
     }
   }
 

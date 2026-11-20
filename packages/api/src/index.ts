@@ -72,6 +72,8 @@ export {
 export * from './services/links';
 export * from './services/ids';
 export * from './services/comments';
+export * from './services/files';
+export * from './services/agents';
 export { newNoteContent } from './notes';
 export * from './services/settings-ui';
 export * from './services/templates';

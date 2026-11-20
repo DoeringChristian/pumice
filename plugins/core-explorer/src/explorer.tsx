@@ -93,7 +93,7 @@ export function Explorer({ vault, workspace, settings, actions }: Props) {
         label: 'New folder',
         icon: 'folder-plus',
         run: async () => {
-          const name = await workspace.showPrompt({ title: 'New folder', value: 'Untitled' });
+          const name = await workspace.showPrompt({ title: 'New folder', value: 'untitled' });
           if (name?.trim()) {
             await vault.createFolder(joinPath(folder, name.trim()));
             persist(new Set([...expanded, folder]));
@@ -184,7 +184,7 @@ export function Explorer({ vault, workspace, settings, actions }: Props) {
           title="New folder"
           aria-label="New folder"
           onClick={async () => {
-            const name = await workspace.showPrompt({ title: 'New folder', value: 'Untitled' });
+            const name = await workspace.showPrompt({ title: 'New folder', value: 'untitled' });
             if (name?.trim()) await vault.createFolder(name.trim());
           }}
         >
@@ -252,7 +252,7 @@ export function Explorer({ vault, workspace, settings, actions }: Props) {
                 run: async () => {
                   const name = await workspace.showPrompt({
                     title: 'New folder',
-                    value: 'Untitled',
+                    value: 'untitled',
                   });
                   if (name?.trim()) await vault.createFolder(name.trim());
                 },

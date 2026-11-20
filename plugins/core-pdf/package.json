@@ -1,0 +1,14 @@
+{
+  "name": "@pumice/core-pdf",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@pumice/api": "workspace:*",
+    "@pumice/ui": "workspace:*",
+    "pdfjs-dist": "5.4.296"
+  }
+}

@@ -40,7 +40,12 @@ export const plugin = definePlugin({
     const vault = ctx.use(Vault);
     const workspace = ctx.use(Workspace);
     const templates = ctx.use(Templates);
-    const folder = () => ctx.settings.get('folder', 'Daily');
+    // Lowercase by default; a vault that already has the folder we used to create keeps it.
+    const folder = () => {
+      const set = ctx.settings.get('folder', '');
+      if (set) return set;
+      return !vault.get('daily') && vault.get('Daily') ? 'Daily' : 'daily';
+    };
     const format = () => ctx.settings.get('format', 'YYYY-MM-DD');
     const template = () => ctx.settings.get('template', '');
 

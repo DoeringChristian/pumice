@@ -222,6 +222,43 @@ describe('ChatGPT assistant', () => {
     session.dispose();
   });
 
+  it('/compact replaces the conversation with a summary; /clear forgets it', async () => {
+    const { session, requests } = setup([
+      text('The plan ships in March.'),
+      [
+        { type: 'response.output_text.delta', delta: 'User asked about the plan; ' },
+        { type: 'response.output_text.delta', delta: 'it ships in March.' },
+        { type: 'response.completed', response: { status: 'completed', output: [] } },
+      ],
+      text('Yes, March.'),
+      text('Hello.'),
+    ]);
+    await session.start();
+    expect(session.commands.map((c) => c.name)).toEqual(['compact', 'clear', 'help']);
+    await session.prompt('When does the plan ship?');
+    await session.prompt('/compact dates');
+    // The summary request: the whole conversation plus the instruction, no tools.
+    const summarize = requests[1]!;
+    expect(summarize.tool_choice).toBe('none');
+    const asked = summarize.input as Array<{ content: Array<{ text: string }> }>;
+    expect(asked[asked.length - 1]!.content[0]!.text).toContain(
+      'Pay particular attention to: dates',
+    );
+    expect(session.status).toBe('ready');
+    // The next request carries only the summary and the new question.
+    await session.prompt('So March?');
+    const after = requests[2]!.input as Array<{ content: Array<{ text: string }> }>;
+    expect(after).toHaveLength(2);
+    expect(after[0]!.content[0]!.text).toContain('User asked about the plan; it ships in March.');
+    expect(after[1]!.content[0]!.text).toBe('So March?');
+
+    await session.prompt('/clear');
+    expect(session.items.map((i) => i.kind)).toEqual(['info']);
+    await session.prompt('hi');
+    expect(requests[3]!.input).toHaveLength(1);
+    session.dispose();
+  });
+
   it('errorText digs the reason out of an agent error', () => {
     expect(
       errorText({

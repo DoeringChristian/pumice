@@ -23,6 +23,13 @@ export interface AgentConfig {
   kind?: 'acp' | 'chatgpt';
 }
 
+export interface SlashCommand {
+  name: string;
+  description: string;
+  /** What may follow the command, e.g. "what to focus on". */
+  hint?: string;
+}
+
 /** What the chat panel needs from a running agent, whatever is behind it. */
 export interface ChatSession {
   readonly config: AgentConfig;
@@ -34,6 +41,8 @@ export interface ChatSession {
   models: Array<{ id: string; name: string }>;
   currentModel: string | undefined;
   readonly onDidChange: (listener: () => void) => { dispose(): void };
+  /** Slash commands the agent understands (typed as `/name` at the start of a message). */
+  commands: SlashCommand[];
   /** Sign-in buttons to offer while `status` is `error`. */
   readonly loginOptions: Array<{ id: string; name: string }>;
   start(): Promise<void>;
@@ -140,6 +149,8 @@ export class AgentSession implements ChatSession {
   models: Array<{ id: string; name: string }> = [];
   currentModel: string | undefined;
   async setModel(): Promise<void> {}
+  /** Announced by the agent (`available_commands_update`); sent to it as ordinary prompts. */
+  commands: SlashCommand[] = [];
 
   readonly items: TranscriptItem[] = [];
   status: SessionStatus = 'starting';
@@ -392,6 +403,13 @@ export class AgentSession implements ChatSession {
         else this.push({ kind: 'plan', entries });
         break;
       }
+      case 'available_commands_update':
+        this.commands = u.availableCommands.map((c) => ({
+          name: c.name,
+          description: c.description,
+          ...(c.input && 'hint' in c.input && c.input.hint ? { hint: c.input.hint } : {}),
+        }));
+        break;
       case 'current_mode_update':
         this.currentMode = u.currentModeId;
         break;

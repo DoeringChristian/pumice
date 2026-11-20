@@ -82,17 +82,60 @@ export function renderAgentPanel(
     return { dispose() {} };
   }
 
-  const picker = h('select', { class: 'pm-select pm-agent-picker', 'aria-label': 'Agent' });
-  const modePicker = h('select', {
-    class: 'pm-select pm-agent-mode',
-    'aria-label': 'Mode',
-    hidden: true,
-  });
-  const modelPicker = h('select', {
-    class: 'pm-select pm-agent-mode',
-    'aria-label': 'Model',
-    hidden: true,
-  });
+  /**
+   * A pill that shows the current choice and opens the app's menu with the others (native
+   * select boxes look foreign here and are unreadable in a narrow sidebar).
+   */
+  const pill = (label: string, icon: string | undefined, cls = '') => {
+    const text = h('span', { class: 'pm-agent-pill-text' });
+    const button = h(
+      'button',
+      {
+        class: `pm-agent-pill ${cls}`,
+        type: 'button',
+        'aria-label': label,
+        'aria-haspopup': 'menu',
+      },
+      icon ? createIcon(icon, 13) : null,
+      text,
+      createIcon('chevron-down', 12),
+    );
+    let options: Array<{ id: string; name: string }> = [];
+    let current: string | undefined;
+    let pick: (id: string) => void = () => undefined;
+    button.addEventListener('click', () => {
+      const r = button.getBoundingClientRect();
+      workspace.showContextMenu(
+        options.map((o) => ({
+          label: o.name,
+          checked: o.id === current,
+          run: () => pick(o.id),
+        })),
+        { x: r.left, y: r.bottom + 4 },
+      );
+    });
+    return {
+      button,
+      set(
+        opts: Array<{ id: string; name: string }>,
+        value: string | undefined,
+        onPick: (id: string) => void,
+      ) {
+        options = opts;
+        current = value;
+        pick = onPick;
+        const name = opts.find((o) => o.id === value)?.name ?? label;
+        text.textContent = name;
+        button.title = `${label}: ${name}`;
+        button.hidden = opts.length === 0;
+      },
+    };
+  };
+  /** The agent the panel shows. */
+  let agentId = deps.currentAgent();
+  const agentPill = pill('Agent', 'bot', 'pm-agent-pill-agent');
+  const modelPill = pill('Model', undefined);
+  const modePill = pill('Mode', undefined);
   const status = h('span', { class: 'pm-agent-status' });
   const newChat = h(
     'button',
@@ -119,22 +162,22 @@ export function renderAgentPanel(
     ' Stop',
   );
   root.append(
-    h(
-      'div',
-      { class: 'pm-panel-toolbar pm-agent-toolbar' },
-      picker,
-      modelPicker,
-      modePicker,
-      status,
-      newChat,
-    ),
+    h('div', { class: 'pm-panel-toolbar pm-agent-toolbar' }, agentPill.button, status, newChat),
     transcript,
     h(
       'div',
       { class: 'pm-agent-composer' },
       chips,
       input,
-      h('div', { class: 'pm-agent-composer-actions' }, stop, send),
+      h(
+        'div',
+        { class: 'pm-agent-composer-actions' },
+        modelPill.button,
+        modePill.button,
+        h('span', { class: 'pm-agent-composer-spacer' }),
+        stop,
+        send,
+      ),
     ),
   );
 
@@ -149,31 +192,31 @@ export function renderAgentPanel(
     render();
   };
 
-  const fillPicker = () => {
-    picker.replaceChildren(
-      ...deps
-        .agents()
-        .map((a) => h('option', { value: a.id, selected: a.id === deps.currentAgent() }, a.name)),
-    );
+  const selectAgent = (id: string) => {
+    agentId = id;
+    deps.setCurrentAgent(id);
+    attach(id, deps.agents().find((a) => a.id === id)?.kind === 'chatgpt');
   };
-  picker.addEventListener('change', () => {
-    deps.setCurrentAgent(picker.value);
-    attach(picker.value, deps.agents().find((a) => a.id === picker.value)?.kind === 'chatgpt');
-  });
-  modePicker.addEventListener('change', () => void session?.setMode(modePicker.value));
-  modelPicker.addEventListener('change', () => void session?.setModel(modelPicker.value));
   newChat.addEventListener('click', () => {
     session?.dispose();
-    session = deps.startSession(picker.value);
-    attach(picker.value, false);
+    session = deps.startSession(agentId);
+    attach(agentId, false);
   });
 
   const submit = () => {
     const text = input.value.trim();
     if (!text) return;
+    commandList.hidden = true;
+    matches = [];
+    if (/^\/new\s*$/.test(text)) {
+      input.value = '';
+      state.draft = '';
+      newChat.click();
+      return;
+    }
     if (!session || session.status === 'closed' || session.status === 'error') {
-      session = deps.startSession(picker.value);
-      attach(picker.value, false);
+      session = deps.startSession(agentId);
+      attach(agentId, false);
     }
     const note = includeNote ? deps.currentNote() : undefined;
     const atts = [...(note ? [note] : []), ...state.attachments];
@@ -199,13 +242,85 @@ export function renderAgentPanel(
   };
   send.addEventListener('click', submit);
   stop.addEventListener('click', () => session?.cancel());
+  // ---- slash commands: "/" at the start of the message lists what the agent understands -----
+
+  const commandList = h('div', { class: 'pm-agent-commands', role: 'listbox', hidden: true });
+  input.before(commandList);
+  let matches: Array<{ name: string; description: string; hint?: string }> = [];
+  let selected = 0;
+  const allCommands = () => [
+    ...(session?.commands ?? []),
+    // Works with every agent: handled here, not sent.
+    { name: 'new', description: 'Start a new chat with this agent' },
+  ];
+  const renderCommands = () => {
+    const typed = /^\/([\w-]*)$/.exec(input.value);
+    matches = typed
+      ? allCommands().filter((c) => c.name.toLowerCase().startsWith(typed[1]!.toLowerCase()))
+      : [];
+    commandList.hidden = matches.length === 0;
+    if (selected >= matches.length) selected = 0;
+    commandList.replaceChildren(
+      ...matches.map((c, i) =>
+        h(
+          'button',
+          {
+            class: `pm-agent-command${i === selected ? ' is-selected' : ''}`,
+            role: 'option',
+            'aria-selected': i === selected,
+            // mousedown: keep the focus in the text box
+            onmousedown: (e: MouseEvent) => {
+              e.preventDefault();
+              pickCommand(c.name);
+            },
+          },
+          h('span', { class: 'pm-agent-command-name' }, `/${c.name}`),
+          h(
+            'span',
+            { class: 'pm-agent-command-desc' },
+            c.hint ? `${c.description} — ${c.hint}` : c.description,
+          ),
+        ),
+      ),
+    );
+  };
+  const pickCommand = (name: string) => {
+    input.value = `/${name} `;
+    state.draft = input.value;
+    renderCommands();
+    input.focus();
+  };
+
   input.addEventListener('keydown', (e) => {
+    if (matches.length && !e.isComposing) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        selected = (selected + (e.key === 'ArrowDown' ? 1 : matches.length - 1)) % matches.length;
+        return renderCommands();
+      }
+      // Tab completes; Enter completes too unless the command is already typed out.
+      const exact = matches[selected]!.name === input.value.slice(1);
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !exact)) {
+        e.preventDefault();
+        return pickCommand(matches[selected]!.name);
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        matches = [];
+        commandList.hidden = true;
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       submit();
     }
   });
-  input.addEventListener('input', () => (state.draft = input.value));
+  input.addEventListener('input', () => {
+    state.draft = input.value;
+    renderCommands();
+  });
+  input.addEventListener('blur', () => (commandList.hidden = true));
 
   const renderChips = () => {
     chips.replaceChildren();
@@ -388,7 +503,7 @@ export function renderAgentPanel(
 
   const render = () => {
     const atBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 40;
-    const config = deps.agents().find((a) => a.id === picker.value);
+    const config = deps.agents().find((a) => a.id === agentId);
     status.textContent = session
       ? {
           starting: 'Starting…',
@@ -403,22 +518,13 @@ export function renderAgentPanel(
     status.dataset.status = session?.status ?? '';
     stop.hidden = session?.status !== 'working';
     send.disabled = session?.status === 'working';
-    modelPicker.hidden = !session?.models.length;
-    if (session?.models.length) {
-      modelPicker.replaceChildren(
-        ...session.models.map((m) =>
-          h('option', { value: m.id, selected: m.id === session!.currentModel }, m.name),
-        ),
-      );
-    }
-    modePicker.hidden = !session?.modes.length;
-    if (session?.modes.length) {
-      modePicker.replaceChildren(
-        ...session.modes.map((m) =>
-          h('option', { value: m.id, selected: m.id === session!.currentMode }, m.name),
-        ),
-      );
-    }
+    agentPill.set(
+      deps.agents().map((a) => ({ id: a.id, name: a.name })),
+      agentId,
+      selectAgent,
+    );
+    modelPill.set(session?.models ?? [], session?.currentModel, (id) => void session?.setModel(id));
+    modePill.set(session?.modes ?? [], session?.currentMode, (id) => void session?.setMode(id));
     const items = session?.items ?? [];
     if (!items.length) {
       transcript.replaceChildren(
@@ -460,12 +566,11 @@ export function renderAgentPanel(
   state.listeners.add(onState);
   const activeSub = workspace.onDidChangeActiveFile(() => renderChips());
 
-  fillPicker();
   input.value = state.draft;
   renderChips();
   // The built-in assistant has nothing to launch: show its state (or the sign-in) right away.
   const builtIn = (id: string) => deps.agents().find((a) => a.id === id)?.kind === 'chatgpt';
-  attach(picker.value || deps.currentAgent(), builtIn(picker.value || deps.currentAgent()));
+  attach(agentId, builtIn(agentId));
 
   return {
     focus() {

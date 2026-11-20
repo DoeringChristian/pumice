@@ -29,7 +29,7 @@ export async function createNote(
   vault: VaultApi,
   workspace: WorkspaceApi,
   folder: string,
-  name = 'Untitled',
+  name = 'untitled',
 ) {
   const path = vault.availablePath(folder, name, 'md');
   // Notes created in Pumice get their identity right away (docs/plan/04).
@@ -133,7 +133,7 @@ export const plugin = definePlugin({
       title: 'Create new folder',
       category: 'Files',
       run: async () => {
-        const name = await workspace.showPrompt({ title: 'New folder', value: 'Untitled' });
+        const name = await workspace.showPrompt({ title: 'New folder', value: 'untitled' });
         if (!name?.trim()) return;
         const parent = targetFolder(vault, workspace, newNoteLocation());
         await vault.createFolder(joinPath(parent, name.trim()));

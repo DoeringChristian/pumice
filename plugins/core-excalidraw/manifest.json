@@ -14,7 +14,8 @@
   "optionalDependencies": {
     "core.reader": "^0.1.0",
     "core.editor": "^0.1.0",
-    "core.links": "^0.1.0"
+    "core.links": "^0.1.0",
+    "core.files": "^0.1.0"
   },
   "contributes": {
     "commands": [

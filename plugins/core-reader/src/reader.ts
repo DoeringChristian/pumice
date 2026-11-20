@@ -314,6 +314,14 @@ export class ReaderImpl implements ReaderApi {
         if (width) img.width = width;
         if (height) img.height = height;
         img.src = await this.blobUrl(ctx.file!.path, ctx.file!.extension, (d) => ctx.register(d));
+        // Double-click opens the picture on its own (a single click still places the cursor).
+        const path = ctx.file!.path;
+        img.title = 'Double-click to open';
+        img.addEventListener('dblclick', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void this.deps.workspace.openFile(path, { newTab: e.metaKey || e.ctrlKey });
+        });
         ctx.container.append(img);
       },
     });

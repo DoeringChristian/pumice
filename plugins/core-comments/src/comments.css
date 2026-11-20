@@ -153,3 +153,70 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
+/* Comment button next to a selection, and the comment box that opens there */
+.cm-tooltip:has(.pm-comment-bubble),
+.cm-tooltip:has(.pm-comment-popover) {
+  border: 0;
+  background: none;
+}
+.pm-comment-bubble {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  margin: 4px 0 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  box-shadow: 0 2px 8px var(--shadow, rgba(0, 0, 0, 0.15));
+  cursor: pointer;
+}
+.pm-comment-bubble:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.pm-comment-popover {
+  width: 300px;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-elevated);
+  box-shadow: 0 8px 24px var(--shadow, rgba(0, 0, 0, 0.2));
+  font-family: var(--font-ui);
+  font-size: var(--font-size-ui);
+  white-space: normal;
+}
+.pm-comment-popover-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.pm-comment-ask {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pm-comment-ask:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.pm-comment-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+.pm-comments-toolbar {
+  gap: 12px;
+}

@@ -1,5 +1,7 @@
 import {
   Documents,
+  Agents,
+  Comments,
   Editor,
   MetadataIndex,
   MarkdownSyntax,
@@ -262,6 +264,117 @@ export const plugin = definePlugin({
       await showPanel();
       state.fire();
     };
+    // ---- Comments addressed to an agent (`@agent …`): it answers in the thread ----------------
+
+    /** Resolves once the session can take a prompt; false if it can't (sign-in, crash). */
+    const whenReady = (s: ChatSession) =>
+      new Promise<boolean>((resolve) => {
+        const check = () => {
+          if (s.status === 'ready') return done(true);
+          if (s.status === 'error' || s.status === 'closed') return done(false);
+        };
+        const sub = s.onDidChange(check);
+        const done = (ok: boolean) => {
+          sub.dispose();
+          resolve(ok);
+        };
+        check();
+      });
+
+    /** One comment request at a time per agent: they share its conversation. */
+    const commentQueue = new Map<string, Promise<unknown>>();
+
+    const replyToComment = async (a: { path: VaultPath; threadId: string; agent?: string }) => {
+      const comments = ctx.tryUse(Comments);
+      if (!comments || !a.path || !a.threadId) return;
+      const path = a.path;
+      const threadId = a.threadId;
+      const list = agents();
+      if (!list.length) throw new Error('No assistant is available here (desktop app only).');
+      // `@agent` is the one selected in the chat panel; `@claude` etc. name one.
+      const wanted = (a.agent ?? 'agent').toLowerCase();
+      const config =
+        list.find((c) => c.id === wanted) ?? list.find((c) => c.id === currentAgent()) ?? list[0]!;
+
+      const placeholder = await comments.reply(path, threadId, 'Working on it…', config.name);
+      const finish = (text: string) => comments.editComment(path, threadId, placeholder.id, text);
+
+      const run = async () => {
+        let session = sessions.get(config.id);
+        if (!session || session.status === 'closed' || session.status === 'error')
+          session = startSession(config.id);
+        if (!(await whenReady(session))) {
+          const needsSignIn = session.loginOptions.length > 0;
+          await finish(
+            needsSignIn
+              ? `${config.name} needs you to sign in first. Open the assistant panel, sign in, then mention it again.`
+              : `${config.name} could not start. Open the assistant panel to see why.`,
+          );
+          return;
+        }
+        const thread = (await comments.threads(path)).find((t) => t.id === threadId);
+        if (!thread) return;
+        const doc = documents.peek(path) ?? (await vault.read(path));
+        const line = (pos: number) => doc.slice(0, pos).split('\n').length;
+        const where = thread.range
+          ? ` (line${line(thread.range.from) === line(thread.range.to) ? ` ${line(thread.range.from)}` : `s ${line(thread.range.from)}–${line(thread.range.to)}`})`
+          : '';
+        const conversation = thread.comments
+          .filter((c) => c.id !== placeholder.id)
+          .map((c) => `${c.author}: ${c.body}`)
+          .join('\n');
+        const prompt = [
+          `You were mentioned in a comment thread on the note \`${path}\`.`,
+          `The comment is attached to this text${where}:\n> ${thread.anchor.exact.replace(/\n/g, '\n> ') || '(no text)'}`,
+          `Thread:\n${conversation}`,
+          'Answer the latest comment. If it asks for a change to the note, make the change, then say briefly what you did. Your final message is posted as your reply in the thread, so keep it short and do not repeat the question.',
+        ].join('\n\n');
+
+        // The chat panel may not be visible: ask for approvals in a dialog instead.
+        const asked = new Set<number>();
+        const approvals = session.onDidChange(() => {
+          for (const item of session!.items) {
+            if (item.kind !== 'permission' || item.chosen || asked.has(item.id)) continue;
+            asked.add(item.id);
+            void workspace
+              .confirm(`${config.name} wants to: ${item.title}`, { confirmLabel: 'Allow' })
+              .then((ok) => {
+                const pick = item.options.find((o) =>
+                  ok ? o.kind === 'allow_once' : o.kind === 'reject_once',
+                );
+                item.respond?.(pick?.optionId ?? (ok ? (item.options[0]?.optionId ?? null) : null));
+              });
+          }
+        });
+        const before = session.items.length;
+        try {
+          await session.prompt(prompt, [{ type: 'resource_link', uri: fileUri(path), name: path }]);
+        } finally {
+          approvals.dispose();
+        }
+        const produced = session.items.slice(before);
+        const answer = produced
+          .flatMap((i) => (i.kind === 'agent' ? [i.text.trim()] : []))
+          .filter(Boolean)
+          .join('\n\n');
+        const problem = produced.flatMap((i) => (i.kind === 'error' ? [i.text] : [])).join('\n');
+        await finish(answer || (problem ? `Could not answer: ${problem}` : 'Done.'));
+      };
+
+      const queued = (commentQueue.get(config.id) ?? Promise.resolve()).then(run, run);
+      commentQueue.set(
+        config.id,
+        queued.catch(() => undefined),
+      );
+      await queued.catch((e: unknown) =>
+        finish(`Could not answer: ${e instanceof Error ? e.message : String(e)}`),
+      );
+    };
+    ctx.provide(Agents, {
+      available: () => agents().length > 0 && !!root,
+      replyToComment,
+    });
+
     ctx.commands.register({
       id: 'agents.ask',
       title: 'Ask agent about selection',

@@ -38,6 +38,28 @@ export const plugin = definePlugin({
 
     const hasTab = () => !!model.activeTab;
     ctx.commands.register({
+      id: 'workspace.back',
+      title: 'Go back',
+      category: 'Workspace',
+      hotkeys: ['Mod+Alt+ArrowLeft'],
+      run: () => model.go(-1),
+    });
+    ctx.commands.register({
+      id: 'workspace.forward',
+      title: 'Go forward',
+      category: 'Workspace',
+      hotkeys: ['Mod+Alt+ArrowRight'],
+      run: () => model.go(1),
+    });
+    // The mouse's back and forward buttons.
+    const onMouseNav = (e: MouseEvent) => {
+      if (e.button !== 3 && e.button !== 4) return;
+      e.preventDefault();
+      void model.go(e.button === 3 ? -1 : 1);
+    };
+    window.addEventListener('mouseup', onMouseNav);
+    ctx.register(() => window.removeEventListener('mouseup', onMouseNav));
+    ctx.commands.register({
       id: 'workspace.close-tab',
       title: 'Close current tab',
       category: 'Workspace',
@@ -56,14 +78,14 @@ export const plugin = definePlugin({
       id: 'workspace.next-tab',
       title: 'Next tab',
       category: 'Workspace',
-      hotkeys: ['Ctrl+Tab', 'Mod+Alt+ArrowRight'],
+      hotkeys: ['Ctrl+Tab'],
       run: () => model.cycleTab(1),
     });
     ctx.commands.register({
       id: 'workspace.previous-tab',
       title: 'Previous tab',
       category: 'Workspace',
-      hotkeys: ['Ctrl+Shift+Tab', 'Mod+Alt+ArrowLeft'],
+      hotkeys: ['Ctrl+Shift+Tab'],
       run: () => model.cycleTab(-1),
     });
     ctx.commands.register({

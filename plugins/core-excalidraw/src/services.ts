@@ -19,4 +19,6 @@ export interface DrawingServices {
     newTab: boolean,
   ): Promise<void>;
   openExternal(url: string): void;
+  /** A free path for an image pasted into the drawing at `source` (default: next to it). */
+  attachmentPath?(source: VaultPath, name: string, extension: string): VaultPath;
 }

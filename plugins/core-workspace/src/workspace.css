@@ -680,3 +680,27 @@ html[data-platform='desktop'][data-os='macos'] .pm-tabbar .pm-tab,
 html[data-platform='desktop'][data-os='macos'] .pm-tabbar button {
   -webkit-app-region: no-drag;
 }
+
+.pm-menu-check {
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  color: var(--accent);
+}
+
+/* Back and forward, at the start of the tab bar */
+.pm-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  align-self: center;
+  margin-right: 6px;
+  flex: none;
+}
+.pm-nav .pm-icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+html[data-platform='desktop'][data-os='macos'] .pm-nav {
+  -webkit-app-region: no-drag;
+}

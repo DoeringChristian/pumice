@@ -31,6 +31,13 @@ const app = agent({ name: 'mock' })
       .join('');
     const resources = params.prompt.filter((b) => b.type === 'resource').length;
     await update({
+      sessionUpdate: 'available_commands_update',
+      availableCommands: [
+        { name: 'compact', description: 'Summarize the conversation', input: { hint: 'focus' } },
+        { name: 'review', description: 'Review changes' },
+      ],
+    });
+    await update({
       sessionUpdate: 'agent_thought_chunk',
       content: { type: 'text', text: 'thinking' },
     });

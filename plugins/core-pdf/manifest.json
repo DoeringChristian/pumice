@@ -1,0 +1,15 @@
+{
+  "id": "core.pdf",
+  "name": "PDF annotator",
+  "version": "0.1.0",
+  "description": "Read PDFs, highlight text and attach notes. Annotations are kept next to the vault (in .pumice/annotations), the PDF itself is never changed.",
+  "api": "^0.1.0",
+  "permissions": ["platform"],
+  "dependencies": {
+    "core.vault": "^0.1.0",
+    "core.workspace": "^0.1.0"
+  },
+  "optionalDependencies": {
+    "core.links": "^0.1.0"
+  }
+}

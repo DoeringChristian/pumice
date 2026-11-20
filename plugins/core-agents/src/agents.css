@@ -8,16 +8,56 @@
   align-items: center;
   gap: 6px;
 }
-.pm-agent-toolbar .pm-select {
-  width: auto;
+.pm-agent-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   min-width: 0;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
 }
-.pm-agent-picker {
-  flex: 1 1 auto;
+.pm-agent-pill[hidden] {
+  display: none;
 }
-.pm-agent-mode {
+.pm-agent-pill:hover {
+  background: var(--bg-hover);
+}
+.pm-agent-pill-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pm-agent-pill svg {
+  flex: none;
+  color: var(--text-muted);
+}
+/* The agent's name is the panel's title. */
+.pm-agent-pill-agent {
   flex: 0 1 auto;
-  max-width: 110px;
+  height: 28px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.pm-agent-toolbar .pm-agent-status {
+  margin-left: auto;
+}
+.pm-agent-composer-actions {
+  align-items: center;
+}
+.pm-agent-composer-actions .pm-agent-pill {
+  flex: 0 1 auto;
+}
+.pm-agent-composer-spacer {
+  flex: 1;
 }
 .pm-agent-status {
   font-size: 11px;
@@ -232,7 +272,6 @@
 }
 .pm-agent-composer-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 6px;
   margin-top: 6px;
 }
@@ -241,4 +280,61 @@
 }
 .pm-agent-install[data-ok='false'] {
   color: var(--danger);
+}
+
+/* Slash command list above the message box */
+.pm-agent-composer {
+  position: relative;
+}
+.pm-agent-commands {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% - 4px);
+  z-index: 5;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-elevated);
+  box-shadow: 0 6px 20px var(--shadow, rgba(0, 0, 0, 0.18));
+}
+.pm-agent-commands[hidden] {
+  display: none;
+}
+.pm-agent-command {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pm-agent-command.is-selected,
+.pm-agent-command:hover {
+  background: var(--bg-active);
+}
+.pm-agent-command-name {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--accent);
+}
+.pm-agent-command-desc {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pm-agent-info {
+  white-space: pre-wrap;
 }
