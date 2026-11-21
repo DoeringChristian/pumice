@@ -52,6 +52,16 @@ export interface Lifecycle {
 export interface Shell {
   openExternal(url: string): Promise<void>;
   revealInFileManager?(path: VaultPath): Promise<void>;
+  /** The spelling checker that marks words in text fields (absent where there is none to ask). */
+  spelling?: {
+    /**
+     * Called from a `contextmenu` handler that does not prevent the default: the misspelled
+     * word that was right-clicked and its corrections (undefined: the word is spelled right).
+     */
+    atPointer(): Promise<{ word: string; suggestions: string[] } | undefined>;
+    /** Adds a word to the user's dictionary: it is no longer marked. */
+    learn(word: string): Promise<void>;
+  };
 }
 
 export type PlatformKind = 'desktop' | 'mobile' | 'web';

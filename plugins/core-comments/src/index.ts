@@ -69,8 +69,37 @@ export const plugin = definePlugin({
 
     // Comments that mention an agent (`@agent`, `@claude`, …) are answered by it, in the thread.
     const agentAvailable = () => !!ctx.tryUse(Agents)?.available();
+    /**
+     * Whom a comment addresses: the `@name` in it, or, in a thread an agent answered before,
+     * that agent's chat again (a reply there continues the conversation with it).
+     */
+    const addressed = (threadId: string | undefined, body: string): string | undefined => {
+      const agents = ctx.tryUse(Agents);
+      const names = agents?.available() ? agents.mentions().map((m) => m.mention) : [];
+      const mention = agentMention(body, names);
+      if (mention) return mention;
+      return threadId && agents?.available() && agents.answers(threadId) ? 'agent' : undefined;
+    };
+    const mentions = () => {
+      const agents = ctx.tryUse(Agents);
+      return agents?.available() ? agents.mentions() : [];
+    };
+    const recipient = async (
+      path: VaultPath,
+      thread: { id?: string; range?: { from: number; to: number } | null },
+      body: string,
+    ): Promise<string | undefined> => {
+      const mention = addressed(thread.id, body);
+      if (!mention || !agentAvailable()) return undefined;
+      return ctx.tryUse(Agents)!.recipient({
+        path,
+        mention,
+        ...(thread.id ? { threadId: thread.id } : {}),
+        ...(thread.range ? { range: thread.range } : {}),
+      });
+    };
     const maybeAskAgent = (path: VaultPath, threadId: string, body: string) => {
-      const mention = agentMention(body);
+      const mention = addressed(threadId, body);
       if (!mention) return;
       if (!agentAvailable()) {
         workspace.notify('No assistant is available to answer this comment.', { kind: 'warning' });
@@ -91,6 +120,8 @@ export const plugin = definePlugin({
           {
             commentMode,
             agentAvailable,
+            recipient: (path, range, body) => recipient(path, { range }, body),
+            mentions,
             submit: async (path, range, body) => {
               const thread = await store.addThread(path, range, body, author());
               state.focusThread = thread.id;
@@ -142,6 +173,8 @@ export const plugin = definePlugin({
                   { timeout: 4000 },
                 ),
               onReply: maybeAskAgent,
+              recipient,
+              mentions,
               commentMode,
               setCommentMode: (on: boolean) => void ctx.settings.set('commentMode', on),
               askAgent: (path: VaultPath, thread: LocatedThread) =>

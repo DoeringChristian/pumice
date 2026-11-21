@@ -1,5 +1,6 @@
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
+import { sectionFolding } from './folding';
 import { commonmarkLanguage, markdown, markdownKeymap } from '@codemirror/lang-markdown';
 import { yamlFrontmatter } from '@codemirror/lang-yaml';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
@@ -494,6 +495,7 @@ export class MarkdownView implements ViewInstance {
         rectangularSelection(),
         closeBrackets(),
         completionExtension(),
+        sectionFolding(),
         search({ top: true }),
         highlightSelectionMatches(),
         placeholder('Start writing…'),

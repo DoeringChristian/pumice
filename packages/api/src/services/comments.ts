@@ -54,9 +54,17 @@ export interface CommentsApi {
  * Who a comment addresses with an `@mention` of an agent: `@agent` (the default one) or an
  * agent by name (`@chatgpt`, `@claude`, `@codex`, `@gemini`). Undefined when it mentions none.
  */
-export function agentMention(body: string): string | undefined {
-  const m = /(^|[\s(])@(agent|assistant|chatgpt|claude|codex|gemini)\b/i.exec(body);
-  return m ? m[2]!.toLowerCase() : undefined;
+export function agentMention(
+  body: string,
+  /** Further names that can be addressed (the open chats). */
+  names: readonly string[] = [],
+): string | undefined {
+  const known = new Set(['agent', 'assistant', 'chatgpt', 'claude', 'codex', 'gemini', ...names]);
+  for (const m of body.matchAll(/(?:^|[\s(])@([\w-]+)/g)) {
+    const name = m[1]!.toLowerCase().replace(/-+$/, '');
+    if (known.has(name)) return name;
+  }
+  return undefined;
 }
 
 export const Comments = defineService<CommentsApi>('core.comments');

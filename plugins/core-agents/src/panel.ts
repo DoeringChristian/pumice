@@ -2,6 +2,15 @@ import type { ContentBlock, ToolCallContent } from '@agentclientprotocol/sdk';
 import type { MarkdownSyntaxApi, MenuEntry, VaultPath, WorkspaceApi } from '@pumice/api';
 import { button, createIcon, h } from '@pumice/ui';
 import { age, type ChatSummary } from './chats';
+import type { AgentChange } from './ledger';
+import {
+  chatName,
+  chatState,
+  type ChatManager,
+  type ChatState,
+  type OpenChat,
+  type Queued,
+} from './manager';
 import { vaultPathOf, type AgentConfig, type ChatSession, type TranscriptItem } from './session';
 
 /** Text attached to the next prompt (a selection, a comment thread, the current note). */
@@ -17,15 +26,23 @@ export interface AgentPanelDeps {
   /** Whether any agent can run here (desktop). */
   available: boolean;
   root: string;
-  sessionFor(agentId: string): ChatSession | undefined;
-  startSession(agentId: string): ChatSession;
+  /** The chats that are open; the panel shows one of them. */
+  manager: ChatManager;
+  newChat(agentId: string): OpenChat;
   /** Saved conversations, most recent first. */
   listChats(): Promise<ChatSummary[]>;
-  /** Opens a saved conversation; resolves to its agent, or undefined if it cannot be opened. */
-  resumeChat(id: string): Promise<string | undefined>;
+  /** Opens a saved conversation again (undefined if it cannot be opened). */
+  resumeChat(id: string): Promise<OpenChat | undefined>;
+  /** Stops a chat's agent; the conversation stays among the earlier ones. */
+  closeChat(id: string): void;
+  renameChat(id: string, name: string): void;
   deleteChat(id: string): Promise<void>;
-  /** The conversation last used with an agent. */
-  lastChat(agentId: string): string | undefined;
+  /** The chat the panel showed last. */
+  lastChat(): string | undefined;
+  setLastChat(id: string): void;
+  /** What the chats changed in a note, most recent first. */
+  changesFor(path: VaultPath): AgentChange[];
+  undoChange(change: AgentChange): Promise<void>;
   currentAgent(): string;
   setCurrentAgent(id: string): void;
   /** Attachment for the active note (offered by default). */
@@ -171,21 +188,36 @@ export function renderAgentPanel(
       },
     };
   };
-  /** The agent the panel shows. */
-  let agentId = deps.currentAgent();
-  const agentPill = pill('Agent', 'bot', 'pm-agent-pill-agent');
   const modelPill = pill('Model', undefined);
   const modePill = pill('Mode', undefined);
+  // The chat on screen: its name opens the list of all chats.
+  const chatDot = h('span', { class: 'pm-agent-dot' });
+  const chatTitleEl = h('span', { class: 'pm-agent-chat-title' });
+  const chatBadge = h('span', { class: 'pm-agent-chat-badge', hidden: true });
+  const chatButton = h(
+    'button',
+    { class: 'pm-agent-chat-button', type: 'button', 'aria-haspopup': 'listbox' },
+    chatDot,
+    chatTitleEl,
+    chatBadge,
+    createIcon('chevron-down', 12),
+  );
+  const chatList = h('div', { class: 'pm-agent-chatlist', role: 'listbox', hidden: true });
   const status = h('span', { class: 'pm-agent-status' });
+  const changesButton = h(
+    'button',
+    {
+      class: 'pm-icon-button',
+      title: 'What the agents changed in this note',
+      'aria-label': 'What the agents changed in this note',
+      hidden: true,
+    },
+    createIcon('history', 15),
+  );
   const newChat = h(
     'button',
     { class: 'pm-icon-button', title: 'New chat', 'aria-label': 'New chat' },
     createIcon('plus', 15),
-  );
-  const history = h(
-    'button',
-    { class: 'pm-icon-button', title: 'Earlier chats', 'aria-label': 'Earlier chats' },
-    createIcon('history', 15),
   );
   const transcript = h('div', { class: 'pm-panel-scroll pm-agent-transcript', role: 'log' });
   const queueEl = h('div', { class: 'pm-agent-queue', hidden: true });
@@ -211,11 +243,12 @@ export function renderAgentPanel(
     h(
       'div',
       { class: 'pm-panel-toolbar pm-agent-toolbar' },
-      agentPill.button,
+      chatButton,
       status,
-      history,
+      changesButton,
       newChat,
     ),
+    chatList,
     transcript,
     h(
       'div',
@@ -235,35 +268,36 @@ export function renderAgentPanel(
     ),
   );
 
+  const { manager } = deps;
+  let chat: OpenChat | undefined;
   let session: ChatSession | undefined;
   let sub: { dispose(): void } | undefined;
   let includeNote = true;
 
-  const attach = (id: string, start: boolean) => {
+  const used = (c: OpenChat) =>
+    c.queue.length > 0 || c.session.items.some((i) => i.kind === 'user');
+
+  /** Shows a chat. The one shown before keeps running. */
+  const attach = (next: OpenChat | undefined) => {
+    const previous = chat;
     sub?.dispose();
-    session = deps.sessionFor(id);
-    if (!session && start) {
-      // Pick up where the last conversation with this agent stopped.
-      const last = deps.lastChat(id);
-      if (last) {
-        void deps.resumeChat(last).then((resumed) => {
-          if (agentId !== id) return;
-          if (!resumed && !deps.sessionFor(id)) deps.startSession(id);
-          attach(id, false);
-        });
-        render();
-        return;
-      }
-      session = deps.startSession(id);
+    chat = next;
+    session = next?.session;
+    // A chat nothing was said in is not kept around.
+    if (previous && previous !== next && !used(previous) && manager.get(previous.session.chatId))
+      deps.closeChat(previous.session.chatId);
+    manager.show(session?.chatId);
+    if (session) {
+      deps.setLastChat(session.chatId);
+      deps.setCurrentAgent(session.config.id);
     }
     sub = session?.onDidChange(() => scheduleRender());
     render();
   };
-
-  const selectAgent = (id: string) => {
-    agentId = id;
-    deps.setCurrentAgent(id);
-    attach(id, deps.agents().find((a) => a.id === id)?.kind === 'chatgpt');
+  const startChat = (agentId = session?.config.id ?? deps.currentAgent()) => {
+    attach(deps.newChat(agentId));
+    // After the menu it was picked from has given the focus back.
+    setTimeout(() => input.focus(), 60);
   };
   // Select part of an answer: a button offers to reply to just that passage.
   let quoteButton: HTMLElement | undefined;
@@ -327,76 +361,267 @@ export function renderAgentPanel(
   };
   document.addEventListener('selectionchange', onSelectionGone);
 
-  history.addEventListener('click', () => {
-    const r = history.getBoundingClientRect();
-    void deps.listChats().then((chats) => {
-      const names = new Map(deps.agents().map((a) => [a.id, a.name.replace(/\s*\(.*\)$/, '')]));
-      const current = session?.chatId;
-      const entries: MenuEntry[] = chats.slice(0, 30).map((c) => ({
-        label: `${c.title}  ·  ${names.get(c.agent) ?? c.agent}, ${age(c.updated)}`,
-        checked: c.id === current,
-        disabled: !names.has(c.agent),
-        run: () => {
-          if (c.id === current) return;
-          void deps.resumeChat(c.id).then((agent) => {
-            if (!agent) return;
-            agentId = agent;
-            deps.setCurrentAgent(agent);
-            attach(agent, false);
-          });
+  // ---- the list of chats -------------------------------------------------------------------
+
+  const STATE_TEXT: Record<ChatState, string> = {
+    starting: 'Starting…',
+    working: 'Working…',
+    permission: 'Waiting for your OK',
+    unread: 'New answer',
+    idle: '',
+    error: 'Stopped',
+  };
+  const agentName = (id: string) =>
+    deps
+      .agents()
+      .find((a) => a.id === id)
+      ?.name.replace(/\s*\(.*\)$/, '') ?? id;
+
+  let listOpen = false;
+  let renaming: string | undefined;
+  const outsideList = (e: MouseEvent) => {
+    const target = e.target as Node;
+    if (!chatList.contains(target) && !chatButton.contains(target)) closeList();
+  };
+  const closeList = () => {
+    listOpen = false;
+    renaming = undefined;
+    chatList.hidden = true;
+    document.removeEventListener('mousedown', outsideList, true);
+  };
+  const renderList = async () => {
+    const saved = await deps.listChats();
+    if (!listOpen) return;
+    const open = [...manager.open].reverse();
+    const openIds = new Set(open.map((c) => c.session.chatId));
+    const earlier = saved.filter((c) => !openIds.has(c.id)).slice(0, 30);
+    const heading = (text: string) => h('div', { class: 'pm-agent-chatlist-heading' }, text);
+    const row = (o: {
+      id: string;
+      title: string;
+      detail: string;
+      state?: ChatState;
+      current?: boolean;
+      disabled?: boolean;
+      pick(): void;
+      menu(): MenuEntry[];
+    }) => {
+      const title =
+        renaming === o.id
+          ? (() => {
+              const box = h('input', {
+                class: 'pm-agent-chatlist-rename',
+                value: o.title,
+                'aria-label': 'Name of the chat',
+              });
+              const done = (keep: boolean) => {
+                if (renaming !== o.id) return;
+                renaming = undefined;
+                if (keep) deps.renameChat(o.id, box.value);
+                void renderList();
+              };
+              box.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') done(true);
+                if (e.key === 'Escape') {
+                  e.stopPropagation();
+                  done(false);
+                }
+              });
+              // The menu "Rename" was picked from takes the focus back once: stay in the box.
+              const born = Date.now();
+              box.addEventListener('blur', () => {
+                if (Date.now() - born < 300) setTimeout(() => box.focus(), 30);
+                else done(true);
+              });
+              box.addEventListener('click', (e) => e.stopPropagation());
+              setTimeout(() => (box.focus(), box.select()));
+              return box;
+            })()
+          : h('span', { class: 'pm-agent-chatlist-title' }, o.title);
+      const more = h(
+        'button',
+        { class: 'pm-agent-chatlist-more', title: 'More', 'aria-label': `More for ${o.title}` },
+        createIcon('more-vertical', 13),
+      );
+      more.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const r = more.getBoundingClientRect();
+        workspace.showContextMenu(o.menu(), { x: Math.max(8, r.right - 180), y: r.bottom + 4 });
+      });
+      const el = h(
+        'div',
+        {
+          class: `pm-agent-chatlist-row${o.current ? ' is-current' : ''}${o.disabled ? ' is-disabled' : ''}`,
+          role: 'option',
+          tabindex: 0,
+          'aria-selected': !!o.current,
         },
-      }));
-      if (!entries.length)
-        entries.push({ label: 'No earlier chats', disabled: true, run: () => undefined });
-      if (current && chats.some((c) => c.id === current)) {
-        entries.push({
-          label: 'Delete this chat',
-          icon: 'trash',
-          danger: true,
-          run: () => {
-            void deps.deleteChat(current).then(() => newChat.click());
-          },
-        });
-      }
-      workspace.showContextMenu(entries, { x: Math.max(8, r.right - 300), y: r.bottom + 4 });
+        h('span', { class: 'pm-agent-dot', 'data-state': o.state ?? 'closed' }),
+        h(
+          'span',
+          { class: 'pm-agent-chatlist-text' },
+          title,
+          h('span', { class: 'pm-agent-chatlist-detail' }, o.detail),
+        ),
+        more,
+      );
+      const pick = () => {
+        if (o.disabled || renaming === o.id) return;
+        closeList();
+        o.pick();
+      };
+      el.addEventListener('click', pick);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && e.target === el) pick();
+      });
+      return el;
+    };
+    const remove = (id: string, title: string): MenuEntry => ({
+      label: 'Delete',
+      icon: 'trash',
+      danger: true,
+      run: () => {
+        void workspace
+          .confirm(`Delete the chat “${title}”? This cannot be undone.`, {
+            confirmLabel: 'Delete',
+            danger: true,
+          })
+          .then((ok) => (ok ? deps.deleteChat(id) : undefined))
+          .then(() => (listOpen ? renderList() : undefined));
+      },
     });
+    chatList.replaceChildren(
+      ...(open.length ? [heading('Open')] : []),
+      ...open.map((c) => {
+        const id = c.session.chatId;
+        const state = chatState(c);
+        return row({
+          id,
+          title: chatName(c),
+          detail: [agentName(c.session.config.id), STATE_TEXT[state]].filter(Boolean).join(' · '),
+          state,
+          current: c === chat,
+          pick: () => attach(c),
+          menu: () => [
+            {
+              label: 'Rename',
+              icon: 'pencil',
+              run: () => {
+                // Picking from the menu closed the list: the name is edited in its row.
+                renaming = id;
+                openList();
+              },
+            },
+            {
+              label: 'Close (stops its agent)',
+              icon: 'x',
+              run: () => deps.closeChat(id),
+            },
+            remove(id, chatName(c)),
+          ],
+        });
+      }),
+      ...(earlier.length ? [heading('Earlier')] : []),
+      ...earlier.map((c) => {
+        const usable = deps.agents().some((a) => a.id === c.agent);
+        return row({
+          id: c.id,
+          title: c.title,
+          detail: `${agentName(c.agent)} · ${age(c.updated)}`,
+          disabled: !usable,
+          pick: () => void deps.resumeChat(c.id).then((resumed) => resumed && attach(resumed)),
+          menu: () => [remove(c.id, c.title)],
+        });
+      }),
+      ...(open.length || earlier.length
+        ? []
+        : [h('div', { class: 'pm-agent-chatlist-empty' }, 'No chats yet.')]),
+    );
+  };
+  const openList = () => {
+    if (!listOpen) document.addEventListener('mousedown', outsideList, true);
+    listOpen = true;
+    chatList.hidden = false;
+    void renderList();
+  };
+  chatButton.addEventListener('click', () => (listOpen ? closeList() : openList()));
+  chatList.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeList();
   });
+
   newChat.addEventListener('click', () => {
-    session?.dispose();
-    session = deps.startSession(agentId);
-    attach(agentId, false);
+    closeList();
+    const list = deps.agents();
+    if (list.length <= 1) return startChat(list[0]?.id);
+    const r = newChat.getBoundingClientRect();
+    workspace.showContextMenu(
+      list.map((a) => ({ label: `New chat with ${a.name}`, run: () => startChat(a.id) })),
+      { x: Math.max(8, r.right - 240), y: r.bottom + 4 },
+    );
+  });
+
+  const snippet = (text: string) => {
+    const flat = text.replace(/\s+/g, ' ').trim();
+    return flat.length > 40 ? `${flat.slice(0, 39)}…` : flat;
+  };
+  changesButton.addEventListener('click', () => {
+    const path = workspace.activeFile;
+    if (!path) return;
+    const r = changesButton.getBoundingClientRect();
+    const entries: MenuEntry[] = deps
+      .changesFor(path)
+      .slice(0, 15)
+      .map((c) => {
+        const what = c.inserted.trim()
+          ? `“${snippet(c.inserted)}”`
+          : c.removed.trim()
+            ? `removed “${snippet(c.removed)}”`
+            : 'a large change';
+        return {
+          label: `${snippet(c.chat)} · ${age(c.time)} · ${what}`,
+          run: () => {
+            void workspace
+              .confirm(
+                `Take back this change by “${c.chat}”?\n\n${c.removed.trim() ? `Brings back: “${snippet(c.removed)}”\n` : ''}${c.inserted.trim() ? `Removes: “${snippet(c.inserted)}”` : ''}`,
+                { confirmLabel: 'Take back' },
+              )
+              .then((ok) => (ok ? deps.undoChange(c) : undefined))
+              .then(renderBar);
+          },
+        };
+      });
+    workspace.showContextMenu(
+      [{ label: `Changes by agents in ${path}`, disabled: true, run: () => undefined }, ...entries],
+      { x: Math.max(8, r.right - 320), y: r.bottom + 4 },
+    );
+  });
+
+  const renderBar = () => {
+    chatTitleEl.textContent = chat ? chatName(chat) : 'No chat';
+    chatDot.dataset.state = chat ? chatState(chat) : 'closed';
+    const waiting = manager.waiting();
+    chatBadge.hidden = !waiting;
+    chatBadge.textContent = String(waiting);
+    chatButton.title = waiting
+      ? `Chats (${waiting} other ${waiting === 1 ? 'chat wants' : 'chats want'} your attention)`
+      : 'Chats';
+    const path = workspace.activeFile;
+    changesButton.hidden = !path || deps.changesFor(path).length === 0;
+  };
+  const listSub = manager.onDidChange(() => {
+    // Closed from elsewhere (its row's menu): show another one.
+    if (chat && !manager.get(chat.session.chatId)) {
+      chat = undefined;
+      return attach(manager.open[manager.open.length - 1]);
+    }
+    renderBar();
+    renderQueue();
+    if (listOpen && !renaming) void renderList();
   });
 
   // Messages written while the agent is busy wait their turn.
-  interface Queued {
-    message: string;
-    blocks: ContentBlock[];
-    label: string | undefined;
-  }
-  const queues = new WeakMap<ChatSession, Queued[]>();
-  const watched = new WeakSet<ChatSession>();
-  const handing = new WeakSet<ChatSession>();
-  const queueOf = (s: ChatSession) => {
-    let q = queues.get(s);
-    if (!q) queues.set(s, (q = []));
-    return q;
-  };
-  /** Sends the next waiting message once the agent is free. */
-  const flush = (s: ChatSession) => {
-    if (s.status !== 'ready' || handing.has(s)) return;
-    const next = queueOf(s).shift();
-    if (!next) return;
-    renderQueue();
-    // Starting a turn reports changes before the agent counts as busy: one message at a time.
-    handing.add(s);
-    try {
-      void s.prompt(next.message, next.blocks, next.label);
-    } finally {
-      handing.delete(s);
-    }
-  };
   const renderQueue = () => {
-    const waiting = session ? queueOf(session) : [];
+    const waiting = chat?.queue ?? [];
     queueEl.hidden = !waiting.length;
     queueEl.replaceChildren(
       ...waiting.map((item, i) =>
@@ -411,10 +636,7 @@ export function renderAgentPanel(
               class: 'pm-agent-chip-remove',
               title: 'Don’t send this',
               'aria-label': 'Don’t send this',
-              onclick: () => {
-                waiting.splice(i, 1);
-                renderQueue();
-              },
+              onclick: () => chat && manager.unqueue(chat, i),
             },
             createIcon('x', 11),
           ),
@@ -435,16 +657,15 @@ export function renderAgentPanel(
     if (/^\/new\s*$/.test(text)) {
       input.value = '';
       state.draft = '';
-      newChat.click();
+      startChat();
       return;
     }
-    if (!session || session.status === 'closed' || session.status === 'error') {
-      session = deps.startSession(agentId);
-      attach(agentId, false);
+    if (!chat || !session || session.status === 'closed' || session.status === 'error') {
+      if (chat && session?.status === 'closed') deps.closeChat(chat.session.chatId);
+      startChat();
     }
     const note = includeNote ? deps.currentNote() : undefined;
     const atts = [...(note ? [note] : []), ...state.attachments];
-    const s = session;
     const item: Queued = {
       message: withQuotes(state.quotes, text),
       blocks: atts.flatMap((a) => a.blocks),
@@ -455,17 +676,9 @@ export function renderAgentPanel(
     state.attachments = [];
     state.quotes = [];
     renderChips();
-    if (!watched.has(s)) {
-      watched.add(s);
-      // Also covers the first message, which waits for the agent to start.
-      s.onDidChange(() => flush(s));
-    }
-    if (interrupt && s.status === 'working') {
-      queueOf(s).unshift(item);
-      s.cancel();
-    } else queueOf(s).push(item);
+    // While the agent is busy the message waits its turn.
+    manager.send(chat!, item, interrupt);
     renderQueue();
-    flush(s);
   };
   send.addEventListener('click', () => submit());
   stop.addEventListener('click', () => session?.cancel());
@@ -760,7 +973,7 @@ export function renderAgentPanel(
 
   const render = () => {
     const atBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 40;
-    const config = deps.agents().find((a) => a.id === agentId);
+    const config = session?.config ?? deps.agents().find((a) => a.id === deps.currentAgent());
     status.textContent = session
       ? {
           starting: 'Starting…',
@@ -780,11 +993,7 @@ export function renderAgentPanel(
       ? 'Write the next message… (Enter queues it, ⌘/Ctrl+Enter interrupts and sends)'
       : 'Ask the agent… (Enter to send, Shift+Enter for a new line)';
     renderQueue();
-    agentPill.set(
-      deps.agents().map((a) => ({ id: a.id, name: a.name })),
-      agentId,
-      selectAgent,
-    );
+    renderBar();
     modelPill.set(session?.models ?? [], session?.currentModel, (id) => void session?.setModel(id));
     modePill.set(session?.modes ?? [], session?.currentMode, (id) => void session?.setMode(id));
     const items = session?.items ?? [];
@@ -830,9 +1039,22 @@ export function renderAgentPanel(
 
   input.value = state.draft;
   renderChips();
-  // The built-in assistant has nothing to launch: show its state (or the sign-in) right away.
-  const builtIn = (id: string) => deps.agents().find((a) => a.id === id)?.kind === 'chatgpt';
-  attach(agentId, builtIn(agentId));
+  const begin = async () => {
+    const running = manager.active ?? manager.open[manager.open.length - 1];
+    if (running) return attach(running);
+    // The built-in assistant has nothing to launch: pick up its last chat right away.
+    const builtIn = (id: string) => deps.agents().find((a) => a.id === id)?.kind === 'chatgpt';
+    const last = deps.lastChat();
+    if (last) {
+      const summary = (await deps.listChats()).find((c) => c.id === last);
+      const resumed = summary && builtIn(summary.agent) ? await deps.resumeChat(last) : undefined;
+      if (chat) return;
+      if (resumed) return attach(resumed);
+    }
+    if (builtIn(deps.currentAgent())) startChat(deps.currentAgent());
+  };
+  render();
+  void begin();
 
   return {
     focus() {
@@ -842,6 +1064,8 @@ export function renderAgentPanel(
       state.listeners.delete(onState);
       activeSub.dispose();
       sub?.dispose();
+      listSub.dispose();
+      closeList();
       cancelAnimationFrame(frame);
       document.removeEventListener('selectionchange', onSelectionGone);
       hideQuoteButton();

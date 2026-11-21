@@ -1,7 +1,14 @@
 import type { EditorView } from '@codemirror/view';
-import { Emitter, type LocatedThread, type VaultPath, type WorkspaceApi } from '@pumice/api';
+import {
+  Emitter,
+  type AgentMention,
+  type LocatedThread,
+  type VaultPath,
+  type WorkspaceApi,
+} from '@pumice/api';
 import { button, createIcon, debounce, h } from '@pumice/ui';
 import { setActiveThread } from './editor-ext';
+import { attachMentionCompletion } from './mention';
 import type { CommentStore } from './store';
 
 /** A comment being written for a new thread. */
@@ -23,6 +30,10 @@ export interface PanelDeps {
   askAgent(path: VaultPath, thread: LocatedThread): void;
   /** Called after a comment or thread was deleted (says how to get it back). */
   deleted(what: 'comment' | 'thread'): void;
+  /** The chats and agents a comment can address with `@…`. */
+  mentions(): AgentMention[];
+  /** The chat that would answer a reply with this text in the thread (undefined: nobody). */
+  recipient(path: VaultPath, thread: LocatedThread, body: string): Promise<string | undefined>;
   /** Called after a reply was added (replies that mention an agent are sent to it). */
   onReply(path: VaultPath, threadId: string, body: string): void;
   commentMode(): boolean;
@@ -55,6 +66,10 @@ function composer(
   submitLabel: string,
   onSubmit: (body: string) => Promise<unknown>,
   onCancel?: () => void,
+  /** Who would answer what is written (a chat's name), shown under the box. */
+  recipient?: (body: string) => Promise<string | undefined>,
+  /** Whom `@…` can address: offered while it is typed. */
+  mentions?: () => AgentMention[],
 ): HTMLElement {
   const input = h('textarea', {
     class: 'pm-comment-input',
@@ -74,7 +89,8 @@ function composer(
     }
   };
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    // Enter sends, Shift+Enter starts a new line (as in the box at the selection).
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       void submit();
     } else if (e.key === 'Escape' && onCancel) {
@@ -88,7 +104,24 @@ function composer(
     onCancel ? button('Cancel', onCancel, { kind: 'plain' }) : null,
     button(submitLabel, () => void submit(), { kind: 'primary' }),
   );
-  return h('div', { class: 'pm-comment-composer' }, input, actions);
+  const to = h('div', { class: 'pm-comment-recipient', hidden: true });
+  if (recipient) {
+    let asked = 0;
+    const show = () => {
+      const mine = ++asked;
+      void recipient(input.value)
+        .catch(() => undefined)
+        .then((name) => {
+          if (mine !== asked) return;
+          to.hidden = !name;
+          to.replaceChildren(...(name ? [createIcon('bot', 12), ` Goes to ${name}`] : []));
+        });
+    };
+    input.addEventListener('input', show);
+    show();
+  }
+  const offered = mentions ? attachMentionCompletion(input, mentions) : null;
+  return h('div', { class: 'pm-comment-composer' }, input, offered, to, actions);
 }
 
 export function renderPanel(container: HTMLElement, deps: PanelDeps, state: PanelState) {
@@ -266,8 +299,13 @@ export function renderPanel(container: HTMLElement, deps: PanelDeps, state: Pane
     }
     if (focused && !t.resolved) {
       card.append(
-        composer(deps.hasAgent() ? 'Reply… (@agent asks the assistant)' : 'Reply…', 'Reply', (b) =>
-          run(store.reply(path, t.id, b).then(() => deps.onReply(path, t.id, b))),
+        composer(
+          deps.hasAgent() ? 'Reply… (@agent asks the assistant)' : 'Reply…',
+          'Reply',
+          (b) => run(store.reply(path, t.id, b).then(() => deps.onReply(path, t.id, b))),
+          undefined,
+          (b) => deps.recipient(path, t, b),
+          deps.mentions,
         ),
       );
     } else if (!t.resolved) {
@@ -365,7 +403,27 @@ export function renderPanel(container: HTMLElement, deps: PanelDeps, state: Pane
         ),
       );
     }
+    // What is being written survives the redraw (an agent's answer arriving redraws the list).
+    const boxes = (root: ParentNode) =>
+      new Map(
+        [...root.querySelectorAll<HTMLTextAreaElement>('.pm-comment-composer textarea')].map(
+          (box) => [box.closest<HTMLElement>('[data-thread]')?.dataset.thread ?? '', box],
+        ),
+      );
+    const written = boxes(body);
+    const typing = document.activeElement;
     body.replaceChildren(...children);
+    for (const [key, box] of boxes(body)) {
+      const old = written.get(key);
+      // A box that is being sent is about to be emptied.
+      if (!old || !old.value || old.disabled) continue;
+      box.value = old.value;
+      box.dispatchEvent(new Event('input'));
+      if (old === typing) {
+        box.focus();
+        box.setSelectionRange(old.selectionStart, old.selectionEnd);
+      }
+    }
     if (draft) focusDraft();
     else if (state.focusThread)
       body

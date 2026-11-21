@@ -21,12 +21,17 @@ export interface SavedChat extends ChatSnapshot {
   /** Agent id (`chatgpt`, `claude`, …). */
   agent: string;
   title: string;
+  /** A name the user gave the chat (the title is then this name). */
+  name?: string;
   /** ISO timestamps. */
   created: string;
   updated: string;
 }
 
-export type ChatSummary = Pick<SavedChat, 'id' | 'agent' | 'title' | 'created' | 'updated'>;
+export type ChatSummary = Pick<
+  SavedChat,
+  'id' | 'agent' | 'title' | 'name' | 'created' | 'updated'
+>;
 
 export const CHATS_DIR = '.pumice/chats';
 const MAX_CHATS = 200;
@@ -114,7 +119,7 @@ export class ChatStore {
   }
 
   /** Writes a conversation (one without a message from the user is not kept). */
-  save(id: string, agent: string, snapshot: ChatSnapshot): Promise<void> {
+  save(id: string, agent: string, snapshot: ChatSnapshot, name?: string): Promise<void> {
     return this.serial(async () => {
       if (!snapshot.items.some((i) => i.kind === 'user')) return;
       const index = await this.readIndex();
@@ -124,7 +129,8 @@ export class ChatStore {
         version: 1,
         id,
         agent,
-        title: chatTitle(snapshot.items),
+        title: name ?? chatTitle(snapshot.items),
+        ...(name ? { name } : {}),
         created: known?.created ?? now,
         updated: now,
         items: storableItems(snapshot.items),
@@ -133,8 +139,10 @@ export class ChatStore {
       };
       await this.fs.write(this.file(id), `${JSON.stringify(chat)}\n`);
       const { items: _items, input: _input, sessionId: _sessionId, version: _v, ...summary } = chat;
-      if (known) Object.assign(known, summary);
-      else index.push(summary);
+      if (known) {
+        if (!name) delete known.name;
+        Object.assign(known, summary);
+      } else index.push(summary);
       // The oldest conversations make room.
       index.sort((a, b) => b.updated.localeCompare(a.updated));
       for (const old of index.splice(MAX_CHATS)) {

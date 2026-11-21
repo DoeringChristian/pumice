@@ -347,6 +347,49 @@ export const plugin = definePlugin({
       if (entries.length) workspace.showContextMenu(entries, at);
     };
 
+    /** Corrections for the misspelled word that was right-clicked: first in the menu. */
+    const spellingEntries = (
+      view: EditorView,
+      pos: number | null,
+      found: { word: string; suggestions: string[] } | undefined,
+    ): MenuEntry[] => {
+      if (!found || pos === null) return [];
+      // Where the word is: around the pointer (words with an apostrophe are two for the editor).
+      const line = view.state.doc.lineAt(pos);
+      let at = -1;
+      for (let i = line.text.indexOf(found.word); i >= 0; i = line.text.indexOf(found.word, i + 1))
+        if (line.from + i <= pos && pos <= line.from + i + found.word.length) at = line.from + i;
+      if (at < 0) return [];
+      const to = at + found.word.length;
+      return [
+        ...(found.suggestions.length
+          ? found.suggestions.map((s) => ({
+              label: s,
+              run: () => {
+                // The word as it is now (the note may have changed while the menu was open).
+                if (view.state.sliceDoc(at, to) !== found.word) return;
+                view.dispatch({
+                  changes: { from: at, to, insert: s },
+                  selection: { anchor: at + s.length },
+                  userEvent: 'input',
+                });
+                view.focus();
+              },
+            }))
+          : [{ label: 'No spelling suggestions', disabled: true, run: () => undefined }]),
+        {
+          label: `Add “${found.word}” to the dictionary`,
+          icon: 'plus',
+          run: () =>
+            void shell.spelling
+              ?.learn(found.word)
+              .catch((e: unknown) =>
+                workspace.notify(e instanceof Error ? e.message : String(e), { kind: 'error' }),
+              ),
+        },
+      ];
+    };
+
     factories.push((ectx) =>
       EditorView.domEventHandlers({
         contextmenu(event, view) {
@@ -375,9 +418,26 @@ export const plugin = definePlugin({
                 ),
             });
           }
-          event.preventDefault();
-          workspace.showContextMenu(entries, { x: event.clientX, y: event.clientY });
-          return true;
+          const at = { x: event.clientX, y: event.clientY };
+          if (!shell.spelling) {
+            event.preventDefault();
+            workspace.showContextMenu(entries, at);
+            return true;
+          }
+          // The shell is asked about the word (it only hears of a right-click that is not
+          // prevented; it shows no menu of its own).
+          void shell.spelling
+            .atPointer()
+            .catch(() => undefined)
+            .then((found) => {
+              const corrections = spellingEntries(view, pos, found);
+              workspace.showContextMenu(
+                corrections.length ? [...corrections, 'separator', ...entries] : entries,
+                at,
+              );
+            });
+          // Not handled as far as the editor is concerned: it would prevent the default.
+          return false;
         },
       }),
     );

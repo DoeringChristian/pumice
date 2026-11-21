@@ -35,6 +35,31 @@ export function parseDate(name: string, format: string): Date | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
+/**
+ * The template for daily notes. `setting` is what the user wrote: a path, with or without
+ * `.md`, in any letter case, or just a template's name. With nothing set, a template called
+ * "daily" in the templates folder is used.
+ */
+export function findTemplate(
+  setting: string,
+  files: readonly string[],
+  templates: readonly string[],
+): string | undefined {
+  const wanted = setting
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/^\[\[|\]\]$/g, '');
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  const name = (path: string) => path.split('/').pop()!.replace(/\.md$/i, '');
+  if (!wanted) return templates.find((t) => same(name(t), 'daily'));
+  const paths = [wanted, `${wanted}.md`];
+  return (
+    files.find((f) => paths.includes(f)) ??
+    files.find((f) => paths.some((p) => same(f, p))) ??
+    templates.find((t) => same(name(t), name(wanted)))
+  );
+}
+
 export const plugin = definePlugin({
   activate(ctx) {
     const vault = ctx.use(Vault);
@@ -56,9 +81,23 @@ export const plugin = definePlugin({
       const path = pathFor(date);
       if (!vault.get(path)) {
         const name = formatDate(date, format());
-        if (template() && vault.get(template()))
-          await templates.createNote(template(), path, { title: name, date });
-        else await vault.create(path, newNoteContent());
+        const from = findTemplate(
+          template(),
+          vault
+            .files()
+            .filter((f) => f.extension === 'md')
+            .map((f) => f.path),
+          templates.list(),
+        );
+        if (from) await templates.createNote(from, path, { title: name, date });
+        else {
+          await vault.create(path, newNoteContent());
+          if (template())
+            workspace.notify(
+              `The daily note template “${template()}” was not found; the note was created empty. Check the path in the settings.`,
+              { kind: 'warning' },
+            );
+        }
       }
       await workspace.openFile(path);
     };
@@ -144,9 +183,9 @@ export const plugin = definePlugin({
               ),
               settingItem(
                 'Template',
-                'Path of a template note (optional).',
+                'A template note: its path or its name (optional). With nothing set, a template called “daily” in the templates folder is used.',
                 textInput(template(), (v) => void ctx.settings.set('template', v.trim()), {
-                  placeholder: 'Templates/Daily.md',
+                  placeholder: 'templates/daily.md',
                 }),
               ),
             );

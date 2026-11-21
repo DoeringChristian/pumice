@@ -93,6 +93,18 @@ export function revealedLines(state: EditorState): Set<number> {
   return lines;
 }
 
+/**
+ * Whether the cursor (or a selection) is in or right at `from`..`to`: what is drawn in place of
+ * that piece of source gives way to the source then. Finer than {@link revealedLines}: the rest
+ * of the line stays drawn.
+ */
+export function revealedAt(state: EditorState, from: number, to: number): boolean {
+  const reveal = state.field(revealField, false);
+  if (!reveal) return false;
+  const ranges = reveal.held ?? (reveal.focused ? state.selection.ranges : []);
+  return ranges.some((r) => r.from <= to && r.to >= from);
+}
+
 /** Whether a transaction may have changed {@link revealedLines}. */
 export function revealChanged(startState: EditorState, state: EditorState): boolean {
   const a = startState.field(revealField, false);

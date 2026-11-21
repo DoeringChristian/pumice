@@ -45,6 +45,10 @@ export async function createElectronPlatform(host: PumiceHost): Promise<Platform
     shell: {
       openExternal: (url) => host.openExternal(url),
       revealInFileManager: (p) => host.revealInFileManager(p),
+      spelling: {
+        atPointer: async () => (await host.spelling.atPointer()) ?? undefined,
+        learn: (word) => host.spelling.learn(word),
+      },
     },
     net: {
       fetchText: (url) => host.fetchText(url),

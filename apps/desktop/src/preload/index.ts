@@ -42,6 +42,23 @@ const host: PumiceHost = {
   },
   openExternal: (url) => invoke('shell.openExternal', url),
   revealInFileManager: (p) => invoke('shell.reveal', p),
+  spelling: {
+    // Asked from a `contextmenu` handler: the main process hears of the right-click (with
+    // what the system's checker says about the word) right after the page does.
+    atPointer: () =>
+      new Promise((resolve) => {
+        const done = (found: { word: string; suggestions: string[] } | null) => {
+          clearTimeout(timer);
+          ipcRenderer.off(IPC.spelling, heard);
+          resolve(found);
+        };
+        const heard = (_e: unknown, found: { word: string; suggestions: string[] }) =>
+          done(found.word ? found : null);
+        const timer = setTimeout(() => done(null), 800);
+        ipcRenderer.on(IPC.spelling, heard);
+      }),
+    learn: (word) => invoke('spell.learn', word),
+  },
   vaults: {
     list: () => invoke('vaults.list'),
     open: (path, newWindow) => invoke('vaults.open', path, newWindow),

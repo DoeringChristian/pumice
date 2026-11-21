@@ -18,7 +18,9 @@ import {
 import { button, h, settingItem, textInput, toggle } from '@pumice/ui';
 import '@pumice/ui/panel.css';
 import manifestJson from '../manifest.json';
-import { ChatStore, type SavedChat } from './chats';
+import { ChatStore, age, type SavedChat } from './chats';
+import { Ledger, revertChange, trackedFiles, minimalChange, type AgentChange } from './ledger';
+import { ChatManager, chatName, mentionOf, type OpenChat } from './manager';
 import { AgentPanelState, renderAgentPanel, type Attachment } from './panel';
 import { ChatGptSession } from './chatgpt-session';
 import {
@@ -43,17 +45,6 @@ export function splitCommand(line: string): string[] {
 
 const joinCommand = (c: AgentConfig) =>
   [c.command, ...c.args].map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ');
-
-/** Smallest single replacement turning `a` into `b`. */
-function minimalChange(a: string, b: string): { from: number; to: number; insert: string } | null {
-  if (a === b) return null;
-  let start = 0;
-  while (start < a.length && start < b.length && a[start] === b[start]) start++;
-  let endA = a.length;
-  let endB = b.length;
-  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) (endA--, endB--);
-  return { from: start, to: endA, insert: b.slice(start, endB) };
-}
 
 /** Settings row: who is signed in with ChatGPT, with sign in / sign out. */
 function chatgptRow(chatgpt: ChatGptHost): HTMLElement {
@@ -144,8 +135,6 @@ export const plugin = definePlugin({
       },
     };
 
-    const sessions = new Map<string, ChatSession>();
-    ctx.register(() => sessions.forEach((s) => s.dispose()));
     // How features of the app are used, contributed by other plugins (frames, …).
     const guidanceSources = new Set<() => string>();
     const guidance = () =>
@@ -156,41 +145,26 @@ export const plugin = definePlugin({
 
     // Conversations are saved as they go, and can be picked up again from the panel.
     const chats = new ChatStore(platform.fs);
-    const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
-    const saveNow = (s: ChatSession) => {
-      clearTimeout(saveTimers.get(s.chatId));
-      saveTimers.delete(s.chatId);
-      void chats
-        .save(s.chatId, s.config.id, s.snapshot())
-        .then(() => ctx.settings.set(`lastChat.${s.config.id}`, s.chatId))
-        .catch((e: unknown) => console.error('[pumice] could not save the chat', e));
-    };
-    const keepSaved = (s: ChatSession) => {
-      s.onDidChange(() => {
-        if (!s.items.some((i) => i.kind === 'user')) return;
-        clearTimeout(saveTimers.get(s.chatId));
-        saveTimers.set(
-          s.chatId,
-          setTimeout(() => saveNow(s), 1000),
-        );
-      });
-    };
+    // Which chat changed what, and which chat answers which comment thread.
+    const ledger = new Ledger(platform.fs);
+    void ledger.load();
+    ctx.register(() => void ledger.flush());
 
-    const startSession = (agentId: string, saved?: SavedChat) => {
-      const previous = sessions.get(agentId);
-      if (previous) {
-        // Write what is pending before the conversation is replaced.
-        if (saveTimers.has(previous.chatId)) saveNow(previous);
-        previous.dispose();
-      }
+    const createSession = (agentId: string, saved?: SavedChat): ChatSession => {
       const config = agents().find((a) => a.id === agentId) ?? agents()[0]!;
+      // Each chat has its own view of the files: it does not overwrite what it has not seen.
+      const ref = { id: saved?.id ?? '' };
+      const own = trackedFiles(files, ledger, () => {
+        const chat = manager.get(ref.id);
+        return { id: ref.id, name: chat ? chatName(chat) : config.name };
+      });
       const s: ChatSession =
         config.kind === 'chatgpt'
           ? new ChatGptSession(
               config,
               {
                 host: platform.chatgpt!,
-                files,
+                files: own,
                 index: ctx.use(MetadataIndex),
                 vault,
                 savedModel: () => ctx.settings.get<string | undefined>('chatgptModel', undefined),
@@ -209,11 +183,69 @@ export const plugin = definePlugin({
               },
               saved,
             )
-          : new AgentSession(config, host!, files, guidance, saved);
-      keepSaved(s);
-      sessions.set(agentId, s);
-      void s.start();
+          : new AgentSession(config, host!, own, guidance, saved);
+      ref.id = s.chatId;
       return s;
+    };
+    // Several chats run at once; the panel shows one of them.
+    const manager = new ChatManager(createSession);
+    ctx.register(() => manager.dispose());
+
+    const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const saveNow = (chat: OpenChat) => {
+      const s = chat.session;
+      clearTimeout(saveTimers.get(s.chatId));
+      saveTimers.delete(s.chatId);
+      void chats
+        .save(s.chatId, s.config.id, s.snapshot(), chat.name)
+        .catch((e: unknown) => console.error('[pumice] could not save the chat', e));
+    };
+    const openChat = (agentId: string, saved?: SavedChat): OpenChat => {
+      const known = manager.get(saved?.id);
+      if (known) return known;
+      const chat = manager.start(agentId, saved);
+      const s = chat.session;
+      s.onDidChange(() => {
+        if (!s.items.some((i) => i.kind === 'user')) return;
+        clearTimeout(saveTimers.get(s.chatId));
+        saveTimers.set(
+          s.chatId,
+          setTimeout(() => saveNow(chat), 1000),
+        );
+      });
+      return chat;
+    };
+    const resumeChat = async (id: string): Promise<OpenChat | undefined> => {
+      const open = manager.get(id);
+      if (open) return open;
+      const saved = await chats.load(id);
+      // Deleted meanwhile: nothing to say.
+      if (!saved) return undefined;
+      if (!agents().some((a) => a.id === saved.agent)) {
+        workspace.notify('This chat can’t be opened here.', { kind: 'warning' });
+        return undefined;
+      }
+      return openChat(saved.agent, saved);
+    };
+    const closeChat = (id: string) => {
+      const chat = manager.get(id);
+      // Write what is pending before the conversation goes.
+      if (chat && saveTimers.has(id)) saveNow(chat);
+      manager.close(id);
+    };
+
+    /** Takes back one change an agent made to a note, if the text is still as it left it. */
+    const undoChange = async (change: AgentChange) => {
+      const text = await files.read(change.path);
+      const next = revertChange(change, text);
+      if (next === undefined) {
+        workspace.notify('The text has changed since; this change can’t be taken back.', {
+          kind: 'warning',
+        });
+        return;
+      }
+      await files.write(change.path, next);
+      ledger.forget(change);
     };
 
     const state = new AgentPanelState();
@@ -239,22 +271,26 @@ export const plugin = definePlugin({
               agents,
               available: (!!host || !!platform.chatgpt) && !!root,
               root,
-              sessionFor: (id) => sessions.get(id),
-              startSession: (id) => startSession(id),
+              manager,
+              newChat: (agentId) => openChat(agentId),
               listChats: () => chats.list(),
-              resumeChat: async (id) => {
-                const saved = await chats.load(id);
-                // Deleted meanwhile: nothing to say.
-                if (!saved) return undefined;
-                if (!agents().some((a) => a.id === saved.agent)) {
-                  workspace.notify('This chat can’t be opened here.', { kind: 'warning' });
-                  return undefined;
-                }
-                startSession(saved.agent, saved);
-                return saved.agent;
+              resumeChat,
+              closeChat,
+              renameChat: (id, name) => {
+                manager.rename(id, name);
+                const chat = manager.get(id);
+                if (chat) saveNow(chat);
               },
-              deleteChat: (id) => chats.remove(id),
-              lastChat: (id) => ctx.settings.get<string | undefined>(`lastChat.${id}`, undefined),
+              deleteChat: async (id) => {
+                manager.close(id);
+                clearTimeout(saveTimers.get(id));
+                saveTimers.delete(id);
+                await chats.remove(id);
+              },
+              lastChat: () => ctx.settings.get<string | undefined>('activeChat', undefined),
+              setLastChat: (id) => void ctx.settings.set('activeChat', id),
+              changesFor: (path) => ledger.changesFor(path),
+              undoChange,
               currentAgent,
               setCurrentAgent: (id) => void ctx.settings.set('agent', id),
               currentNote,
@@ -334,7 +370,7 @@ export const plugin = definePlugin({
     const whenReady = (s: ChatSession) =>
       new Promise<boolean>((resolve) => {
         const check = () => {
-          if (s.status === 'ready') return done(true);
+          if (s.status === 'ready' || s.status === 'working') return done(true);
           if (s.status === 'error' || s.status === 'closed') return done(false);
         };
         const sub = s.onDidChange(check);
@@ -345,28 +381,112 @@ export const plugin = definePlugin({
         check();
       });
 
-    /** One comment request at a time per agent: they share its conversation. */
-    const commentQueue = new Map<string, Promise<unknown>>();
+    /** Who answers a comment: an open chat, a saved one to open again, or a new chat. */
+    type Recipient =
+      | { kind: 'open'; chat: OpenChat }
+      | { kind: 'saved'; id: string; title: string }
+      | { kind: 'new'; agent: AgentConfig };
+
+    const known = async (chatId: string | undefined): Promise<Recipient | undefined> => {
+      if (!chatId) return undefined;
+      const open = manager.get(chatId);
+      if (open) return { kind: 'open', chat: open };
+      const saved = (await chats.list()).find((c) => c.id === chatId);
+      return saved && agents().some((a) => a.id === saved.agent)
+        ? { kind: 'saved', id: saved.id, title: saved.title }
+        : undefined;
+    };
+
+    /**
+     * `@name` is the chat (or agent) of that name. `@agent` is, in this order: the chat that
+     * answered the thread before, the chat that wrote the commented text, the chat the panel
+     * shows, the chat opened last, a new chat.
+     */
+    const resolve = async (
+      path: VaultPath,
+      threadId: string | undefined,
+      range: { from: number; to: number } | null | undefined,
+      mention = 'agent',
+    ): Promise<Recipient | undefined> => {
+      const list = agents();
+      if (!list.length) return undefined;
+      const wanted = mention.toLowerCase();
+      if (wanted !== 'agent' && wanted !== 'assistant') {
+        const named = manager.byMention(wanted);
+        if (named) return { kind: 'open', chat: named };
+        const agent = list.find((c) => c.id === wanted);
+        if (agent) return { kind: 'new', agent };
+      }
+      await ledger.load();
+      const answered = await known(threadId ? ledger.threadChat(threadId) : undefined);
+      if (answered) return answered;
+      if (range) {
+        const text = await files.read(path).catch(() => '');
+        const author = await known(ledger.chatForRange(path, text, range));
+        if (author) return author;
+      }
+      const shown = manager.active ?? manager.open[manager.open.length - 1];
+      if (shown) return { kind: 'open', chat: shown };
+      return { kind: 'new', agent: list.find((c) => c.id === currentAgent()) ?? list[0]! };
+    };
+
+    const describe = (r: Recipient | undefined): string | undefined =>
+      !r
+        ? undefined
+        : r.kind === 'open'
+          ? chatName(r.chat)
+          : r.kind === 'saved'
+            ? r.title
+            : `a new chat with ${r.agent.name.replace(/\s*\(.*\)$/, '')}`;
+
+    const mentions = () => [
+      { mention: 'agent', label: 'The chat that fits best', detail: 'wrote the text, or is open' },
+      ...manager.open.flatMap((chat) => {
+        const mention = mentionOf(chatName(chat));
+        return mention
+          ? [{ mention, label: chatName(chat), detail: chat.session.config.name }]
+          : [];
+      }),
+      ...agents().map((a) => ({ mention: a.id, label: a.name, detail: 'agent' })),
+    ];
 
     const replyToComment = async (a: { path: VaultPath; threadId: string; agent?: string }) => {
       const comments = ctx.tryUse(Comments);
       if (!comments || !a.path || !a.threadId) return;
       const path = a.path;
       const threadId = a.threadId;
-      const list = agents();
-      if (!list.length) throw new Error('No assistant is available here (desktop app only).');
-      // `@agent` is the one selected in the chat panel; `@claude` etc. name one.
-      const wanted = (a.agent ?? 'agent').toLowerCase();
-      const config =
-        list.find((c) => c.id === wanted) ?? list.find((c) => c.id === currentAgent()) ?? list[0]!;
+      const located = (await comments.threads(path)).find((t) => t.id === threadId);
+      const to = await resolve(path, threadId, located?.range, a.agent);
+      if (!to) throw new Error('No assistant is available here (desktop app only).');
 
-      const placeholder = await comments.reply(path, threadId, 'Working on it…', config.name);
+      let chat: OpenChat | undefined =
+        to.kind === 'open'
+          ? to.chat
+          : to.kind === 'saved'
+            ? await resumeChat(to.id)
+            : openChat(to.agent.id);
+      // A chat whose agent stopped starts again from what was saved.
+      if (chat?.session.status === 'closed') {
+        const { chatId, config } = chat.session;
+        closeChat(chatId);
+        chat = (await resumeChat(chatId)) ?? openChat(config.id);
+      }
+      if (!chat) throw new Error('The chat for this comment can’t be opened.');
+      const session = chat.session;
+      const config = session.config;
+      const who = chat.name ?? config.name;
+
+      const placeholder = await comments.reply(
+        path,
+        threadId,
+        session.status === 'working' || chat.queue.length
+          ? 'Busy with something else; this is next…'
+          : 'Working on it…',
+        who,
+      );
       const finish = (text: string) => comments.editComment(path, threadId, placeholder.id, text);
 
-      const run = async () => {
-        let session = sessions.get(config.id);
-        if (!session || session.status === 'closed' || session.status === 'error')
-          session = startSession(config.id);
+      try {
         if (!(await whenReady(session))) {
           const needsSignIn = session.loginOptions.length > 0;
           await finish(
@@ -376,6 +496,7 @@ export const plugin = definePlugin({
           );
           return;
         }
+        ledger.setThreadChat(threadId, session.chatId);
         const thread = (await comments.threads(path)).find((t) => t.id === threadId);
         if (!thread) return;
         const doc = documents.peek(path) ?? (await vault.read(path));
@@ -394,49 +515,59 @@ export const plugin = definePlugin({
           'Answer the latest comment. If it asks for a change to the note, make the change, then say briefly what you did. Your final message is posted as your reply in the thread, so keep it short and do not repeat the question.',
         ].join('\n\n');
 
-        // The chat panel may not be visible: ask for approvals in a dialog instead.
+        // The chat may not be on screen: approvals for this answer are asked in a dialog.
         const asked = new Set<number>();
-        const approvals = session.onDidChange(() => {
-          for (const item of session!.items) {
-            if (item.kind !== 'permission' || item.chosen || asked.has(item.id)) continue;
-            asked.add(item.id);
-            void workspace
-              .confirm(`${config.name} wants to: ${item.title}`, { confirmLabel: 'Allow' })
-              .then((ok) => {
-                const pick = item.options.find((o) =>
-                  ok ? o.kind === 'allow_once' : o.kind === 'reject_once',
-                );
-                item.respond?.(pick?.optionId ?? (ok ? (item.options[0]?.optionId ?? null) : null));
-              });
-          }
-        });
-        const before = session.items.length;
+        let approvals: { dispose(): void } | undefined;
+        const watchApprovals = () => {
+          for (const item of session.items) if (item.kind === 'permission') asked.add(item.id);
+          approvals = session.onDidChange(() => {
+            for (const item of session.items) {
+              if (item.kind !== 'permission' || item.chosen || asked.has(item.id)) continue;
+              asked.add(item.id);
+              void workspace
+                .confirm(`${who} wants to: ${item.title}`, { confirmLabel: 'Allow' })
+                .then((ok) => {
+                  const pick = item.options.find((o) =>
+                    ok ? o.kind === 'allow_once' : o.kind === 'reject_once',
+                  );
+                  item.respond?.(
+                    pick?.optionId ?? (ok ? (item.options[0]?.optionId ?? null) : null),
+                  );
+                });
+            }
+          });
+        };
+        let produced;
         try {
-          await session.prompt(prompt, [{ type: 'resource_link', uri: fileUri(path), name: path }]);
+          // A busy chat finishes what it is doing first: the comment waits in its queue.
+          produced = await manager.ask(chat, {
+            message: prompt,
+            blocks: [{ type: 'resource_link', uri: fileUri(path), name: path }],
+            label: `Comment on ${path}`,
+            started: () => {
+              watchApprovals();
+              void finish('Working on it…');
+            },
+          });
         } finally {
-          approvals.dispose();
+          approvals?.dispose();
         }
-        const produced = session.items.slice(before);
         const answer = produced
           .flatMap((i) => (i.kind === 'agent' ? [i.text.trim()] : []))
           .filter(Boolean)
           .join('\n\n');
         const problem = produced.flatMap((i) => (i.kind === 'error' ? [i.text] : [])).join('\n');
         await finish(answer || (problem ? `Could not answer: ${problem}` : 'Done.'));
-      };
-
-      const queued = (commentQueue.get(config.id) ?? Promise.resolve()).then(run, run);
-      commentQueue.set(
-        config.id,
-        queued.catch(() => undefined),
-      );
-      await queued.catch((e: unknown) =>
-        finish(`Could not answer: ${e instanceof Error ? e.message : String(e)}`),
-      );
+      } catch (e) {
+        await finish(`Could not answer: ${e instanceof Error ? e.message : String(e)}`);
+      }
     };
     ctx.provide(Agents, {
       available: () => agents().length > 0 && !!root,
       replyToComment,
+      mentions,
+      answers: (threadId) => !!ledger.threadChat(threadId),
+      recipient: async (r) => describe(await resolve(r.path, r.threadId, r.range, r.mention)),
       registerGuidance: (text) => {
         guidanceSources.add(text);
         return { dispose: () => void guidanceSources.delete(text) };

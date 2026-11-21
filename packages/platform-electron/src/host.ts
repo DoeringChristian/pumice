@@ -26,6 +26,11 @@ export interface PumiceHost {
   onBeforeClose(listener: () => Promise<void>): () => void;
   openExternal(url: string): Promise<void>;
   revealInFileManager(path: string): Promise<void>;
+  spelling: {
+    /** The misspelled word that was just right-clicked and its corrections, or null. */
+    atPointer(): Promise<{ word: string; suggestions: string[] } | null>;
+    learn(word: string): Promise<void>;
+  };
   vaults: {
     list(): Promise<KnownVault[]>;
     /** Only vaults from `list()` can be opened this way. */
@@ -116,4 +121,5 @@ export const IPC = {
   proc: 'pumice:proc',
   chatgpt: 'pumice:chatgpt',
   launcher: 'pumice:launcher',
+  spelling: 'pumice:spelling',
 } as const;

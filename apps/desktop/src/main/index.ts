@@ -1,5 +1,6 @@
 import type { FileStat, FsWatchEvent, PlatformOs } from '@pumice/platform';
 import { IPC } from '@pumice/platform-electron/host';
+import { execFile } from 'node:child_process';
 import {
   BrowserWindow,
   Menu,
@@ -8,6 +9,7 @@ import {
   ipcMain,
   net,
   protocol,
+  session as electronSession,
   shell,
   type MenuItemConstructorOptions,
 } from 'electron';
@@ -258,6 +260,33 @@ const storageFile = (dir: string, key: unknown) => {
 
 // Sign in with ChatGPT: one sign-in for the whole app, tokens in the user data folder.
 let chatgptInstance: ChatGpt | undefined;
+/** Corrections for a word from the macOS spelling checker (empty if it cannot be asked). */
+const MAC_GUESSES = `ObjC.import('AppKit');
+function run(argv) {
+  const word = argv[0];
+  const checker = $.NSSpellChecker.sharedSpellChecker;
+  const guesses = checker.guessesForWordRangeInStringLanguageInSpellDocumentWithTag(
+    $.NSMakeRange(0, word.length), word, checker.language, 0);
+  return JSON.stringify(ObjC.deepUnwrap(guesses) || []);
+}`;
+const macSpellingGuesses = (word: string) =>
+  new Promise<string[]>((resolve) => {
+    // The word is an argument of the script, never part of its text.
+    execFile(
+      '/usr/bin/osascript',
+      ['-l', 'JavaScript', '-e', MAC_GUESSES, word],
+      { timeout: 600 },
+      (error, stdout) => {
+        try {
+          const parsed: unknown = error ? [] : JSON.parse(stdout);
+          resolve(Array.isArray(parsed) ? parsed.filter((g) => typeof g === 'string') : []);
+        } catch {
+          resolve([]);
+        }
+      },
+    );
+  });
+
 const chatgpt = () =>
   (chatgptInstance ??= createChatGpt({
     dataDir: app.getPath('userData'),
@@ -316,6 +345,12 @@ const handlers: Record<string, Handler> = {
     return shell.openExternal(url);
   },
   'shell.reveal': (s, p) => shell.showItemInFolder(s.abs(p)),
+  // "Add to dictionary" from the editor's menu: the word is no longer marked as misspelled.
+  'spell.learn': (_s, word) => {
+    if (typeof word !== 'string' || !word.trim() || word.length > 100)
+      throw new Error('Not a word');
+    return electronSession.defaultSession.addWordToSpellCheckerDictionary(word);
+  },
   'vaults.list': (s) => knownVaults(s.root),
   'vaults.open': async (s, path, newWindow) => {
     // The renderer can only reopen folders the user picked before.
@@ -440,6 +475,19 @@ async function openVault(root: string): Promise<void> {
     return { action: 'deny' };
   });
   window.webContents.on('will-navigate', (e) => e.preventDefault());
+  // The page draws its own menus; it is told what the spelling checker says about the word
+  // that was right-clicked, to offer the corrections there.
+  window.webContents.on('context-menu', (_e, params) => {
+    const word = params.misspelledWord;
+    const tell = (suggestions: string[]) => {
+      if (!window.isDestroyed())
+        window.webContents.send(IPC.spelling, { word, suggestions: suggestions.slice(0, 6) });
+    };
+    // macOS names the misspelled word but not its corrections: its checker is asked for them.
+    if (word && !params.dictionarySuggestions.length && process.platform === 'darwin')
+      void macSpellingGuesses(word).then(tell);
+    else tell(params.dictionarySuggestions);
+  });
 
   // Let the renderer flush pending saves before the window goes away.
   // The window is gone by the time `closed` fires: remember its id now.

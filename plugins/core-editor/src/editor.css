@@ -688,3 +688,47 @@
 .cm-line .cm-pm-math.is-display .katex-display {
   margin: 0.2em 0;
 }
+
+/* ---- folding sections at their heading -------------------------------------------------- */
+.cm-pm-h {
+  position: relative;
+}
+.cm-pm-fold {
+  position: absolute;
+  /* Beside the text: headings have their space above it. */
+  bottom: 0;
+  left: -22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 1.3em;
+  border-radius: 4px;
+  color: var(--text-faint);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+.cm-line:hover > .cm-pm-fold,
+.cm-pm-fold.is-folded {
+  opacity: 1;
+}
+.cm-pm-fold:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+@media (hover: none) {
+  .cm-pm-fold {
+    opacity: 0.55;
+  }
+}
+.cm-pm-fold-placeholder {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--bg-active);
+  color: var(--text-muted);
+  font-size: 0.8em;
+  font-weight: 400;
+  cursor: pointer;
+}

@@ -1,7 +1,8 @@
 import { StateEffect, StateField, type EditorState, type Extension } from '@codemirror/state';
 import { Decoration, EditorView, showTooltip, type Tooltip } from '@codemirror/view';
-import type { EditorExtensionContext, VaultPath } from '@pumice/api';
+import type { AgentMention, EditorExtensionContext, VaultPath } from '@pumice/api';
 import { createIcon } from '@pumice/ui';
+import { attachMentionCompletion } from './mention';
 
 /**
  * Commenting where the text is: selecting text shows a small comment button next to it, and
@@ -14,6 +15,14 @@ export interface BubbleDeps {
   commentMode(): boolean;
   /** Whether comments can be sent to an agent (shows the hint and the shortcut button). */
   agentAvailable(): boolean;
+  /** The chats and agents a comment can address with `@…`. */
+  mentions(): AgentMention[];
+  /** The chat that would answer a comment with this text on `range` (undefined: nobody). */
+  recipient(
+    path: VaultPath,
+    range: { from: number; to: number },
+    body: string,
+  ): Promise<string | undefined>;
   submit(path: VaultPath, range: { from: number; to: number }, body: string): Promise<void>;
 }
 
@@ -96,6 +105,22 @@ function composerDom(
   const actions = document.createElement('div');
   actions.className = 'pm-comment-popover-actions';
   const mentionsAgent = () => /(^|\s)@agent\b/i.test(input.value);
+  const to = document.createElement('div');
+  to.className = 'pm-comment-recipient';
+  to.hidden = true;
+  let asked = 0;
+  const showRecipient = () => {
+    const mine = ++asked;
+    const p = path();
+    const current = view.state.field(bubbleField).composer ?? range;
+    void (p === undefined ? Promise.resolve(undefined) : deps.recipient(p, current, input.value))
+      .catch(() => undefined)
+      .then((name) => {
+        if (mine !== asked) return;
+        to.hidden = !name;
+        to.replaceChildren(...(name ? [createIcon('bot', 12), ` Goes to ${name}`] : []));
+      });
+  };
   let ask: HTMLButtonElement | undefined;
   if (deps.agentAvailable()) {
     ask = document.createElement('button');
@@ -131,11 +156,12 @@ function composerDom(
     input.style.height = `${Math.min(180, input.scrollHeight)}px`;
     ok.disabled = !input.value.trim();
     ask?.classList.toggle('is-on', mentionsAgent());
+    showRecipient();
   };
   input.addEventListener('input', sync);
   input.placeholder = 'Add a comment…';
   requestAnimationFrame(sync);
-  box.append(input, error, actions);
+  box.append(input, attachMentionCompletion(input, deps.mentions), to, error, actions);
   // The tooltip is added after this returns.
   requestAnimationFrame(() => input.focus());
   return box;

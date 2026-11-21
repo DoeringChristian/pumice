@@ -22,6 +22,7 @@ import {
   calloutTypeAt,
   previewBlockOwners,
   revealChanged,
+  revealedAt,
   revealedLines,
   revealTracking,
   type MarkdownSyntaxApi,
@@ -733,6 +734,9 @@ function buildDecorations(view: EditorView): DecorationSet {
     for (let n = a; n <= b; n++) if (active.has(n)) return true;
     return false;
   };
+  // Most things give way to their source only when the cursor is in or right at them: the
+  // rest of the line stays drawn. (Headings and blocks show their source for the whole line.)
+  const near = (from: number, to: number) => revealedAt(state, from, to);
   const decorations: Range<Decoration>[] = [];
   const hide = (from: number, to: number) => {
     if (from < to) decorations.push(Decoration.replace({}).range(from, to));
@@ -777,13 +781,15 @@ function buildDecorations(view: EditorView): DecorationSet {
             Decoration.mark({ class: MARK_CLASSES[name] }).range(node.from, node.to),
           );
           // A label (`^fig-loss`) is for linking, not for reading.
-          if (name === 'BlockId' && !isActive(node.from) && node.to > node.from)
+          if (name === 'BlockId' && !near(node.from, node.to) && node.to > node.from)
             decorations.push(Decoration.replace({}).range(node.from, node.to));
           if (name === 'Comment' || name === 'Tag' || name === 'BlockId') return false;
           return;
         }
         if (HIDDEN_MARKS.has(name)) {
-          if (node.node.parent?.name !== 'FencedCode' && !isActive(node.from))
+          // The marks of the emphasis (code, …) the cursor is in.
+          const parent = node.node.parent;
+          if (parent && parent.name !== 'FencedCode' && !near(parent.from, parent.to))
             hide(node.from, node.to);
           return;
         }
@@ -799,7 +805,7 @@ function buildDecorations(view: EditorView): DecorationSet {
               );
             return false;
           }
-          if (!rangeActive(node.from, node.to) && deps?.reader) {
+          if (!near(node.from, node.to) && deps?.reader) {
             const mark = name === 'InlineMath' ? 1 : 2;
             const tex = state.doc.sliceString(node.from + mark, node.to - mark);
             // `$$ … $$` within a line of text is still a displayed formula: large, on a row
@@ -820,7 +826,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         }
         if (name === 'Embed') {
           const source = deps?.sourcePath();
-          if (!rangeActive(node.from, node.to) && deps?.reader && source !== undefined) {
+          if (!near(node.from, node.to) && deps?.reader && source !== undefined) {
             const target = node.node.getChild('WikiLinkTarget');
             const sub = node.node.getChild('WikiLinkSubpath');
             const alias = node.node.getChild('WikiLinkAlias');
@@ -865,7 +871,7 @@ function buildDecorations(view: EditorView): DecorationSet {
                 }).range(textFrom, textTo),
               );
             }
-            if (!isActive(node.from)) {
+            if (!near(node.from, node.to)) {
               hide(node.from, textFrom);
               hide(textTo, node.to);
             }
@@ -900,7 +906,8 @@ function buildDecorations(view: EditorView): DecorationSet {
             );
             const firstLine = state.doc.lineAt(node.from);
             const m = /^(>[ \t]?)(\[![^\]\s]+\][+-]?)/.exec(firstLine.text);
-            if (m && !isActive(node.from)) {
+            const markerAt = firstLine.from + (m?.[1]?.length ?? 0);
+            if (m && !near(markerAt, markerAt + m[2]!.length)) {
               const markerFrom = firstLine.from + m[1]!.length;
               decorations.push(
                 Decoration.replace({ widget: new CalloutIconWidget(type) }).range(
@@ -952,7 +959,9 @@ function buildDecorations(view: EditorView): DecorationSet {
           return;
         }
         if (name === 'TaskMarker') {
-          if (!isActive(node.from)) {
+          // `- [ ]` as a whole: the source shows with the cursor at the dash or the box.
+          const dash = node.node.parent?.prevSibling;
+          if (!near(dash?.name === 'ListMark' ? dash.from : node.from, node.to)) {
             const checked =
               state.doc.sliceString(node.from + 1, node.from + 2).toLowerCase() === 'x';
             decorations.push(
@@ -979,26 +988,21 @@ function buildDecorations(view: EditorView): DecorationSet {
           return false;
         }
         if (name === 'QuoteMark') {
-          if (!isActive(node.from)) {
-            const after =
-              state.doc.sliceString(node.to, node.to + 1) === ' ' ? node.to + 1 : node.to;
-            hide(node.from, after);
-          }
+          const after = state.doc.sliceString(node.to, node.to + 1) === ' ' ? node.to + 1 : node.to;
+          if (!near(node.from, after)) hide(node.from, after);
           return;
         }
         if (name === 'ListMark' && node.node.parent?.parent?.name === 'BulletList') {
           // Task items show only their checkbox.
-          if (node.node.nextSibling?.name === 'Task' && !isActive(node.from)) {
-            hide(node.from, node.node.nextSibling.from);
+          const task = node.node.nextSibling;
+          if (task?.name === 'Task') {
+            const box = task.getChild('TaskMarker');
+            if (!near(node.from, box?.to ?? task.from)) hide(node.from, task.from);
             return;
           }
           // A dot also on the line being edited, unless the cursor is right at the dash (or
           // the dash is selected): then the dash can be changed.
-          const sel = state.selection.main;
-          const atMark = sel.empty
-            ? sel.head === node.from || sel.head === node.to
-            : sel.from <= node.to && sel.to >= node.from;
-          if (!isActive(node.from) || !atMark) {
+          if (!near(node.from, node.to)) {
             decorations.push(
               Decoration.replace({ widget: new BulletWidget() }).range(node.from, node.to),
             );
@@ -1017,7 +1021,7 @@ function buildDecorations(view: EditorView): DecorationSet {
       const at = line.text.search(/Table:/i);
       if (at < 0) continue;
       decorations.push(Decoration.line({ class: 'cm-pm-caption-line' }).range(line.from));
-      if (!isActive(line.from)) {
+      if (!near(line.from + at, line.from + at + 'Table:'.length)) {
         decorations.push(
           Decoration.replace({ widget: new LabelWidget(`${figureLabel(item)}:`) }).range(
             line.from + at,
