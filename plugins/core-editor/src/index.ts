@@ -29,6 +29,7 @@ import manifestJson from '../manifest.json';
 import { embedAt } from './resize';
 import './editor.css';
 import { MarkdownView } from './markdown-view';
+import { HEADING_PREFIX, linePrefixChange, TASK_PREFIX, type LinePrefix } from './toolbar';
 
 export { MarkdownView } from './markdown-view';
 
@@ -392,14 +393,16 @@ export const plugin = definePlugin({
         });
         view.focus();
       };
-    const linePrefix = (prefix: RegExp, insertText: string) => (view: EditorView) => {
-      const line = view.state.doc.lineAt(view.state.selection.main.head);
-      const m = prefix.exec(line.text);
-      view.dispatch(
-        m
-          ? { changes: { from: line.from, to: line.from + m[0].length, insert: '' } }
-          : { changes: { from: line.from, insert: insertText } },
-      );
+    const linePrefix = (prefix: LinePrefix) => (view: EditorView) => {
+      const head = view.state.selection.main.head;
+      const line = view.state.doc.lineAt(head);
+      const c = linePrefixChange(line.text, prefix, head - line.from);
+      // The cursor goes after what was added, also when it stood right where that went.
+      view.dispatch({
+        changes: { from: line.from + c.from, to: line.from + c.to, insert: c.insert },
+        selection: { anchor: line.from + c.head },
+        userEvent: 'input',
+      });
       view.focus();
     };
     const defaults: EditorToolbarAction[] = [
@@ -412,7 +415,7 @@ export const plugin = definePlugin({
         title: 'Checklist item',
         icon: 'check-square',
         order: 12,
-        run: linePrefix(/^\s*- \[[ xX]\] /, '- [ ] '),
+        run: linePrefix(TASK_PREFIX),
       },
       { id: 'bold', title: 'Bold', icon: 'bold', order: 20, run: (v) => toggleWrap(v, '**') },
       { id: 'italic', title: 'Italic', icon: 'italic', order: 21, run: (v) => toggleWrap(v, '*') },
@@ -421,7 +424,7 @@ export const plugin = definePlugin({
         title: 'Heading',
         icon: 'heading',
         order: 22,
-        run: linePrefix(/^#{1,6} /, '## '),
+        run: linePrefix(HEADING_PREFIX),
       },
       {
         id: 'indent',
