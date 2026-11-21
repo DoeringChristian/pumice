@@ -177,10 +177,31 @@ export class MarkdownView implements ViewInstance {
       });
       if (!this.editor.contentDOM.dispatchEvent(passed)) e.preventDefault();
     };
+    // A click beside or below the text puts the cursor on that line, or at the end of the note
+    // (the text cursor is shown there, so it has to mean something).
+    const beside = (e: MouseEvent) => {
+      if (this.reading || e.button !== 0) return;
+      const target = e.target as HTMLElement;
+      if (target !== this.page && target !== this.page.parentElement) return;
+      const content = this.editor.contentDOM.getBoundingClientRect();
+      if (e.clientY < content.top) return;
+      e.preventDefault();
+      const { doc } = this.editor.state;
+      const x = Math.max(content.left + 1, Math.min(e.clientX, content.right - 1));
+      const pos =
+        e.clientY >= content.bottom
+          ? doc.length
+          : (this.editor.posAtCoords({ x, y: e.clientY }, false) ?? doc.length);
+      // To the right of a line: its end.
+      const anchor = e.clientX > content.right ? doc.lineAt(pos).to : pos;
+      this.editor.dispatch({ selection: { anchor } });
+      this.editor.focus();
+    };
     queueMicrotask(() => {
       const scroller = this.page.parentElement;
       scroller?.addEventListener('dragover', below);
       scroller?.addEventListener('drop', below);
+      scroller?.addEventListener('mousedown', beside);
     });
   }
 

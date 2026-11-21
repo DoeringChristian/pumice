@@ -1,4 +1,5 @@
 import type {
+  Nodes,
   Blockquote,
   BlockContent,
   DefinitionContent,
@@ -192,9 +193,57 @@ export function parseMarkdown(text: string, opts: ParseOptions = {}): Root {
     extensions: micromarkExtensions(opts.micromark),
     mdastExtensions: mdastExtensions(opts.mdast),
   });
+  endTablesAtText(tree, text, opts);
   transformCallouts(tree);
   for (const transform of opts.transforms ?? []) transform(tree);
   return tree;
+}
+
+/**
+ * A table ends at the first line without a `|`: text written right under a table is a
+ * paragraph, not one more row of it (as GFM would have it). Mirrored in `lezer.ts`.
+ */
+function endTablesAtText(tree: Root, text: string, opts: ParseOptions): void {
+  const visit = (parent: { children: Nodes[] }) => {
+    for (let i = 0; i < parent.children.length; i++) {
+      const node = parent.children[i]!;
+      if (node.type !== 'table') {
+        if ('children' in node) visit(node as { children: Nodes[] });
+        continue;
+      }
+      const cut = node.children.findIndex((row, r) => {
+        const from = row.position?.start.offset;
+        const to = row.position?.end.offset;
+        return (
+          r > 0 && from !== undefined && to !== undefined && !text.slice(from, to).includes('|')
+        );
+      });
+      if (cut < 0) continue;
+      const first = node.children[cut]!.position!.start;
+      const lastKept = node.children[cut - 1]!.position!.end;
+      const end = node.position!.end.offset!;
+      // What follows the table is read again as ordinary text, from the start of its line.
+      const from = first.offset! - (first.column - 1);
+      const tail = fromMarkdown(text.slice(from, end), {
+        extensions: micromarkExtensions(opts.micromark),
+        mdastExtensions: mdastExtensions(opts.mdast),
+      });
+      const shift = (n: Nodes) => {
+        if (n.position) {
+          for (const point of [n.position.start, n.position.end]) {
+            point.offset = (point.offset ?? 0) + from;
+            point.line += first.line - 1;
+          }
+        }
+        if ('children' in n) (n.children as Nodes[]).forEach(shift);
+      };
+      tail.children.forEach(shift);
+      node.children.length = cut;
+      node.position!.end = { ...lastKept };
+      parent.children.splice(i + 1, 0, ...(tail.children as Nodes[]));
+    }
+  };
+  visit(tree as { children: Nodes[] });
 }
 
 /** Turns `> [!type] Title` blockquotes into `callout` nodes (recursively). */

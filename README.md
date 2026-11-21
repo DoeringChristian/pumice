@@ -160,6 +160,9 @@ examples/             example community plugins (word-goal, kbd-syntax)
   button in place of their fences. A click on a picture enlarges it; the `</>` button on a
   picture or frame shows its source. Rows and columns of a table are moved by dragging their
   handles. Rendered things show a faint outline on hover.
+- **Tables end at text**: a line right under a table that has no `|` is a paragraph, not one
+  more row (unlike standard Markdown, where a blank line is needed; Obsidian shows such a line
+  as a row).
 - **Snippets**: `:today:`, `:now:`, `:time:`, `:tomorrow:`, `:daily:` and your own (Settings →
   Snippets) are replaced as the closing colon is typed.
 - **Back and forward**: arrows in the tab bar, `Mod+Alt+←/→` and the mouse's back/forward buttons

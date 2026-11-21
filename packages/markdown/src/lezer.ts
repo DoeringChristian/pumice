@@ -338,5 +338,21 @@ export const FrontmatterSyntax: MarkdownConfig = {
   ],
 };
 
+/**
+ * A table ends at the first line without a `|`: text written right under a table is a
+ * paragraph, not one more row of it (as GFM would have it). Mirrored in `mdast.ts`.
+ */
+const TableEndsAtText: MarkdownConfig = {
+  parseBlock: [
+    {
+      name: 'TableEndsAtText',
+      endLeaf(_cx, line, leaf) {
+        const inTable = leaf.parsers.some((p) => Array.isArray((p as { rows?: unknown }).rows));
+        return inTable && !line.text.slice(line.pos).includes('|');
+      },
+    },
+  ],
+};
+
 /** Everything the editor needs: GFM (no sub/superscript, which Obsidian lacks) + the dialect. */
-export const dialectExtensions: MarkdownConfig[] = [...GFM, ObsidianSyntax];
+export const dialectExtensions: MarkdownConfig[] = [...GFM, TableEndsAtText, ObsidianSyntax];

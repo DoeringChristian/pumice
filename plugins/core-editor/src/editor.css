@@ -669,3 +669,22 @@
   line-height: 1.5;
   padding-top: 4px !important;
 }
+
+/* Beside and below the text a click places the cursor, so the pointer says so. */
+.pm-markdown-scroller,
+.pm-markdown-page {
+  cursor: text;
+}
+.pm-is-reading .pm-markdown-scroller,
+.pm-is-reading .pm-markdown-page {
+  cursor: auto;
+}
+/* A `$$ … $$` formula within a line of text: on a row of its own, without the margins a block
+   would have (the line gives the room). */
+.cm-line .cm-pm-math.is-display {
+  margin: 0;
+  padding: 4px 0;
+}
+.cm-line .cm-pm-math.is-display .katex-display {
+  margin: 0.2em 0;
+}

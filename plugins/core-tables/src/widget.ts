@@ -4,7 +4,7 @@ import {
   Prec,
   StateEffect,
   StateField,
-  EditorState,
+  type EditorState,
   type Extension,
   type Range,
 } from '@codemirror/state';
@@ -656,33 +656,6 @@ function dragHandle(
   window.addEventListener('mouseup', up, true);
 }
 
-/**
- * Text typed on the line right after a table would become one more row of it (that is how
- * markdown reads it). A blank line is put between, so that it is a paragraph of its own.
- */
-const paragraphAfterTable = EditorState.transactionFilter.of((tr) => {
-  if (!tr.docChanged || !tr.isUserEvent('input') || tr.annotation(fromWidget)) return tr;
-  const sel = tr.newSelection.main;
-  if (!sel.empty) return tr;
-  const { newDoc } = tr;
-  const line = newDoc.lineAt(sel.head);
-  if (line.number < 3 || !line.text.trim() || line.text.includes('|')) return tr;
-  const above = newDoc.line(line.number - 1).text;
-  // The line above is a table row, with the row of dashes somewhere above it.
-  if (!/^\s*\|.*\|\s*$/.test(above)) return tr;
-  let isTable = false;
-  for (let n = line.number - 1; n >= 1 && n > line.number - 400; n--) {
-    const text = newDoc.line(n).text;
-    if (!text.includes('|')) break;
-    if (/^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(text)) {
-      isTable = n > 1 && newDoc.line(n - 1).text.includes('|');
-      break;
-    }
-  }
-  if (!isTable) return tr;
-  return [tr, { changes: { from: line.from, insert: '\n' }, sequential: true }];
-});
-
 function attachEvents(root: HTMLElement, view: EditorView, deps: TableDeps): void {
   const cellOf = (el: EventTarget | null) =>
     el instanceof Element ? el.closest<HTMLElement>('.pm-table-cell') : null;
@@ -875,7 +848,6 @@ export function tableEditing(deps: TableDeps): Extension {
   return [
     sourceTables,
     field,
-    paragraphAfterTable,
     previewBlockOwners.of('Table'),
     Prec.high(
       keymap.of([

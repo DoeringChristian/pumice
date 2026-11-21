@@ -788,11 +788,25 @@ function buildDecorations(view: EditorView): DecorationSet {
           return;
         }
         if (name === 'InlineMath' || name === 'InlineMathDisplay') {
+          // A `$$ … $$` formula over several lines is drawn as a block (see `buildBlocks`).
+          if (
+            name === 'InlineMathDisplay' &&
+            state.doc.lineAt(node.from).number !== state.doc.lineAt(node.to).number
+          ) {
+            if (rangeActive(node.from, node.to))
+              decorations.push(
+                Decoration.mark({ class: 'cm-pm-math-source' }).range(node.from, node.to),
+              );
+            return false;
+          }
           if (!rangeActive(node.from, node.to) && deps?.reader) {
             const mark = name === 'InlineMath' ? 1 : 2;
             const tex = state.doc.sliceString(node.from + mark, node.to - mark);
+            // `$$ … $$` within a line of text is still a displayed formula: large, on a row
+            // of its own between the text before and after it.
+            const display = name === 'InlineMathDisplay';
             decorations.push(
-              Decoration.replace({ widget: new MathWidget(tex, false, node.from, mark) }).range(
+              Decoration.replace({ widget: new MathWidget(tex, display, node.from, mark) }).range(
                 node.from,
                 node.to,
               ),
@@ -1128,6 +1142,51 @@ function buildBlocks(state: EditorState): DecorationSet {
     } while (cursor.nextSibling());
   };
   visit(syntaxTree(state).topNode.cursor());
+  // A `$$ … $$` formula with text right above or below it (no blank line) is part of that
+  // paragraph for the parser, but a formula of its own for the reader: drawn as a block when it
+  // has its lines to itself.
+  if (reader && !owned.has('MathBlock')) {
+    syntaxTree(state).iterate({
+      enter: (node) => {
+        if (node.name !== 'InlineMathDisplay') return;
+        const first = state.doc.lineAt(node.from);
+        const last = state.doc.lineAt(node.to);
+        if (first.number === last.number) return;
+        if (
+          state.doc.sliceString(first.from, node.from).trim() ||
+          state.doc.sliceString(node.to, last.to).trim()
+        )
+          return;
+        const source = state.doc.sliceString(node.from, node.to);
+        if (touches(node.from, node.to)) {
+          const tex = source.replace(/^\$\$+/, '').replace(/\$\$+\s*$/, '');
+          if (tex.trim()) {
+            decorations.push(
+              Decoration.widget({
+                widget: new MathPreviewWidget(tex),
+                block: true,
+                side: 1,
+              }).range(last.to),
+            );
+          }
+          return;
+        }
+        decorations.push(
+          Decoration.replace({
+            widget: new BlockWidget(
+              'math',
+              source,
+              node.from,
+              ((item) => (item ? figureReference(item) : undefined))(
+                itemAt(state, first.from, 'eq'),
+              ),
+            ),
+            block: true,
+          }).range(first.from, last.to),
+        );
+      },
+    });
+  }
   return Decoration.set(decorations, true);
 }
 
