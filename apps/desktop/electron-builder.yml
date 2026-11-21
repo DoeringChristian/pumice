@@ -33,7 +33,7 @@ nsis:
 linux:
   target: [AppImage, deb]
   category: Office
-  maintainer: Pumice contributors
+  maintainer: Pumice contributors <DoeringChristian@users.noreply.github.com>
 fileAssociations:
   - ext: md
     name: Markdown

@@ -619,19 +619,28 @@ export class SharedVault {
   // ---------------------------------------------------------------------------------------------
   // Attachments
 
+  /** How often the download of an attachment was tried again. */
+  private readonly blobRetries = new Map<string, number>();
+
   private async uploadBlob(id: string, path: VaultPath): Promise<void> {
     const bytes = await this.opts.vault.readBinary(path);
     const hash = await sha256Hex(bytes);
     this.blobHashes.set(path, hash);
-    const entry = this.files.get(id);
-    if (!entry) return;
-    if (entry.blob !== hash) this.files.set(id, { ...entry, blob: hash, size: bytes.length });
+    if (!this.files.get(id)) return;
     try {
       await this.opts.client.uploadBlob(this.opts.vaultId, hash, bytes);
       this.pendingBlobs.delete(id);
     } catch {
+      // Not announced until it is on the server (see below); tried again on reconnect.
       this.pendingBlobs.add(id);
+      this.persistSoon('index');
+      return;
     }
+    // Only now do the others learn of it: told earlier, they would ask the server for a file
+    // it does not have yet.
+    const entry = this.files.get(id);
+    if (entry && entry.blob !== hash)
+      this.files.set(id, { ...entry, blob: hash, size: bytes.length });
     this.persistSoon('index');
   }
 
@@ -662,8 +671,16 @@ export class SharedVault {
     try {
       data = await this.opts.client.downloadBlob(this.opts.vaultId, entry.blob);
     } catch {
-      return; // retried on the next manifest change or reconnect
+      // Tried again on the next manifest change or reconnect, and a few times by itself (the
+      // server may be a moment behind).
+      const tries = (this.blobRetries.get(id) ?? 0) + 1;
+      if (tries <= 5) {
+        this.blobRetries.set(id, tries);
+        setTimeout(() => void this.ensureBlob(id).catch(() => undefined), 500 * tries);
+      }
+      return;
     }
+    this.blobRetries.delete(id);
     await this.own(path, () => this.opts.vault.write(path, data));
     this.blobHashes.set(path, entry.blob);
     this.setLocal(path, id);

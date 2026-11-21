@@ -34,6 +34,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     needs: check
     strategy:
+      # One system failing to package says nothing about the others: let them finish.
+      fail-fast: false
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
