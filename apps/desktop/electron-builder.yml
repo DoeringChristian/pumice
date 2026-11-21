@@ -11,6 +11,9 @@ files:
   - out/**
   - package.json
 asarUnpack: []
+# The name inside the packaged app (Linux package managers take theirs from it).
+extraMetadata:
+  name: pumice
 publish:
   # Auto-update feed (electron-updater). Override with PUMICE_UPDATE_URL for self-hosting.
   provider: github
@@ -32,6 +35,10 @@ nsis:
   allowToChangeInstallationDirectory: true
 linux:
   target: [AppImage, deb]
+  # The package is called @pumice/desktop in this repository; a slash cannot be in a file or
+  # package name.
+  executableName: pumice
+  artifactName: Pumice-${version}-linux-${arch}.${ext}
   category: Office
   maintainer: Pumice contributors <DoeringChristian@users.noreply.github.com>
 fileAssociations:

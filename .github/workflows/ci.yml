@@ -51,7 +51,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:excalidraw
       - run: pnpm --filter @pumice/desktop exec electron-vite build
-      - run: pnpm --filter @pumice/desktop exec electron-builder --publish never
+      # Without signing secrets the variables are empty, and an empty CSC_LINK is taken for a
+      # certificate file that does not exist: leave out what is not set.
+      - shell: bash
+        run: |
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then unset "$name"; fi
+          done
+          pnpm --filter @pumice/desktop exec electron-builder --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK && 'true' || 'false' }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
