@@ -176,6 +176,18 @@ const closeBlockOnEnter = Prec.high(
         const sel = state.selection.main;
         if (!sel.empty || state.readOnly) return false;
         const line = state.doc.lineAt(sel.head);
+        const before = line.text.slice(0, sel.head - line.from);
+        const lead = /^\s*/.exec(line.text)![0];
+        // Between the `$$` and the `$$` closed behind it: a formula block is opened up.
+        if (/^\s*\$\$$/.test(before) && /^\$\$\s*$/.test(line.text.slice(before.length))) {
+          view.dispatch({
+            changes: { from: sel.head, to: line.to, insert: `\n${lead}\n${lead}$$` },
+            selection: { anchor: sel.head + 1 + lead.length },
+            userEvent: 'input',
+            scrollIntoView: true,
+          });
+          return true;
+        }
         // At the end of the line; a backtick closed automatically behind the cursor is in the way.
         if (!/^`*$/.test(line.text.slice(sel.head - line.from))) return false;
         const typed = line.text.slice(0, sel.head - line.from);
@@ -206,6 +218,50 @@ const closeBlockOnEnter = Prec.high(
   ]),
 );
 
+/**
+ * Typing `$`. A second one right after the first gives `$$|$$` (the formula is closed from the
+ * start, so nothing after it is taken for a formula while it is written), and a `$` typed in
+ * front of a closing one steps over it.
+ */
+const dollarTyping = Prec.high(
+  EditorView.inputHandler.of((view, from, to, text) => {
+    const { state } = view;
+    if (text !== '$' || from !== to || state.readOnly) return false;
+    if (state.selection.ranges.length > 1) return false;
+    const around = state.doc.sliceString(Math.max(0, from - 2), from + 2);
+    const at = Math.min(2, from);
+    const before = around.slice(0, at);
+    const after = around.slice(at);
+    if (after[0] !== '$') return false;
+    // A closing `$$` typed by hand on the last line of a block that is closed already
+    // (`$$`, Enter, the formula, Enter, `$$`): the one that is there is used.
+    const line = state.doc.lineAt(from);
+    if (line.text.trim() === '$$' && from === line.to - 1 && line.number < state.doc.lines) {
+      const next = state.doc.line(line.number + 1);
+      if (next.text.trim() === '$$' && inMath(state, line.from)) {
+        view.dispatch({
+          changes: { from: line.from, to: next.from },
+          selection: { anchor: next.to - (next.from - line.from) },
+          userEvent: 'input.type',
+        });
+        return true;
+      }
+    }
+    const loneDollar = before.endsWith('$') && !before.endsWith('$$') && after[1] !== '$';
+    if (loneDollar && !inMath(state, from)) {
+      // `$|$`, just typed: a display formula, closed on both sides.
+      view.dispatch({
+        changes: { from, insert: '$$' },
+        selection: { anchor: from + 1 },
+        userEvent: 'input.type',
+      });
+      return true;
+    }
+    view.dispatch({ selection: { anchor: from + 1 }, userEvent: 'select' });
+    return true;
+  }),
+);
+
 /** Asks the contributed sources in order; the first with suggestions is shown. */
 async function allSources(context: CompletionContext): Promise<CompletionResult | null> {
   for (const source of context.state.facet(editorCompletions)) {
@@ -227,6 +283,7 @@ export function completionExtension(): Extension {
     editorCompletions.of(fenceSource),
     editorCompletions.of(mathSource),
     closeBlockOnEnter,
+    dollarTyping,
     // `$` closes like a quote: `$|$`, and typing the second one steps over it.
     EditorState.languageData.of(() => [
       { closeBrackets: { brackets: ['(', '[', '{', "'", '"', '`', '$'] } },

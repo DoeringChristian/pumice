@@ -225,6 +225,14 @@ function parseMathBlock(cx: BlockContext, line: Line): boolean {
   while (line.text.charCodeAt(line.pos + len) === 36) len++;
   // `$$x$$` on one line is inline display math in a paragraph (as in micromark).
   if (line.text.slice(line.pos + len).includes('$')) return false;
+  // Only a block once it is closed: a `$$` that was just typed must not turn the rest of the
+  // note into a formula. (Block parsers cannot rewind, so the raw input is looked at.)
+  const input = (
+    cx as unknown as { input: { length: number; read(from: number, to: number): string } }
+  ).input;
+  const after = cx.lineStart + line.text.length;
+  const rest = input.read(after, Math.min(input.length, after + 20000));
+  if (!/\n[ \t>]*\${2,}[ \t]*(?:\r?\n|$)/.test(rest)) return false;
   const from = cx.lineStart + line.pos;
   const marks: Element[] = [cx.elt('MathMark', from, from + len)];
   const depth = cx.depth;

@@ -7,12 +7,20 @@ import {
 } from './resize';
 import { syntaxTree } from '@codemirror/language';
 import type { TreeCursor } from '@lezer/common';
-import { Facet, StateField, type EditorState, type Extension, type Range } from '@codemirror/state';
+import {
+  Facet,
+  Prec,
+  StateField,
+  type EditorState,
+  type Extension,
+  type Range,
+} from '@codemirror/state';
 import {
   Decoration,
   EditorView,
   ViewPlugin,
   WidgetType,
+  keymap,
   showTooltip,
   type DecorationSet,
   type Tooltip,
@@ -341,7 +349,8 @@ const inlineMathPreview = StateField.define<Tooltip | null>({
       return tooltip;
     return {
       pos: math.from,
-      above: false,
+      // Above: under the formula it would cover the rest of a paragraph that is being written.
+      above: true,
       arrow: false,
       create(view) {
         const dom = document.createElement('div');
@@ -1219,12 +1228,51 @@ const remeasure = EditorView.domEventHandlers({
   },
 } as Parameters<typeof EditorView.domEventHandlers>[0]);
 
+/**
+ * The arrow keys move through a drawn formula block as through its source: from the line
+ * below, up lands on its last line (the closing `$$`), which then shows the source, and down
+ * from the line above on its first.
+ */
+const intoFormula = (dir: -1 | 1) => (view: EditorView) => {
+  const { state } = view;
+  const sel = state.selection.main;
+  if (!sel.empty) return false;
+  const line = state.doc.lineAt(sel.head);
+  const n = line.number + dir;
+  if (n < 1 || n > state.doc.lines) return false;
+  // Within a paragraph that wraps, the keys move within it.
+  if (state.doc.lineAt(view.moveVertically(sel, dir > 0).head).number === line.number) return false;
+  const next = state.doc.line(n);
+  let node = syntaxTree(state).resolveInner(dir < 0 ? next.to : next.from, dir < 0 ? -1 : 1);
+  while (node.name !== 'MathBlock' && node.name !== 'InlineMathDisplay') {
+    if (!node.parent) return false;
+    node = node.parent;
+  }
+  const first = state.doc.lineAt(node.from);
+  const last = state.doc.lineAt(node.to);
+  // A formula within one line is entered like any text; one the cursor is in already, too.
+  if (first.number === last.number) return false;
+  if (sel.head >= node.from && sel.head <= node.to) return false;
+  // As in the source: the next line, at the same column.
+  const target = dir < 0 ? last : first;
+  const anchor = Math.min(target.to, target.from + (sel.head - line.from));
+  view.dispatch({ selection: { anchor }, scrollIntoView: true, userEvent: 'select' });
+  return true;
+};
+const formulaArrows = Prec.high(
+  keymap.of([
+    { key: 'ArrowUp', run: intoFormula(-1) },
+    { key: 'ArrowDown', run: intoFormula(1) },
+  ]),
+);
+
 export const livePreview: Extension = [
   revealTracking,
   inlinePreview,
   blockPreview,
   inlineMathPreview,
   remeasure,
+  formulaArrows,
 ];
 
 /** Line classes that also apply in source mode (heading sizes, code blocks). */
