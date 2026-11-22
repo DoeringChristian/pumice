@@ -328,8 +328,10 @@ function inlineMathAt(state: EditorState): { from: number; tex: string } | undef
   const sel = state.selection.main;
   if (!sel.empty) return undefined;
   for (let node = syntaxTree(state).resolveInner(sel.head, -1); ;) {
-    if (node.name === 'InlineMath' || node.name === 'InlineMathDisplay') {
-      const mark = node.name === 'InlineMath' ? 1 : 2;
+    // A `$$ … $$` formula has its preview under it (see `buildBlocks`), not floating.
+    if (node.name === 'InlineMathDisplay') return undefined;
+    if (node.name === 'InlineMath') {
+      const mark = 1;
       const tex = state.doc.sliceString(node.from + mark, node.to - mark);
       return tex.trim() ? { from: node.from, tex } : undefined;
     }
@@ -1164,7 +1166,24 @@ function buildBlocks(state: EditorState): DecorationSet {
         if (node.name !== 'InlineMathDisplay') return;
         const first = state.doc.lineAt(node.from);
         const last = state.doc.lineAt(node.to);
-        if (first.number === last.number) return;
+        const preview = () => {
+          const tex = state.doc
+            .sliceString(node.from, node.to)
+            .replace(/^\$\$+/, '')
+            .replace(/\$\$+\s*$/, '');
+          if (!tex.trim()) return;
+          decorations.push(
+            Decoration.widget({ widget: new MathPreviewWidget(tex), block: true, side: 1 }).range(
+              last.to,
+            ),
+          );
+        };
+        // Within one line it is drawn in place; while it is written, what it gives shows
+        // under the line, as for a block.
+        if (first.number === last.number) {
+          if (revealedAt(state, node.from, node.to)) preview();
+          return;
+        }
         if (
           state.doc.sliceString(first.from, node.from).trim() ||
           state.doc.sliceString(node.to, last.to).trim()
@@ -1172,16 +1191,7 @@ function buildBlocks(state: EditorState): DecorationSet {
           return;
         const source = state.doc.sliceString(node.from, node.to);
         if (touches(node.from, node.to)) {
-          const tex = source.replace(/^\$\$+/, '').replace(/\$\$+\s*$/, '');
-          if (tex.trim()) {
-            decorations.push(
-              Decoration.widget({
-                widget: new MathPreviewWidget(tex),
-                block: true,
-                side: 1,
-              }).range(last.to),
-            );
-          }
+          preview();
           return;
         }
         decorations.push(
@@ -1229,11 +1239,12 @@ const remeasure = EditorView.domEventHandlers({
 } as Parameters<typeof EditorView.domEventHandlers>[0]);
 
 /**
- * The arrow keys move through a drawn formula block as through its source: from the line
- * below, up lands on its last line (the closing `$$`), which then shows the source, and down
- * from the line above on its first.
+ * The arrow keys move through what is drawn in place of source (a formula, a frame, an
+ * embedded picture or drawing) as through that source, the same from both sides: from the
+ * line below, up lands on its last line, which then shows the source, and down from the line
+ * above on its first.
  */
-const intoFormula = (dir: -1 | 1) => (view: EditorView) => {
+const intoDrawn = (dir: -1 | 1) => (view: EditorView) => {
   const { state } = view;
   const sel = state.selection.main;
   if (!sel.empty) return false;
@@ -1243,16 +1254,18 @@ const intoFormula = (dir: -1 | 1) => (view: EditorView) => {
   // Within a paragraph that wraps, the keys move within it.
   if (state.doc.lineAt(view.moveVertically(sel, dir > 0).head).number === line.number) return false;
   const next = state.doc.line(n);
-  let node = syntaxTree(state).resolveInner(dir < 0 ? next.to : next.from, dir < 0 ? -1 : 1);
-  while (node.name !== 'MathBlock' && node.name !== 'InlineMathDisplay') {
-    if (!node.parent) return false;
-    node = node.parent;
-  }
-  const first = state.doc.lineAt(node.from);
-  const last = state.doc.lineAt(node.to);
-  // A formula within one line is entered like any text; one the cursor is in already, too.
-  if (first.number === last.number) return false;
-  if (sel.head >= node.from && sel.head <= node.to) return false;
+  // What is drawn in place of the next line: a block (a formula, a frame, …) over several
+  // lines, or a picture, drawing or frame embedded on a line of its own.
+  let first = next;
+  let last = next;
+  let drawn = /^\s*!\[\[[^\]]*\]\]\s*$|^\s*!\[[^\]]*\]\([^)]*\)\s*$/.test(next.text);
+  state.field(blockPreview, false)?.between(next.from, next.to, (from, to) => {
+    if (to <= from || from > next.from || to < next.to) return;
+    drawn = true;
+    first = state.doc.lineAt(from);
+    last = state.doc.lineAt(to);
+  });
+  if (!drawn) return false;
   // As in the source: the next line, at the same column.
   const target = dir < 0 ? last : first;
   const anchor = Math.min(target.to, target.from + (sel.head - line.from));
@@ -1261,8 +1274,8 @@ const intoFormula = (dir: -1 | 1) => (view: EditorView) => {
 };
 const formulaArrows = Prec.high(
   keymap.of([
-    { key: 'ArrowUp', run: intoFormula(-1) },
-    { key: 'ArrowDown', run: intoFormula(1) },
+    { key: 'ArrowUp', run: intoDrawn(-1) },
+    { key: 'ArrowDown', run: intoDrawn(1) },
   ]),
 );
 
