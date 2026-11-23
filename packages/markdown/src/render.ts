@@ -7,9 +7,10 @@ import type { Element, ElementContent, Root as HastRoot } from 'hast';
 import { raw } from 'hast-util-raw';
 import { defaultSchema, sanitize, type Schema } from 'hast-util-sanitize';
 import { toHtml } from 'hast-util-to-html';
-import type { Nodes, Root } from 'mdast';
+import type { Nodes, Parents, Root } from 'mdast';
 import { defaultHandlers, toHast, type Handler, type State } from 'mdast-util-to-hast';
 import type { Callout, Comment, Highlight, Tag, WikiLink, BlockId } from './mdast';
+import { embedSizeCss, parseEmbedSize, parseImageAttributes, withAliasSize } from './links';
 
 const EXTERNAL_URL = /^[a-z][a-z0-9+.-]*:/i;
 
@@ -72,9 +73,28 @@ export function toHastTree(tree: Root, opts: RenderOptions = {}): HastRoot {
       ...(markdown ? { dataMarkdown: 'true' } : {}),
     });
 
+  /**
+   * The alias of an image with the size of the attributes that follow it, as pandoc writes
+   * them (`![[plot.png]]{width=50%}`, `![](plot.png){ width=300 height=200 }`). The
+   * attributes are taken out of the text behind the image: they are not shown.
+   */
+  const withAttributes = (
+    node: Nodes,
+    parent: Parents | undefined,
+    alias: string | undefined,
+  ): string | undefined => {
+    const next = parent?.children[parent.children.indexOf(node as never) + 1];
+    if (next?.type !== 'text') return alias;
+    const found = parseImageAttributes(next.value);
+    if (!found) return alias;
+    next.value = next.value.slice(found.length);
+    return found.size ? withAliasSize(alias, found.size) : alias;
+  };
+
   const handlers: Record<string, Handler> = {
-    wikiLink(_state: State, node: WikiLink) {
-      if (node.embed) return embed(node.target, node.subpath, node.alias, false);
+    wikiLink(_state: State, node: WikiLink, parent: Parents | undefined) {
+      if (node.embed)
+        return embed(node.target, node.subpath, withAttributes(node, parent, node.alias), false);
       const text =
         node.alias ||
         linkText({ target: node.target, ...(node.subpath ? { subpath: node.subpath } : {}) });
@@ -148,16 +168,27 @@ export function toHastTree(tree: Root, opts: RenderOptions = {}): HastRoot {
       const [target, subpath] = splitUrl(node.url);
       return internalLink(target, subpath, children);
     },
-    image(_state: State, node: Extract<Nodes, { type: 'image' }>) {
+    image(_state: State, node: Extract<Nodes, { type: 'image' }>, parent: Parents | undefined) {
+      const alias = withAttributes(node, parent, node.alt ?? undefined);
       if (EXTERNAL_URL.test(node.url)) {
+        // A picture from the web is shown as it is; its size is its own.
+        const css = embedSizeCss(parseEmbedSize(alias));
+        const style = [
+          css.width ? `width:${css.width};max-width:100%` : '',
+          css.aspectRatio ? `aspect-ratio:${css.aspectRatio};height:auto` : '',
+          css.height ? `height:${css.height}` : '',
+        ]
+          .filter(Boolean)
+          .join(';');
         return el('img', {
           src: node.url,
           alt: node.alt ?? '',
           ...(node.title ? { title: node.title } : {}),
+          ...(style ? { style } : {}),
         });
       }
       const [target, subpath] = splitUrl(node.url);
-      return embed(target, subpath, node.alt ?? undefined, true);
+      return embed(target, subpath, alias, true);
     },
     heading(state: State, node: Extract<Nodes, { type: 'heading' }>) {
       return el(

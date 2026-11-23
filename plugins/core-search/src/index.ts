@@ -246,6 +246,54 @@ export const plugin = definePlugin({
       }),
     );
 
+    // The same search in a list that comes up over the note, like the one for files: every
+    // line that matches is an entry, and choosing one opens the note there.
+    ctx.commands.register({
+      id: 'search.find',
+      title: 'Find in all notes (grep)',
+      category: 'Search',
+      run: async () => {
+        interface Found {
+          label: string;
+          detail: string;
+          path: VaultPath;
+          offset?: number;
+        }
+        let wait: ReturnType<typeof setTimeout> | undefined;
+        const picked = await workspace.showQuickPick<Found>({
+          placeholder: 'Find in all notes…  (tag:#x  path:dir  "phrase"  -word)',
+          items: (query) =>
+            // Not at every key: when the typing pauses.
+            new Promise<Found[]>((resolve) => {
+              clearTimeout(wait);
+              if (!query.trim()) return resolve([]);
+              wait = setTimeout(() => {
+                void runSearch(index, documents, query, 40).then(
+                  (results) =>
+                    resolve(
+                      results.flatMap((r): Found[] =>
+                        r.snippets.length
+                          ? r.snippets.map((s) => ({
+                              label: s.text.replace(/\s+/g, ' ').trim(),
+                              detail: r.title,
+                              path: r.path as VaultPath,
+                              offset: s.offset + (s.hits[0]?.[0] ?? 0),
+                            }))
+                          : [{ label: r.title, detail: r.path, path: r.path as VaultPath }],
+                      ),
+                    ),
+                  () => resolve([]),
+                );
+              }, 120);
+            }),
+        });
+        if (!picked) return;
+        await workspace.openFile(
+          picked.path,
+          picked.offset === undefined ? {} : { state: { offset: picked.offset } },
+        );
+      },
+    });
     ctx.commands.register({
       id: 'search.open',
       title: 'Search in all notes',

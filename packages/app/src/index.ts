@@ -24,7 +24,9 @@ import media from '@pumice/core-media';
 import outline from '@pumice/core-outline';
 import pdf from '@pumice/core-pdf';
 import slides from '@pumice/core-slides';
+import exporting from '@pumice/core-export';
 import snippets from '@pumice/core-snippets';
+import vimMode from '@pumice/core-vim';
 import palette from '@pumice/core-palette';
 import properties from '@pumice/core-properties';
 import reader from '@pumice/core-reader';
@@ -45,7 +47,7 @@ import { exposeSharedModules } from './shared-modules';
 import { VaultSettingsBackend } from './settings-backend';
 
 export { VaultSettingsBackend } from './settings-backend';
-export { PluginManager, EXTENSIONS_DIR } from './plugin-manager';
+export { PluginManager, EXTENSIONS_DIR, pluginSources } from './plugin-manager';
 
 /** Plugins shipped with the app. Order doesn't matter: the kernel resolves dependencies. */
 export const bundledPlugins: PluginModule[] = [
@@ -63,7 +65,9 @@ export const bundledPlugins: PluginModule[] = [
   frames,
   pdf,
   slides,
+  exporting,
   snippets,
+  vimMode,
   vaults,
   explorer,
   switcher,

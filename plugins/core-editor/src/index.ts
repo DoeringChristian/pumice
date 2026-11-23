@@ -31,6 +31,7 @@ import manifestJson from '../manifest.json';
 import { embedAt } from './resize';
 import './editor.css';
 import { MarkdownView } from './markdown-view';
+import { captionStep, editCaptionAtCursor, shownCaptions } from './live-preview';
 import { TextView } from './text-view';
 import { HEADING_PREFIX, linePrefixChange, TASK_PREFIX, type LinePrefix } from './toolbar';
 
@@ -78,8 +79,20 @@ export const plugin = definePlugin({
     const toolbarActions: EditorToolbarAction[] = [];
     const menuItems: EditorContextMenuItem[] = [];
     const factories: ((c: EditorExtensionContext) => Extension)[] = [];
+    const fieldFactories: (() => Extension)[] = [];
     let active: MarkdownView | undefined;
     let sourceMode = ctx.settings.get('sourceMode', false);
+
+    /** Source or drawn, for every note that is open (and those opened later). */
+    const setSourceMode = (on: boolean) => {
+      if (on === sourceMode) return;
+      sourceMode = on;
+      void ctx.settings.set('sourceMode', sourceMode);
+      for (const v of views) {
+        v.setSourceMode(sourceMode);
+        v.reconfigureContributed();
+      }
+    };
 
     const words = workspace.addStatusBarItem(10);
     ctx.register(words);
@@ -112,7 +125,9 @@ export const plugin = definePlugin({
               index: () => ctx.tryUse(MetadataIndex),
               contributed: () =>
                 factories.map((f) => f({ path: () => view?.path, sourceMode: () => sourceMode })),
+              fieldExtensions: () => fieldFactories.map((f) => f()),
               sourceMode: () => sourceMode,
+              setSourceMode: (on) => setSourceMode(on),
               closeLeft: () => ctx.settings.get('closeLeft', true),
               // Through the command, so the editor does not depend on the comments plugin.
               comment: (_v, range) =>
@@ -201,6 +216,16 @@ export const plugin = definePlugin({
         view.focus();
         return true;
       },
+      registerFieldExtension(factory) {
+        fieldFactories.push(factory);
+        return {
+          dispose: () => void fieldFactories.splice(fieldFactories.indexOf(factory) >>> 0, 1),
+        };
+      },
+      enterCaptionFrom: (view, dir) =>
+        captionStep(view, dir) ||
+        (dir < 0 && ([...views].find((v) => v.editor === view)?.enterTitle() ?? false)),
+      captions: (view) => shownCaptions(view),
       registerExtension(factory) {
         factories.push(factory);
         for (const v of views) v.reconfigureContributed();
@@ -567,6 +592,17 @@ export const plugin = definePlugin({
     }
 
     ctx.commands.register({
+      id: 'editor.edit-caption',
+      title: 'Write the caption of the figure at the cursor',
+      category: 'Editor',
+      when: () => !!activeEditor(),
+      run: () => {
+        const view = activeEditor()?.editor;
+        if (view && !editCaptionAtCursor(view))
+          workspace.notify('The cursor is not beside a figure.', { timeout: 2000 });
+      },
+    });
+    ctx.commands.register({
       id: 'editor.toggle-reading',
       title: 'Toggle reading view',
       category: 'Editor',
@@ -582,15 +618,22 @@ export const plugin = definePlugin({
       title: 'Toggle live preview / source mode',
       category: 'Editor',
       run: () => {
-        sourceMode = !sourceMode;
-        void ctx.settings.set('sourceMode', sourceMode);
-        for (const v of views) {
-          v.setSourceMode(sourceMode);
-          v.reconfigureContributed();
-        }
+        setSourceMode(!sourceMode);
         workspace.notify(sourceMode ? 'Source mode' : 'Live preview', { timeout: 1500 });
       },
     });
+    for (const [mode, title] of [
+      ['edit', 'Mode: edit (write, with everything drawn)'],
+      ['read', 'Mode: read (nothing can be changed)'],
+      ['source', 'Mode: source (the text as it is written)'],
+    ] as const)
+      ctx.commands.register({
+        id: `editor.mode-${mode}`,
+        title,
+        category: 'Editor',
+        when: () => !!activeView(),
+        run: () => activeView()?.setMode(mode),
+      });
     ctx.commands.register({
       id: 'editor.toggle-bold',
       title: 'Toggle bold',

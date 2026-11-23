@@ -68,3 +68,54 @@ export function slideAt(slides: Slide[], pos: number): number {
   });
   return found;
 }
+
+/** A slide laid out in columns side by side, under what stands over all of them. */
+export interface SlideColumns {
+  /** A heading at the top of the slide: over the columns, not in the first one. */
+  head: string;
+  columns: { text: string; weight: number }[];
+}
+
+const COLUMN_BREAK = /^ {0,3}\|\|\|[ \t]*(\d+(?:[ \t]*:[ \t]*\d+)*)?[ \t]*$/;
+
+/**
+ * The columns of a slide: a line that holds only `|||` starts the next one (not in a code
+ * block). `||| 2:1` gives the columns their widths, in order; without it they are equal.
+ * Undefined for a slide without such a line.
+ */
+export function splitColumns(text: string): SlideColumns | undefined {
+  const parts: string[][] = [[]];
+  let weights: number[] = [];
+  let fence: string | undefined;
+  for (const line of text.split('\n')) {
+    const mark = FENCE.exec(line)?.[1];
+    if (fence) {
+      if (
+        mark &&
+        mark[0] === fence[0] &&
+        mark.length >= fence.length &&
+        !line.slice(line.indexOf(mark) + mark.length).trim()
+      )
+        fence = undefined;
+    } else if (mark) fence = mark;
+    else {
+      const found = COLUMN_BREAK.exec(line);
+      if (found) {
+        if (found[1] && !weights.length) weights = found[1].split(':').map((n) => Number(n) || 1);
+        parts.push([]);
+        continue;
+      }
+    }
+    parts[parts.length - 1]!.push(line);
+  }
+  if (parts.length < 2) return undefined;
+  const columns = parts.map((lines) => lines.join('\n').replace(/^\n+|\s+$/g, ''));
+  // A heading that opens the slide is the slide's, if the first column has more than it.
+  let head = '';
+  const first = /^(#{1,6}[ \t].*)\n+([\s\S]+)$/.exec(columns[0]!);
+  if (first) {
+    head = first[1]!;
+    columns[0] = first[2]!;
+  }
+  return { head, columns: columns.map((c, i) => ({ text: c, weight: weights[i] ?? 1 })) };
+}

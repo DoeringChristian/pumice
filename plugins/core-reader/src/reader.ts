@@ -2,6 +2,7 @@ import {
   DisposableStore,
   Links,
   ShellService,
+  embedSizeCss,
   parseEmbedSize,
   toDisposable,
   type CodeBlockRenderer,
@@ -458,9 +459,7 @@ export class ReaderImpl implements ReaderApi {
       render: async (ctx) => {
         const img = document.createElement('img');
         img.alt = ctx.alias && !/^\d+(x\d+)?$/.test(ctx.alias) ? ctx.alias : ctx.file!.title;
-        const { width, height } = parseEmbedSize(ctx.alias);
-        if (width) img.width = width;
-        if (height) img.height = height;
+        sized(ctx.container, img, ctx.alias);
         img.src = await this.blobUrl(ctx.file!.path, ctx.file!.extension, (d) => ctx.register(d));
         // A click enlarges the picture; with Cmd/Ctrl it opens in a tab of its own.
         const path = ctx.file!.path;
@@ -501,8 +500,7 @@ export class ReaderImpl implements ReaderApi {
           },
         );
         video.loop = this.loopVideos();
-        const { width } = parseEmbedSize(ctx.alias);
-        if (width) video.width = width;
+        sized(ctx.container, dom, ctx.alias, video);
         ctx.container.append(dom);
       },
     });
@@ -647,4 +645,37 @@ export class ReaderImpl implements ReaderApi {
       handle.dispose();
     }
   }
+}
+
+/**
+ * Gives an embedded picture or video the size its alias says (`|300`, `|50%`, `|300x200`).
+ * In a rendered note the width is the embed's own, with what it shows filling it: a share of
+ * the text's width is a share of the paragraph, which the picture inside an embed that is as
+ * wide as its content could not take by itself. Elsewhere (the editor, which sizes embeds
+ * itself) it is put on what is shown.
+ */
+function sized(
+  container: HTMLElement,
+  shown: HTMLElement,
+  alias: string | undefined,
+  picture: HTMLElement = shown,
+): void {
+  const css = embedSizeCss(parseEmbedSize(alias));
+  if (css.width) {
+    if (container.classList.contains('pm-embed') && !container.classList.contains('cm-pm-embed')) {
+      container.style.width = css.width;
+      container.style.maxWidth = '100%';
+      shown.style.width = '100%';
+      if (picture !== shown) picture.style.width = '100%';
+    } else {
+      // In the editor the picture itself has the width (a drag changes it there); what is
+      // around it (a video's controls) follows it.
+      picture.style.width = css.width;
+      picture.style.maxWidth = '100%';
+    }
+  }
+  if (css.aspectRatio) {
+    picture.style.aspectRatio = css.aspectRatio;
+    picture.style.height = 'auto';
+  } else if (css.height) picture.style.height = css.height;
 }

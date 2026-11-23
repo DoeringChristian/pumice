@@ -42,6 +42,9 @@ const host: PumiceHost = {
   },
   openExternal: (url) => invoke('shell.openExternal', url),
   revealInFileManager: (p) => invoke('shell.reveal', p),
+  printToPdf: (html, pdf) => invoke('export.pdf', html, pdf),
+  saveFile: (name, data) => invoke('save.file', name, data),
+  saveFolder: (name, files) => invoke('save.folder', name, files),
   spelling: {
     // Asked from a `contextmenu` handler: the main process hears of the right-click (with
     // what the system's checker says about the word) right after the page does.

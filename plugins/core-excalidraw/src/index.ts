@@ -11,6 +11,7 @@ import {
   Workspace,
   definePlugin,
   dirname,
+  embedSizeCss,
   parseEmbedSize,
   type PluginModule,
   type ViewInstance,
@@ -148,13 +149,18 @@ export const plugin = definePlugin({
             holder.className = 'pm-excalidraw-embed';
             holder.title = `${file.title} — click to open`;
             holder.innerHTML = svg;
-            const { width, height } = parseEmbedSize(embed.alias);
+            const css = embedSizeCss(parseEmbedSize(embed.alias));
             const svgEl = holder.querySelector('svg');
-            if (svgEl && (width || height)) {
-              // `|400` sets the width; `|400x300` both (aspect ratio kept by the viewBox).
-              if (width) svgEl.setAttribute('width', String(width));
-              if (height) svgEl.setAttribute('height', String(height));
-              else svgEl.removeAttribute('height');
+            if (svgEl && (css.width || css.height)) {
+              // `|400` sets the width (a share of the text's, see `embedSizeCss`); the height
+              // follows from the drawing unless one with a unit is given.
+              svgEl.removeAttribute('width');
+              svgEl.removeAttribute('height');
+              if (css.width) {
+                svgEl.style.width = css.width;
+                svgEl.style.maxWidth = '100%';
+              }
+              svgEl.style.height = css.height ?? 'auto';
             }
             holder.addEventListener('click', (e) => {
               e.preventDefault();

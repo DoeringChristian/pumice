@@ -1,0 +1,16 @@
+{
+  "id": "core.vim",
+  "name": "Vim mode",
+  "version": "0.1.0",
+  "description": "Vim's normal, insert and visual modes in the editor (off until switched on), with extras to switch files, search the vault and leap to a place on screen.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.editor": "^0.1.0",
+    "core.workspace": "^0.1.0"
+  },
+  "optionalDependencies": {
+    "core.settings": "^0.1.0",
+    "core.documents": "^0.1.0",
+    "core.index": "^0.1.0"
+  }
+}

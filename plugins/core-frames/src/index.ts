@@ -21,8 +21,8 @@ import {
 import { h, settingItem, textInput, toggle } from '@pumice/ui';
 import manifestJson from '../manifest.json';
 import { frameCompletionSource } from './completion';
-import { mountFrame, resolveEntry, type FrameDeps } from './frame';
-import { GUIDE_VERSION, TEMPLATE, agentGuidance, styleGuide } from './kit';
+import { exportFrameHtml, mountFrame, resolveEntry, type FrameDeps } from './frame';
+import { GUIDE_VERSION, SERIES, TEMPLATE, THEME_VARS, agentGuidance, styleGuide } from './kit';
 import {
   blockText,
   frameFence,
@@ -501,7 +501,11 @@ export const plugin = definePlugin({
         ? frameBlock(viewer, viewer.multiple ? paths : paths.slice(0, 1))
         : paths.map((p) => frameBlock(viewer, [p])).join('\n\n');
     };
-    ctx.provide(Frames, { insertionFor });
+    ctx.provide(Frames, {
+      insertionFor,
+      exportHtml: (figure, opts) => exportFrameHtml(figure, !!opts?.light),
+      themeKeys: () => ({ vars: [...THEME_VARS], series: SERIES }),
+    });
 
     ctx.commands.register({
       id: 'frames.insert',

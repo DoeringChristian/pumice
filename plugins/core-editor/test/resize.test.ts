@@ -1,4 +1,11 @@
-import { parseEmbedSize, setEmbedSize } from '@pumice/api';
+import {
+  embedSizeCss,
+  parseEmbedSize,
+  parseImageAttributes,
+  setEmbedSize,
+  withAliasSize,
+  withoutImageSize,
+} from '@pumice/api';
 import { describe, expect, it } from 'vitest';
 import { blockSizeEdit, embedAt, embedSizeEdit, snapWidth } from '../src/resize';
 
@@ -16,10 +23,58 @@ describe('embed sizes', () => {
   });
 
   it('reads them back, also after a caption', () => {
-    expect(parseEmbedSize('300')).toEqual({ width: 300 });
-    expect(parseEmbedSize('640x400')).toEqual({ width: 640, height: 400 });
-    expect(parseEmbedSize('Figure 1|300')).toEqual({ width: 300 });
+    expect(parseEmbedSize('300')).toMatchObject({ width: 300 });
+    expect(parseEmbedSize('640x400')).toMatchObject({ width: 640, height: 400 });
+    expect(parseEmbedSize('Figure 1|300')).toMatchObject({ width: 300 });
     expect(parseEmbedSize('Figure 1')).toEqual({});
+  });
+
+  it('reads sizes with units', () => {
+    expect(parseEmbedSize('50%')).toEqual({ w: { value: 50, unit: '%' } });
+    expect(parseEmbedSize('Fig|20em')).toEqual({ w: { value: 20, unit: 'em' } });
+    expect(parseEmbedSize('30vwx40vh')).toEqual({
+      w: { value: 30, unit: 'vw' },
+      h: { value: 40, unit: 'vh' },
+    });
+    expect(parseEmbedSize('x200').height).toBe(200);
+    expect(parseEmbedSize('2.5rem').w).toEqual({ value: 2.5, unit: 'rem' });
+    // Not sizes: they stay captions.
+    expect(parseEmbedSize('x')).toEqual({});
+    expect(parseEmbedSize('50 percent')).toEqual({});
+    expect(setEmbedSize('pic.png|Fig|50%', { width: 348 })).toBe('pic.png|Fig|348');
+  });
+
+  it('turns a size into CSS: a plain number is a share of the text width', () => {
+    expect(embedSizeCss(parseEmbedSize('700')).width).toBe('calc(var(--pm-text-w, 100%) * 1)');
+    expect(embedSizeCss(parseEmbedSize('350')).width).toBe('calc(var(--pm-text-w, 100%) * 0.5)');
+    expect(embedSizeCss(parseEmbedSize('50%'))).toEqual({ width: '50%' });
+    expect(embedSizeCss(parseEmbedSize('300px'))).toEqual({ width: '300px' });
+    // Both plain: the proportions. A height with a unit, or alone: that height.
+    expect(embedSizeCss(parseEmbedSize('300x200'))).toEqual({
+      width: 'calc(var(--pm-text-w, 100%) * 0.42857)',
+      aspectRatio: '300 / 200',
+    });
+    expect(embedSizeCss(parseEmbedSize('50%x10em'))).toEqual({ width: '50%', height: '10em' });
+    expect(embedSizeCss(parseEmbedSize('x200'))).toEqual({ height: '200px' });
+    expect(embedSizeCss({})).toEqual({});
+  });
+
+  it('reads the attributes pandoc writes after an image', () => {
+    expect(parseImageAttributes('{width=50%} and text')).toEqual({ length: 11, size: '50%' });
+    expect(parseImageAttributes('{ width=300 height=200 }')).toEqual({
+      length: 24,
+      size: '300x200',
+    });
+    expect(parseImageAttributes('{#fig:a .wide height="3cm"}')?.size).toBe('x3cm');
+    expect(parseImageAttributes('{width=2inch}')?.size).toBe('2in');
+    expect(parseImageAttributes('{.wide}')).toEqual({ length: 7 });
+    expect(parseImageAttributes('{}')).toBeUndefined();
+    expect(parseImageAttributes('{just text}')).toBeUndefined();
+    expect(parseImageAttributes(' {width=50%}')).toBeUndefined();
+    expect(withAliasSize('Fig 1|300', '50%')).toBe('Fig 1|50%');
+    expect(withAliasSize(undefined, '50%')).toBe('50%');
+    expect(withoutImageSize('{width=50% .wide height=3cm}')).toBe('{.wide}');
+    expect(withoutImageSize('{width=50%}')).toBe('');
   });
 
   it('changes the embed the handle belongs to', () => {

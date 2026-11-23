@@ -70,7 +70,7 @@ canvas,svg,img,video{max-width:100%}
 const SCRIPT = `
 (function(){
   var KEY=${JSON.stringify(HOST_KEY)},settings={},theme={dark:false,vars:{}},listeners=[],followers=[];
-  try{settings=JSON.parse(decodeURIComponent(location.hash.slice(1))||'{}')||{}}catch(e){}
+  try{settings=window.__pumiceSettings||JSON.parse(decodeURIComponent(location.hash.slice(1))||'{}')||{}}catch(e){}
   if(settings[KEY]){theme=settings[KEY];delete settings[KEY]}
   function apply(t){
     var root=document.documentElement;

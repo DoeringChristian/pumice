@@ -575,11 +575,10 @@ kbd {
   margin: 0;
 }
 .pm-layout-phone .pm-ribbon {
-  /* More buttons than fit: scroll sideways from the first one (centering would clip both ends). */
-  justify-content: flex-start;
-  gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  /* As many buttons as fit, spread over the width; the rest is under "More". */
+  justify-content: space-around;
+  gap: 2px;
+  overflow: hidden;
 }
 .pm-layout-phone .pm-ribbon > * {
   flex: none;

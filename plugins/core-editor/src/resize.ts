@@ -1,4 +1,5 @@
 import type { EditorView } from '@codemirror/view';
+import { TEXT_WIDTH, embedSizeCss, type EmbedSize } from '@pumice/api';
 import { createIcon } from '@pumice/ui';
 
 /**
@@ -119,6 +120,13 @@ export function snapWidth(
   return best && { name: best.name, width: best.width };
 }
 
+/**
+ * The number written into the note for a width on screen: its share of the line, as pixels
+ * of the app's usual text width (the whole line is `TEXT_WIDTH`, half of it half of that).
+ */
+const written = (width: number, line: number): number =>
+  Math.max(1, Math.round((Math.min(width, line) / line) * TEXT_WIDTH));
+
 // Pictures, videos, frames, and drawings (which are embedded as an SVG).
 const SELECTOR = 'img:not(.cm-widgetBuffer), video, .pm-frame, .pm-excalidraw-embed > svg';
 
@@ -126,23 +134,28 @@ const SELECTOR = 'img:not(.cm-widgetBuffer), video, .pm-frame, .pm-excalidraw-em
  * Gives what an embed shows the size its text says, in place (as a drag of its handle does).
  * False if there is nothing in `host` that could be sized: it has to be drawn anew then.
  */
-export function applyEmbedSize(
-  host: HTMLElement,
-  size: { width?: number; height?: number },
-): boolean {
+export function applyEmbedSize(host: HTMLElement, size: EmbedSize): boolean {
   const target = host.querySelector<HTMLElement>(SELECTOR);
   if (!target || target.closest('.pm-embed[data-embed-type="note"]')) return false;
-  target.style.width = size.width ? `${size.width}px` : '';
-  target.style.maxWidth = size.width ? '100%' : '';
+  const css = embedSizeCss(size);
+  target.style.width = css.width ?? '';
+  target.style.maxWidth = css.width ? '100%' : '';
+  // The share of the text's width a plain number stands for: a drag goes on from it.
+  if (size.w && !size.w.unit) host.dataset.share = String(size.w.value / TEXT_WIDTH);
+  else delete host.dataset.share;
   const frame = target.classList.contains('pm-frame')
     ? target.querySelector<HTMLElement>('.pm-frame-view')
     : null;
   if (frame) {
-    if (size.height) frame.style.height = `${size.height}px`;
+    // A frame's height is its own (pixels, unless it has a unit), whatever its width.
+    if (size.h) frame.style.height = `${size.h.value}${size.h.unit || 'px'}`;
   } else {
-    // Pictures and videos keep their proportions unless a height is given.
-    target.style.height = size.height ? `${size.height}px` : 'auto';
-    if (!size.height) target.removeAttribute('height');
+    // Pictures and videos keep their proportions unless a height is given; with a plain
+    // width and height (`300x200`) these are the proportions.
+    target.style.aspectRatio = css.aspectRatio ?? '';
+    target.style.height = css.height ?? 'auto';
+    target.removeAttribute('height');
+    target.removeAttribute('width');
   }
   return true;
 }
@@ -202,7 +215,7 @@ export function attachResizeHandle(
       // The width it has in the text: beside others on a line it is drawn a little narrower
       // (the space between them comes out of it), and a drag goes on from the written width.
       width:
-        Number.parseFloat(host.style.getPropertyValue('--embed-w')) ||
+        Number(host.dataset.share) * (host.parentElement ?? host).getBoundingClientRect().width ||
         target.getBoundingClientRect().width,
       height: box.height,
     };
@@ -225,14 +238,14 @@ export function attachResizeHandle(
     if (frame) {
       const height = Math.round(Math.max(40, Math.min(4000, start.height + e.clientY - start.y)));
       frame.style.height = `${height}px`;
-      size = { width, height };
-      label.textContent = `${snap ? `${snap.name} · ` : ''}${width} × ${height}`;
+      size = { width: written(width, max), height };
+      label.textContent = `${snap ? `${snap.name} · ` : ''}${Math.round((width / max) * 100)}% × ${height}`;
     } else {
       // Pictures and videos keep their proportions.
       target.style.height = 'auto';
       target.removeAttribute('height');
-      size = { width };
-      label.textContent = `${snap ? `${snap.name} · ` : ''}${width}`;
+      size = { width: written(width, max) };
+      label.textContent = `${snap ? `${snap.name} · ` : ''}${Math.round((width / max) * 100)}%`;
     }
     place();
     view.requestMeasure();
@@ -279,10 +292,18 @@ export function attachMenuButton(
   edit?: () => void,
   /** Starts a comment on what is shown, without going to its source first. */
   comment?: () => void,
+  /**
+   * Also when nothing in `host` is a picture, video or frame (a frame block that could not
+   * be shown, a diagram): the buttons then stand in the corner of `host` itself. Such a block
+   * shows its source only through the "</>" button, so it must always have one.
+   */
+  always = false,
 ): void {
   for (const old of host.querySelectorAll(':scope > .cm-pm-embed-menu')) old.remove();
-  const target = host.querySelector<HTMLElement>(`${SELECTOR}, audio, iframe`);
-  if (!target || target.closest('.pm-embed[data-embed-type="note"]')) return;
+  const shown = host.querySelector<HTMLElement>(`${SELECTOR}, audio, iframe`);
+  if (shown?.closest('.pm-embed[data-embed-type="note"]')) return;
+  const target = shown ?? (always ? host : null);
+  if (!target) return;
   host.classList.add('cm-pm-has-menu');
   const button = document.createElement('button');
   button.type = 'button';

@@ -134,7 +134,7 @@ function communityPluginsTab(
         const installed = manager.installed();
         const infos = new Map(plugins.list().map((p) => [p.manifest.id, p]));
         const url = textInput('', () => undefined, {
-          placeholder: 'https://…/releases/download/1.0.0/',
+          placeholder: 'author/repo  or  https://host/author/repo',
           label: 'Plugin URL',
         });
         const files = h('input', {
@@ -181,8 +181,8 @@ function communityPluginsTab(
             ),
           ),
           settingItem(
-            'Install from URL',
-            'A folder URL containing manifest.json, main.js and styles.css, for example a GitHub release.',
+            'Install from a repository',
+            'A GitHub repository as author/repo (author/repo@v1.2 for one release), or the full address of a git repository on another host. The plugin’s manifest.json and main.js are taken from the latest release, or from the repository itself (its top folder or dist/).',
             h(
               'div',
               { class: 'pm-row-actions' },

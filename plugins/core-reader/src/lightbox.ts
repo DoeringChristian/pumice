@@ -1,4 +1,4 @@
-import { createIcon, createVideoControls } from '@pumice/ui';
+import { createVideoControls } from '@pumice/ui';
 
 /**
  * A picture or a video enlarged over the whole window. A click, Escape or scrolling away
@@ -44,18 +44,6 @@ export function showLightbox(src: string, alt = '', from?: HTMLVideoElement): vo
   }
   overlay.append(img);
   if (controls) overlay.append(controls);
-  const cross = document.createElement('button');
-  cross.type = 'button';
-  cross.className = 'pm-lightbox-close';
-  cross.title = 'Close (Esc)';
-  cross.setAttribute('aria-label', 'Close');
-  cross.append(createIcon('x', 18));
-  cross.addEventListener('click', (e) => {
-    e.stopPropagation();
-    close();
-  });
-  overlay.append(cross);
-
   let scale = 1;
   let x = 0;
   let y = 0;
@@ -88,8 +76,7 @@ export function showLightbox(src: string, alt = '', from?: HTMLVideoElement): vo
     e.stopPropagation();
     close();
   };
-  const onControls = (e: Event) =>
-    !!controls?.contains(e.target as Node) || cross.contains(e.target as Node);
+  const onControls = (e: Event) => !!controls?.contains(e.target as Node);
   overlay.addEventListener(
     'wheel',
     (e) => {

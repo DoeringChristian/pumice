@@ -9,6 +9,7 @@ import {
   ipcMain,
   net,
   protocol,
+  screen,
   session as electronSession,
   shell,
   type MenuItemConstructorOptions,
@@ -306,6 +307,16 @@ const signInAware = async <T>(run: () => Promise<T>): Promise<T> => {
 
 type Handler = (session: VaultSession, ...args: unknown[]) => unknown;
 
+/** Where the save dialog opens: where something was saved last, else the Downloads folder. */
+let lastSaveFolder: string | undefined;
+async function saveFolder(): Promise<string> {
+  if (lastSaveFolder) {
+    const there = await fs.stat(lastSaveFolder).catch(() => null);
+    if (there?.isDirectory()) return lastSaveFolder;
+  }
+  return app.getPath('downloads');
+}
+
 const handlers: Record<string, Handler> = {
   info: (s) => ({ vaultName: basename(s.root), vaultPath: s.root, os: OS, vaultId: s.id }),
   'fs.list': (s) => s.list(),
@@ -345,6 +356,131 @@ const handlers: Record<string, Handler> = {
     return shell.openExternal(url);
   },
   'shell.reveal': (s, p) => shell.showItemInFolder(s.abs(p)),
+  // Saving to where the user says, in the system's dialog. Only what the dialog gave back is
+  // written to: the page cannot name a place itself.
+  'save.file': async (s, name, data) => {
+    if (typeof name !== 'string' || (typeof data !== 'string' && !(data instanceof Uint8Array)))
+      throw new Error('Invalid data');
+    const safe =
+      basename(name)
+        .replace(/[\\/:*?"<>|]/g, ' ')
+        .trim() || 'Untitled';
+    const ext = safe.includes('.') ? safe.slice(safe.lastIndexOf('.') + 1) : '';
+    const chosen = await dialog.showSaveDialog(s.window, {
+      defaultPath: join(await saveFolder(), safe),
+      ...(ext ? { filters: [{ name: ext.toUpperCase(), extensions: [ext] }] } : {}),
+    });
+    if (chosen.canceled || !chosen.filePath) return null;
+    await fs.writeFile(chosen.filePath, data);
+    lastSaveFolder = dirname(chosen.filePath);
+    return chosen.filePath;
+  },
+  'save.folder': async (s, name, files) => {
+    if (typeof name !== 'string' || !files || typeof files !== 'object')
+      throw new Error('Invalid data');
+    const safe =
+      basename(name)
+        .replace(/[\\/:*?"<>|]/g, ' ')
+        .trim() || 'Untitled';
+    const chosen = await dialog.showOpenDialog(s.window, {
+      title: `Choose where to save the folder “${safe}”`,
+      buttonLabel: 'Save here',
+      defaultPath: await saveFolder(),
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    const parent = chosen.filePaths[0];
+    if (chosen.canceled || !parent) return null;
+    const target = join(parent, safe);
+    for (const [file, data] of Object.entries(files as Record<string, unknown>)) {
+      if (typeof data !== 'string' && !(data instanceof Uint8Array))
+        throw new Error('Invalid data');
+      // Inside the new folder, wherever the name points.
+      const full = resolve(target, file);
+      if (relative(target, full).startsWith('..') || resolve(target) === full)
+        throw new Error('Not a file of the folder');
+      await fs.mkdir(dirname(full), { recursive: true });
+      await fs.writeFile(full, data);
+    }
+    lastSaveFolder = parent;
+    return target;
+  },
+  // A page the app wrote into the vault (a note, exported) printed into a PDF beside it. The
+  // page is shown in a window of its own that is never seen and can reach nothing of the app.
+  'export.pdf': async (s, html, pdf) => {
+    const from = s.abs(html);
+    const to = s.abs(pdf);
+    if (!/\.html?$/i.test(from) || !/\.pdf$/i.test(to)) throw new Error('Not a page or a PDF');
+    const page = new BrowserWindow({
+      show: false,
+      width: 900,
+      height: 1200,
+      webPreferences: {
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        partition: `export-${randomUUID()}`,
+      },
+    });
+    try {
+      // Links on the page lead nowhere while it is printed.
+      page.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      page.webContents.on('will-navigate', (e) => e.preventDefault());
+      await page.loadFile(from);
+      // The page says when its pictures and frames are drawn; not waited for for ever.
+      for (let i = 0; i < 60; i++) {
+        const ready = await page.webContents
+          .executeJavaScript('window.__pumiceExportReady === true')
+          .catch(() => true);
+        if (ready) break;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      // Frames are documents of their own in the page, kept apart from it; such documents are
+      // left out of a print. Each is photographed as it stands and the picture printed instead.
+      const run = <T>(code: string) => page.webContents.executeJavaScript(code) as Promise<T>;
+      // On paper the page is white: so is what the pictures of the frames are taken on.
+      await run(
+        `document.documentElement.style.background = '#fff'; document.body.style.setProperty('background', '#fff', 'important'); true`,
+      );
+      const frames = await run<number>(
+        `(() => { const all = document.querySelectorAll('iframe.pm-frame-view'); all.forEach((f, i) => f.setAttribute('data-n', i)); return all.length; })()`,
+      );
+      for (let i = 0; i < frames; i++) {
+        const measure = () =>
+          run<{ x: number; y: number; width: number; height: number } | null>(
+            `(() => { const f = document.querySelector('iframe[data-n="${i}"]'); if (!f) return null; f.scrollIntoView({ block: 'start' }); const r = f.getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; })()`,
+          );
+        let box = await measure();
+        if (!box || box.width < 1 || box.height < 1) continue;
+        // Tall frames: the window is made tall enough to hold one whole.
+        const [width = 900, height = 1200] = page.getContentSize();
+        if (box.height > height - 20) {
+          page.setContentSize(width, Math.ceil(box.height) + 40);
+          await new Promise((r) => setTimeout(r, 200));
+          box = await measure();
+          if (!box) continue;
+        }
+        await new Promise((r) => setTimeout(r, 120));
+        const picture = await page.webContents.capturePage({
+          x: Math.round(box.x),
+          y: Math.round(box.y),
+          width: Math.round(box.width),
+          height: Math.round(box.height),
+        });
+        if (picture.isEmpty()) continue;
+        await run(
+          `(() => { const f = document.querySelector('iframe[data-n="${i}"]'); const img = new Image(); img.src = ${JSON.stringify(picture.toDataURL())}; img.style.cssText = 'display:block;width:' + f.getBoundingClientRect().width + 'px;height:' + f.getBoundingClientRect().height + 'px'; return new Promise((done) => { img.onload = img.onerror = () => { f.replaceWith(img); done(true); }; }); })()`,
+        );
+      }
+      const data = await page.webContents.printToPDF({
+        printBackground: true,
+        preferCSSPageSize: true,
+      });
+      await fs.mkdir(dirname(to), { recursive: true });
+      await fs.writeFile(to, data);
+    } finally {
+      page.destroy();
+    }
+  },
   // "Add to dictionary" from the editor's menu: the word is no longer marked as misspelled.
   'spell.learn': (_s, word) => {
     if (typeof word !== 'string' || !word.trim() || word.length > 100)
@@ -493,6 +629,23 @@ async function openVault(root: string): Promise<void> {
   // The window is gone by the time `closed` fires: remember its id now.
   const contentsId = window.webContents.id;
   let closing = false;
+  // Coming back to the window (from another app), the pointer keeps the shape it had outside
+  // until it moves: an arrow over text. The page is told where the pointer is, as if it had
+  // just moved, so the shape for what is under it is set at once.
+  const refreshPointer = () => {
+    if (window.isDestroyed()) return;
+    const at = screen.getCursorScreenPoint();
+    const area = window.getContentBounds();
+    const x = at.x - area.x;
+    const y = at.y - area.y;
+    if (x < 0 || y < 0 || x >= area.width || y >= area.height) return;
+    window.webContents.sendInputEvent({ type: 'mouseMove', x, y });
+  };
+  window.on('focus', () => {
+    refreshPointer();
+    // Once more when the window has settled as the active one.
+    setTimeout(refreshPointer, 120);
+  });
   window.on('close', (e) => {
     if (closing) return;
     e.preventDefault();

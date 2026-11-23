@@ -1,6 +1,6 @@
 import type { Disposable, ReaderApi, VaultPath } from '@pumice/api';
 import { createIcon } from '@pumice/ui';
-import { slideAt, splitSlides, type Slide } from './slides';
+import { slideAt, splitColumns, splitSlides, type Slide } from './slides';
 
 /** The size a slide is laid out at; it is scaled to the window as a whole. */
 const WIDTH = 1280;
@@ -99,11 +99,33 @@ export function present(opts: {
     }
     const next = document.createElement('div');
     next.className = content.className;
-    const disposable = await reader.render(next, current.text, { sourcePath: path });
+    const parts: Disposable[] = [];
+    const disposable: Disposable = { dispose: () => parts.forEach((p) => p.dispose()) };
+    const draw = async (into: HTMLElement, text: string) =>
+      void parts.push(await reader.render(into, text, { sourcePath: path }));
+    const layout = splitColumns(current.text);
+    if (!layout) await draw(next, current.text);
+    else {
+      // Columns side by side (lines of `|||`), under the heading of the slide.
+      if (layout.head) await draw(next, layout.head);
+      const row = document.createElement('div');
+      row.className = 'pm-slide-columns';
+      next.append(row);
+      await Promise.all(
+        layout.columns.map((column) => {
+          const el = document.createElement('div');
+          el.className = 'pm-slide-column';
+          el.style.flex = `${column.weight} 1 0`;
+          row.append(el);
+          return draw(el, column.text);
+        }),
+      );
+    }
     if (mine !== generation) return disposable.dispose();
     rendered = disposable;
     content.replaceChildren(...next.childNodes);
     fit();
+    keepFocus();
     // Pictures and formulas get their size a moment later.
     for (const img of content.querySelectorAll('img'))
       if (!img.complete) img.addEventListener('load', fit, { once: true });
@@ -130,20 +152,43 @@ export function present(opts: {
     rendered?.dispose();
     resize.disconnect();
     document.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('blur', onFocusOut);
     overlay.remove();
     previous?.focus?.();
     opts.onClose?.();
   };
 
+  // Next: a video on the slide that has not been played yet is played first; when there is
+  // none (left), the next slide comes.
+  const played = new WeakSet<HTMLVideoElement>();
+  const forward = () => {
+    const video = [...content.querySelectorAll('video')].find(
+      (v) => !played.has(v) && v.paused && v.currentTime === 0,
+    );
+    if (!video) return go(index + 1);
+    played.add(video);
+    void video.play().catch(() => undefined);
+  };
+
+  // The keys are the presentation's while it is shown, wherever the focus went (back to the
+  // note under it when the list of commands closed, for one): only a field on a slide itself
+  // keeps them.
+  const keepFocus = () => {
+    if (closed || document.querySelector('.pm-lightbox')) return;
+    const active = document.activeElement;
+    if (!active || !overlay.contains(active)) overlay.focus({ preventScroll: true });
+  };
   const onKey = (e: KeyboardEvent) => {
     // Something over the slides (an enlarged picture) has the keys.
     if (document.querySelector('.pm-lightbox')) return;
     const target = e.target as HTMLElement | null;
-    if (target?.closest('input, textarea, [contenteditable="true"]')) return;
+    if (target && overlay.contains(target)) {
+      if (target.closest('input, textarea, [contenteditable="true"]')) return;
+    } else keepFocus();
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const next = ['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'];
     const back = ['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'];
-    if (next.includes(e.key)) go(index + 1);
+    if (next.includes(e.key)) forward();
     else if (back.includes(e.key)) go(index - 1);
     else if (e.key === 'Home') go(0);
     else if (e.key === 'End') go(slides.length - 1);
@@ -165,7 +210,8 @@ export function present(opts: {
       return;
     if (!document.getSelection()?.isCollapsed) return;
     const box = stage.getBoundingClientRect();
-    go(e.clientX < box.left + box.width / 4 ? index - 1 : index + 1);
+    if (e.clientX < box.left + box.width / 4) go(index - 1);
+    else forward();
   });
   // A swipe on a touch screen.
   let touch: { x: number; y: number } | undefined;
@@ -184,6 +230,7 @@ export function present(opts: {
     const dy = t.clientY - touch.y;
     touch = undefined;
     if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? index + 1 : index - 1);
+    // (A swipe turns the page whatever is on it.)
   });
   // The controls show while the pointer moves, and go again.
   let idle: ReturnType<typeof setTimeout> | undefined;
@@ -193,8 +240,22 @@ export function present(opts: {
     idle = setTimeout(() => overlay.classList.remove('is-active'), 2200);
   });
 
+  // A frame on a slide takes the keys with it when it is clicked: they come back when the
+  // pointer leaves it. And whatever took the focus as the presentation began gives it back.
+  const onFocusOut = () => setTimeout(keepFocus);
+  window.addEventListener('blur', onFocusOut);
+  stage.addEventListener(
+    'pointerout',
+    (e) => {
+      if ((e.target as HTMLElement).tagName !== 'IFRAME') return;
+      window.focus();
+      overlay.focus({ preventScroll: true });
+    },
+    true,
+  );
   document.body.append(overlay);
   overlay.focus();
+  for (const delay of [0, 100, 400]) setTimeout(keepFocus, delay);
   void show();
 
   return {

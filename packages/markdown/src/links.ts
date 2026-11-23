@@ -60,13 +60,76 @@ export function formatWikiLink(
   return `${opts.embed ? '!' : ''}[[${inner}]]`;
 }
 
-/** Parses an embed size alias: `300` → width, `300x200` → width and height. */
-export function parseEmbedSize(alias: string | undefined): { width?: number; height?: number } {
-  // As in Obsidian: `300` or `300x200`; with a caption before it, the last part (`Fig 1|300`).
-  const last = alias?.split('|').pop();
-  const m = last ? /^(\d+)(?:x(\d+))?$/.exec(last.trim()) : null;
-  if (!m) return {};
-  return { width: Number(m[1]), ...(m[2] ? { height: Number(m[2]) } : {}) };
+/**
+ * The width of the text in the app's page, in pixels: what a size without a unit is measured
+ * against. `|350` is half of the line wherever the note is shown (a narrow window, a phone,
+ * an exported page), as it is half of the line in the app at its usual width.
+ */
+export const TEXT_WIDTH = 700;
+
+/** A length of an embed's size: a number with its unit; no unit for a plain number. */
+export interface EmbedLength {
+  value: number;
+  unit: string;
+}
+
+export interface EmbedSize {
+  /** The width and height when they are plain numbers (`300`, `300x200`). */
+  width?: number;
+  height?: number;
+  /** The same with their units, also for `50%`, `20em`, `30vw`, `3cm` and the like. */
+  w?: EmbedLength;
+  h?: EmbedLength;
+}
+
+const UNITS = '%|px|em|rem|vw|vh|vmin|vmax|ch|cm|mm|in|pt|pc';
+const SIZE = new RegExp(`^(?:(\\d*\\.?\\d+)(${UNITS})?)?(?:x(\\d*\\.?\\d+)(${UNITS})?)?$`, 'i');
+
+/**
+ * Parses the size of an embed. As in Obsidian it is the last part of the alias: `300` or
+ * `300x200`, also after a caption (`Fig 1|300`). A number may carry a unit (`50%`, `20em`,
+ * `10rem`, `40vw`, `30vh`, `300px`, `3cm`).
+ */
+export function parseEmbedSize(alias: string | undefined): EmbedSize {
+  const last = alias?.split('|').pop()?.trim();
+  const m = last ? SIZE.exec(last) : null;
+  if (!m || (m[1] === undefined && m[3] === undefined)) return {};
+  const length = (value?: string, unit?: string): EmbedLength | undefined =>
+    value === undefined ? undefined : { value: Number(value), unit: (unit ?? '').toLowerCase() };
+  const w = length(m[1], m[2]);
+  const h = length(m[3], m[4]);
+  return {
+    ...(w && !w.unit ? { width: w.value } : {}),
+    ...(h && !h.unit ? { height: h.value } : {}),
+    ...(w ? { w } : {}),
+    ...(h ? { h } : {}),
+  };
+}
+
+/**
+ * A size as CSS. A width without a unit is a share of the text's width (see `TEXT_WIDTH`):
+ * of `--pm-text-w` where the page says how wide its text is, else of what the embed stands
+ * in. A height without a unit is in pixels; with a width without a unit too (`300x200`) the
+ * two give the proportions instead, so the picture keeps them at any width.
+ */
+export function embedSizeCss(size: EmbedSize): {
+  width?: string;
+  height?: string;
+  aspectRatio?: string;
+} {
+  const css = (l: EmbedLength) => `${l.value}${l.unit}`;
+  const out: { width?: string; height?: string; aspectRatio?: string } = {};
+  if (size.w)
+    out.width = size.w.unit
+      ? css(size.w)
+      : `calc(var(--pm-text-w, 100%) * ${+(size.w.value / TEXT_WIDTH).toFixed(5)})`;
+  if (size.h) {
+    if (size.h.unit) out.height = css(size.h);
+    else if (size.w && !size.w.unit && size.w.value > 0 && size.h.value > 0)
+      out.aspectRatio = `${size.w.value} / ${size.h.value}`;
+    else out.height = `${size.h.value}px`;
+  }
+  return out;
 }
 
 /**
@@ -78,8 +141,62 @@ export function setEmbedSize(inner: string, size: { width: number; height?: numb
   const sep = /\\\|/.test(inner) ? '\\|' : '|';
   const parts = inner.split(/\\?\|/);
   const spec = `${Math.round(size.width)}${size.height ? `x${Math.round(size.height)}` : ''}`;
-  if (parts.length > 1 && /^\s*\d+(x\d+)?\s*$/.test(parts[parts.length - 1]!)) parts.pop();
+  if (parts.length > 1 && isEmbedSize(parts[parts.length - 1]!)) parts.pop();
   return [...parts, spec].join(sep);
+}
+
+/**
+ * Attributes after an image as pandoc writes them, `{width=50% height=3cm}`, at the start of
+ * `text` (what follows the image). Gives how much of `text` they are and the size they say,
+ * as it is written in an alias (`50%x3cm`); undefined if there is no such block. Classes,
+ * identifiers and other keys are read over.
+ */
+export function parseImageAttributes(text: string): { length: number; size?: string } | undefined {
+  const block = /^\{([^{}\n]*)\}/.exec(text);
+  if (!block) return undefined;
+  let width: string | undefined;
+  let height: string | undefined;
+  let known = false;
+  for (const part of block[1]!.matchAll(
+    /([.#][\w-]+)|([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))/g,
+  )) {
+    known = true;
+    if (!part[2]) continue;
+    const value = (part[3] ?? part[4] ?? part[5] ?? '').trim().replace(/inch$/i, 'in');
+    if (!new RegExp(`^\\d*\\.?\\d+(${UNITS})?$`, 'i').test(value)) continue;
+    if (part[2].toLowerCase() === 'width') width = value;
+    else if (part[2].toLowerCase() === 'height') height = value;
+  }
+  // `{}` and text in braces that is no attribute list stay text.
+  if (!known) return undefined;
+  const size = width || height ? `${width ?? ''}${height ? `x${height}` : ''}` : undefined;
+  return { length: block[0].length, ...(size ? { size } : {}) };
+}
+
+/**
+ * An attribute block (`{width=50% .wide}`) without its width and height: what is left of it
+ * when the size is written into the embed itself. Empty when nothing else was in it.
+ */
+export function withoutImageSize(block: string): string {
+  const rest = block
+    .slice(1, -1)
+    .replace(/(^|\s)(?:width|height)\s*=\s*(?:"[^"]*"|'[^']*'|\S+)/gi, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return rest ? `{${rest}}` : '';
+}
+
+/** Whether a part of an alias is a size (`300`, `300x200`, `50%`). */
+export function isEmbedSize(text: string): boolean {
+  const part = text.trim();
+  return !!part && SIZE.test(part);
+}
+
+/** An alias with a size put at its end (replacing one that is there). */
+export function withAliasSize(alias: string | undefined, size: string): string {
+  const parts = alias ? alias.split('|') : [];
+  if (parts.length && isEmbedSize(parts[parts.length - 1]!)) parts.pop();
+  return [...parts, size].join('|');
 }
 
 /** Obsidian-style heading match: case-insensitive, ignoring punctuation and spacing differences. */

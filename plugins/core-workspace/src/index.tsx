@@ -75,6 +75,15 @@ export const plugin = definePlugin({
       run: () => model.activeTab && model.closeTab(model.activeTab),
     });
     ctx.commands.register({
+      id: 'workspace.close-all-tabs',
+      title: 'Close all tabs',
+      category: 'Workspace',
+      when: hasTab,
+      run: () => {
+        for (const tab of [...model.tabs]) model.closeTab(tab);
+      },
+    });
+    ctx.commands.register({
       id: 'workspace.reopen-tab',
       title: 'Reopen closed tab',
       category: 'Workspace',

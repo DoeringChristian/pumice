@@ -40,8 +40,11 @@ export interface PluginFiles {
 export interface PluginManagerApi {
   installed(): InstalledPlugin[];
   install(files: PluginFiles): Promise<PluginManifest>;
-  /** Fetches `manifest.json`, `main.js` and `styles.css` from a base URL (e.g. a release). */
-  installFromUrl(baseUrl: string): Promise<PluginManifest>;
+  /**
+   * Installs from where a plugin is published: `author/repo` on GitHub, the full address of a
+   * git repository on any host, or of a folder with `manifest.json`, `main.js`, `styles.css`.
+   */
+  installFromUrl(source: string): Promise<PluginManifest>;
   uninstall(id: string): Promise<void>;
   /** Re-reads the plugin's files and reloads it (also happens automatically on change). */
   reload(id: string): Promise<void>;

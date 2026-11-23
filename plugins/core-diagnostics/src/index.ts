@@ -14,6 +14,16 @@ import { obsidianReport, reportMarkdown } from './obsidian';
 export { obsidianReport, reportMarkdown } from './obsidian';
 export const manifest = manifestJson;
 
+/** Where the workspace looks for a layout to use instead of the one the window's size gives. */
+const LAYOUT_KEY = 'pumice.layout';
+const forcedLayout = (): string | null => {
+  try {
+    return localStorage.getItem(LAYOUT_KEY);
+  } catch {
+    return null;
+  }
+};
+
 export interface ErrorEntry {
   time: number;
   message: string;
@@ -138,6 +148,24 @@ export const plugin = definePlugin({
                   ctx.settings.get('endpoint', ''),
                   (v) => void ctx.settings.set('endpoint', v.trim()),
                   { placeholder: 'https://…/api/crash' },
+                ),
+              ),
+              settingItem(
+                'Phone layout',
+                'Shows the app as it is on a phone (the bar along the bottom, the sidebars as drawers, the toolbar over the keyboard), whatever the size of the window. For trying things out; kept on this device only.',
+                toggle(
+                  forcedLayout() === 'phone',
+                  (on) => {
+                    try {
+                      if (on) localStorage.setItem(LAYOUT_KEY, 'phone');
+                      else localStorage.removeItem(LAYOUT_KEY);
+                    } catch {
+                      workspace.notify('This could not be kept.', { kind: 'warning' });
+                    }
+                    // The workspace lays itself out again when the window changes its size.
+                    window.dispatchEvent(new Event('resize'));
+                  },
+                  { label: 'Phone layout' },
                 ),
               ),
               settingItem(

@@ -61,6 +61,11 @@ export async function createElectronPlatform(host: PumiceHost): Promise<Platform
       forget: (id) => host.vaults.forget(id),
       manage: () => host.vaults.manage(),
     },
+    print: { toPdf: (html, pdf) => host.printToPdf(html, pdf) },
+    save: {
+      file: (name, data) => host.saveFile(name, data),
+      folder: (name, files) => host.saveFolder(name, files),
+    },
     chatgpt: chatGptHost(host),
     process: processHost(host),
     frames: {

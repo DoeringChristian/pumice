@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { slideAt, splitSlides } from '../src/slides';
+import { slideAt, splitColumns, splitSlides } from '../src/slides';
 
 const texts = (note: string) => splitSlides(note).map((s) => s.text);
 
@@ -43,5 +43,25 @@ describe('a note as slides', () => {
     expect(slideAt(slides, note.length)).toBe(2);
     // In the properties: the first slide.
     expect(slideAt(splitSlides('---\na: 1\n---\n# One\n'), 2)).toBe(0);
+  });
+
+  it('lays a slide out in columns at lines of |||', () => {
+    expect(splitColumns('# T\n\ntext')).toBeUndefined();
+    const two = splitColumns('# Results\n\nIt works.\n\n- a\n\n|||\n\n![[plot.png]]')!;
+    expect(two.head).toBe('# Results');
+    expect(two.columns).toEqual([
+      { text: 'It works.\n\n- a', weight: 1 },
+      { text: '![[plot.png]]', weight: 1 },
+    ]);
+    const three = splitColumns('a\n||| 2:1:1\nb\n|||\nc')!;
+    expect(three.head).toBe('');
+    expect(three.columns.map((c) => `${c.text}*${c.weight}`)).toEqual(['a*2', 'b*1', 'c*1']);
+    // A heading alone in the first column stays there; a table row or code is no break.
+    expect(splitColumns('# Left\n|||\n# Right')!.columns.map((c) => c.text)).toEqual([
+      '# Left',
+      '# Right',
+    ]);
+    expect(splitColumns('| a | b |\n|---|---|')).toBeUndefined();
+    expect(splitColumns('```\n|||\n```')).toBeUndefined();
   });
 });

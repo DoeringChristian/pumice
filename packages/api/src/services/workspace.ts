@@ -68,8 +68,11 @@ export interface QuickPickItem {
 
 export interface QuickPickOptions<T extends QuickPickItem> {
   placeholder?: string;
-  /** Static items (fuzzy-filtered by label/detail) or a provider called on each query. */
-  items: T[] | ((query: string) => T[]);
+  /**
+   * Static items (fuzzy-filtered by label/detail) or a provider called on each query. A
+   * provider may take its time (a search): what it finds for the latest query is shown.
+   */
+  items: T[] | ((query: string) => T[] | Promise<T[]>);
   /** Offered as the last entry when nothing matches, e.g. "Create note". */
   onEmpty?: (query: string) => T | undefined;
 }

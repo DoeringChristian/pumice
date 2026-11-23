@@ -307,6 +307,9 @@ importers:
       '@pumice/core-explorer':
         specifier: workspace:*
         version: link:../../plugins/core-explorer
+      '@pumice/core-export':
+        specifier: workspace:*
+        version: link:../../plugins/core-export
       '@pumice/core-files':
         specifier: workspace:*
         version: link:../../plugins/core-files
@@ -379,6 +382,9 @@ importers:
       '@pumice/core-vaults':
         specifier: workspace:*
         version: link:../../plugins/core-vaults
+      '@pumice/core-vim':
+        specifier: workspace:*
+        version: link:../../plugins/core-vim
       '@pumice/core-workspace':
         specifier: workspace:*
         version: link:../../plugins/core-workspace
@@ -771,6 +777,19 @@ importers:
         specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
 
+  plugins/core-export:
+    dependencies:
+      '@pumice/api':
+        specifier: workspace:*
+        version: link:../../packages/api
+      '@pumice/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+    devDependencies:
+      esbuild:
+        specifier: ^0.21.5
+        version: 0.21.5
+
   plugins/core-files:
     dependencies:
       '@codemirror/view':
@@ -1110,6 +1129,36 @@ importers:
       '@pumice/api':
         specifier: workspace:*
         version: link:../../packages/api
+
+  plugins/core-vim:
+    dependencies:
+      '@codemirror/commands':
+        specifier: ^6.7.1
+        version: 6.11.1
+      '@codemirror/language':
+        specifier: ^6.10.3
+        version: 6.13.1
+      '@codemirror/search':
+        specifier: ^6.5.7
+        version: 6.7.2
+      '@codemirror/state':
+        specifier: ^6.4.1
+        version: 6.7.6
+      '@codemirror/view':
+        specifier: ^6.34.1
+        version: 6.43.15
+      '@pumice/api':
+        specifier: workspace:*
+        version: link:../../packages/api
+      '@pumice/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      '@replit/codemirror-vim':
+        specifier: 6.4.0
+        version: 6.4.0(@codemirror/commands@6.11.1)(@codemirror/language@6.13.1)(@codemirror/search@6.7.2)(@codemirror/state@6.7.6)(@codemirror/view@6.43.15)
+      y-codemirror.next:
+        specifier: ^0.3.5
+        version: 0.3.6(@codemirror/state@6.7.6)(@codemirror/view@6.43.15)(yjs@13.6.33)
 
   plugins/core-workspace:
     dependencies:
@@ -1758,6 +1807,18 @@ packages:
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
+
+  '@replit/codemirror-vim-core@0.1.0':
+    resolution: {integrity: sha512-1i6EBKpcNfDKvTmTh6N6g9lL6udD5t+uFNh4JCqozRnVlvUGOps7h/QzS2ne4zcvPUjvApKpmcP7Grc3fNbZiQ==}
+
+  '@replit/codemirror-vim@6.4.0':
+    resolution: {integrity: sha512-t9UMDNhkmeAkl0uRbiJVotv97bGD6mf4GyJJoEbrjUqa/Pov0s9eL+4AaI0Xto3OGri17i9qwIpT0JbVlVXt8A==}
+    peerDependencies:
+      '@codemirror/commands': 6.x.x
+      '@codemirror/language': 6.x.x
+      '@codemirror/search': 6.x.x
+      '@codemirror/state': 6.x.x
+      '@codemirror/view': 6.x.x
 
   '@rolldown/pluginutils@1.0.0-beta.27':
     resolution: {integrity: sha512-+d0F4MKMCbeVUJwG96uQ4SgAznZNSq93I3V+9NHA4OpvqG8mRCpGdKmK8l/dl02h2CCDHwW2FqilnTyDcAnqjA==}
@@ -5363,6 +5424,17 @@ snapshots:
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
+
+  '@replit/codemirror-vim-core@0.1.0': {}
+
+  '@replit/codemirror-vim@6.4.0(@codemirror/commands@6.11.1)(@codemirror/language@6.13.1)(@codemirror/search@6.7.2)(@codemirror/state@6.7.6)(@codemirror/view@6.43.15)':
+    dependencies:
+      '@codemirror/commands': 6.11.1
+      '@codemirror/language': 6.13.1
+      '@codemirror/search': 6.7.2
+      '@codemirror/state': 6.7.6
+      '@codemirror/view': 6.43.15
+      '@replit/codemirror-vim-core': 0.1.0
 
   '@rolldown/pluginutils@1.0.0-beta.27': {}
 

@@ -8,7 +8,7 @@ import { yamlFrontmatter } from '@codemirror/lang-yaml';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
-import { Compartment, EditorState, type Extension } from '@codemirror/state';
+import { Compartment, EditorState, Prec, type Extension } from '@codemirror/state';
 import {
   EditorView,
   drawSelection,
@@ -42,7 +42,7 @@ import { createIcon } from '@pumice/ui';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import * as Y from 'yjs';
 import { completionExtension } from './completion';
-import { livePreview, previewDeps, sourceModeStyling } from './live-preview';
+import { lineField, livePreview, previewDeps, sourceModeStyling } from './live-preview';
 
 export const highlightStyle = HighlightStyle.define([
   { tag: tags.heading, fontWeight: '650' },
@@ -93,8 +93,12 @@ export interface EditorShared {
   onActiveChange: (view: MarkdownView | undefined) => void;
   /** Toolbar actions for touch devices, sorted. */
   toolbarActions: () => EditorToolbarAction[];
+  /** Extensions for the text fields inside a note (`Editor.registerFieldExtension`). */
+  fieldExtensions: () => Extension[];
   /** Starts a comment on a range of the note (absent without the comments plugin). */
   comment?: (view: EditorView, range: { from: number; to: number }) => void;
+  /** Switches every note between its source and the drawn text. */
+  setSourceMode: (source: boolean) => void;
   /** Whether `\\left(` gets its `\\right)` as it is typed. */
   closeLeft: () => boolean;
   /** Whether to show the touch toolbar (phone/tablet layouts). */
@@ -109,15 +113,15 @@ export class MarkdownView implements ViewInstance {
   private readonly titleInput: HTMLInputElement;
   readonly contributedCompartment = new Compartment();
   readonly modeCompartment = new Compartment();
+  /** Whether the note can be changed (not while it is read). */
+  private readonly readCompartment = new Compartment();
   private disposed = false;
   /** Set when a new note is opened: focus goes to the title so it can be named right away. */
   private pendingRename = false;
   private readonly page: HTMLElement;
   private readonly toolbar: HTMLElement;
-  private readonly readingEl: HTMLElement;
+  private readonly modeSwitch: HTMLElement;
   private reading = false;
-  private readingRender: Disposable | undefined;
-  private readingTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly ctx: ViewContext,
@@ -144,10 +148,24 @@ export class MarkdownView implements ViewInstance {
       }
     });
     this.titleInput.addEventListener('blur', () => void this.renameFromTitle());
+    // With key bindings of the editor's for text fields (vim mode), the name is written with
+    // them: in an editor of its own, in the name's place.
+    this.titleInput.addEventListener('focus', () => this.titleInEditor());
     page.append(this.titleInput);
     scroller.append(page);
     root.append(scroller);
     this.page = page;
+    // How wide the text is: what a size without a unit is a share of (`![[x.png|350]]` is
+    // half of the line), here and in what is embedded in the note.
+    const textWidth = new ResizeObserver(() => {
+      const style = getComputedStyle(page);
+      const width =
+        page.clientWidth -
+        parseFloat(style.paddingLeft || '0') -
+        parseFloat(style.paddingRight || '0');
+      if (width > 0) page.style.setProperty('--pm-text-w', `${width}px`);
+    });
+    textWidth.observe(page);
 
     this.editor = new EditorView({ parent: page });
     this.toolbar = document.createElement('div');
@@ -158,15 +176,36 @@ export class MarkdownView implements ViewInstance {
     // Keep the editor focused (and the keyboard up) while tapping toolbar buttons.
     this.toolbar.addEventListener('mousedown', (e) => e.preventDefault());
     root.append(this.toolbar);
+    // How the note is shown: to write (what it stands for is drawn), to read (nothing can be
+    // changed), or as its source.
+    this.modeSwitch = document.createElement('div');
+    this.modeSwitch.className = 'pm-mode-switch';
+    this.modeSwitch.setAttribute('role', 'radiogroup');
+    this.modeSwitch.setAttribute('aria-label', 'How the note is shown');
+    for (const [mode, icon, title] of [
+      ['edit', 'pencil', 'Edit: write, with everything drawn'],
+      ['read', 'book-open', 'Read: nothing can be changed'],
+      ['source', 'code', 'Source: the text as it is written'],
+    ] as const) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pm-mode-switch-button';
+      b.dataset.mode = mode;
+      b.title = title;
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-label', title);
+      b.append(createIcon(icon, 14));
+      // The cursor stays where it is.
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      b.addEventListener('click', () => this.setMode(mode));
+      this.modeSwitch.append(b);
+    }
+    root.append(this.modeSwitch);
+    this.showMode();
     this.editor.contentDOM.addEventListener('focus', () => this.showToolbar(true));
     this.editor.contentDOM.addEventListener('blur', () =>
       setTimeout(() => this.showToolbar(this.editor.hasFocus), 100),
     );
-    this.readingEl = document.createElement('div');
-    this.readingEl.className = 'pm-reading-view';
-    this.readingEl.hidden = true;
-    this.readingEl.tabIndex = -1;
-    page.append(this.readingEl);
     this.editor.contentDOM.addEventListener('focus', () => shared.onActiveChange(this));
     this.editor.dom.addEventListener('mousedown', (e) => this.onMouseDown(e));
     // A file dragged into the empty space below the text is dropped at the end of the note.
@@ -242,7 +281,6 @@ export class MarkdownView implements ViewInstance {
     // CodeMirror refocuses a focused view after setState; a new note wants the title focused.
     if (this.pendingRename) this.editor.contentDOM.blur();
     this.editor.setState(this.createState(handle));
-    if (this.reading) this.renderReading();
     if (typeof state.subpath === 'string') this.revealSubpath(state.subpath);
     else if (typeof state.offset === 'number') this.revealOffset(state.offset);
     else this.restorePlace(state);
@@ -287,7 +325,6 @@ export class MarkdownView implements ViewInstance {
   }
 
   revealOffset(offset: number): void {
-    if (this.reading) this.setReading(false);
     const pos = Math.max(0, Math.min(offset, this.editor.state.doc.length));
     this.editor.dispatch({
       selection: { anchor: pos },
@@ -309,37 +346,55 @@ export class MarkdownView implements ViewInstance {
     return this.reading;
   }
 
-  setReading(reading: boolean): void {
-    if (reading === this.reading) return;
-    this.reading = reading;
-    this.editor.dom.hidden = reading;
-    this.readingEl.hidden = !reading;
-    this.ctx.container.classList.toggle('pm-is-reading', reading);
-    if (reading) this.renderReading();
-    else {
-      this.readingRender?.dispose();
-      this.readingRender = undefined;
-      this.readingEl.replaceChildren();
-      this.editor.focus();
+  /** How the note is shown: `edit` (live preview), `read` (no editing) or `source`. */
+  get mode(): 'edit' | 'read' | 'source' {
+    return this.reading ? 'read' : this.shared.sourceMode() ? 'source' : 'edit';
+  }
+
+  setMode(mode: 'edit' | 'read' | 'source'): void {
+    // Source or drawn is the same for every note; reading is this note's own.
+    if (mode !== 'read') this.shared.setSourceMode(mode === 'source');
+    this.setReading(mode === 'read');
+    this.showMode();
+  }
+
+  private showMode(): void {
+    const mode = this.mode;
+    for (const b of this.modeSwitch.querySelectorAll<HTMLElement>('button')) {
+      const on = b.dataset.mode === mode;
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-checked', String(on));
     }
   }
 
-  private renderReading(): void {
-    clearTimeout(this.readingTimer);
-    const reader = this.shared.reader();
-    const path = this.handle?.path;
-    if (!this.reading || path === undefined) return;
-    if (!reader) {
-      this.readingEl.textContent = this.editor.state.doc.toString();
-      return;
-    }
-    const text = this.editor.state.doc.toString();
-    const scroll = this.page.parentElement?.scrollTop ?? 0;
-    void reader.render(this.readingEl, text, { sourcePath: path, numbered: true }).then((d) => {
-      this.readingRender?.dispose();
-      this.readingRender = d;
-      if (this.page.parentElement) this.page.parentElement.scrollTop = scroll;
+  /** What reading is, for the editor: nothing can be typed, clicked into or changed. */
+  private readingExtension(): Extension {
+    return this.reading ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : [];
+  }
+
+  /**
+   * Reading shows the note exactly as editing does (everything drawn, nothing as source), only
+   * that nothing in it can be changed.
+   */
+  setReading(reading: boolean): void {
+    if (reading === this.reading) return;
+    this.reading = reading;
+    this.showMode();
+    // The note cannot be renamed from here either.
+    this.titleInput.readOnly = reading;
+    this.ctx.container.classList.toggle('pm-is-reading', reading);
+    this.editor.dispatch({
+      effects: [
+        this.readCompartment.reconfigure(this.readingExtension()),
+        // Read as it is drawn, also while the notes are otherwise shown as source.
+        this.modeCompartment.reconfigure(
+          this.shared.sourceMode() && !reading ? sourceModeStyling : livePreview,
+        ),
+      ],
     });
+    this.ctx.container.classList.toggle('pm-source-mode', this.shared.sourceMode() && !reading);
+    if (reading) this.editor.contentDOM.blur();
+    else this.editor.focus();
   }
 
   /** Scrolls to `Heading`, `H1#H2` or `^block` in this note. */
@@ -347,16 +402,6 @@ export class MarkdownView implements ViewInstance {
     const path = this.handle?.path;
     const target =
       path !== undefined ? this.shared.index()?.resolveSubpath(path, subpath) : undefined;
-    if (this.reading) {
-      const key = subpath.replace(/^\^/, '');
-      const el = subpath.startsWith('^')
-        ? this.readingEl.querySelector(`[data-block-id="${CSS.escape(key)}"]`)?.parentElement
-        : [...this.readingEl.querySelectorAll<HTMLElement>('[data-heading]')].find(
-            (h) => h.dataset.heading?.toLowerCase() === key.split('#').pop()?.toLowerCase(),
-          );
-      el?.scrollIntoView({ block: 'start' });
-      return;
-    }
     if (!target) return;
     const pos = Math.min(target.from, this.editor.state.doc.length);
     this.editor.dispatch({
@@ -367,7 +412,7 @@ export class MarkdownView implements ViewInstance {
 
   focus(): void {
     if (this.reading) {
-      this.readingEl.focus();
+      this.page.parentElement?.focus();
       return;
     }
     if (this.pendingRename) {
@@ -400,6 +445,57 @@ export class MarkdownView implements ViewInstance {
   }
 
   /** Focuses the editor with the cursor in the body, not in the (rendered) frontmatter. */
+  /** Up from the first row of the note: into its name. False if the cursor is elsewhere. */
+  enterTitle(): boolean {
+    if (this.reading || this.titleInput.readOnly) return false;
+    const view = this.editor;
+    const sel = view.state.selection.main;
+    if (!sel.empty) return false;
+    const fm = frontmatterBounds(view.state.doc.toString().slice(0, 4096));
+    // The first line under the properties (which are not text of the note here).
+    const doc = view.state.doc;
+    let first = doc.lineAt(Math.min(fm ? fm.to : 0, doc.length));
+    if (fm && first.from < fm.to && first.number < doc.lines) first = doc.line(first.number + 1);
+    if (doc.lineAt(sel.head).number > first.number) return false;
+    if (doc.lineAt(sel.head).number < first.number) return this.titleFocus();
+    // The first row of that line, if it wraps.
+    const here = view.coordsAtPos(sel.head);
+    const top = view.coordsAtPos(first.from);
+    if (here && top && Math.abs(here.top - top.top) > 4) return false;
+    return this.titleFocus();
+  }
+
+  private titleFocus(): boolean {
+    this.titleInput.focus();
+    const end = this.titleInput.value.length;
+    if (document.activeElement === this.titleInput) this.titleInput.setSelectionRange(end, end);
+    return true;
+  }
+
+  private titleField: EditorView | undefined;
+  private titleInEditor(): void {
+    const extensions = this.shared.fieldExtensions();
+    if (!extensions.length || this.titleField || this.titleInput.readOnly) return;
+    const holder = document.createElement('div');
+    holder.className = 'pm-inline-title has-editor';
+    this.titleInput.after(holder);
+    this.titleInput.hidden = true;
+    this.titleField = lineField(
+      holder,
+      this.titleInput.value,
+      extensions,
+      'Note title',
+      (text, onward) => {
+        this.titleField = undefined;
+        holder.remove();
+        this.titleInput.hidden = false;
+        this.titleInput.value = text;
+        void this.renameFromTitle();
+        if (onward) this.focusBody();
+      },
+    );
+  }
+
   private focusBody(): void {
     const fm = frontmatterBounds(this.editor.state.doc.toString().slice(0, 4096));
     if (fm && this.editor.state.selection.main.head < fm.to) {
@@ -422,17 +518,18 @@ export class MarkdownView implements ViewInstance {
     });
   }
 
-  setSourceMode(source: boolean): void {
+  setSourceMode(wanted: boolean): void {
+    // A note that is being read stays drawn.
+    const source = wanted && !this.reading;
     this.editor.dispatch({
       effects: this.modeCompartment.reconfigure(source ? sourceModeStyling : livePreview),
     });
     this.ctx.container.classList.toggle('pm-source-mode', source);
+    this.showMode();
   }
 
   dispose(): void {
     this.disposed = true;
-    clearTimeout(this.readingTimer);
-    this.readingRender?.dispose();
     this.releaseHandle();
     this.editor.destroy();
     this.shared.onActiveChange(undefined);
@@ -465,6 +562,8 @@ export class MarkdownView implements ViewInstance {
         yCollab(ytext, (handle.awareness as Parameters<typeof yCollab>[1]) ?? null, {
           undoManager,
         }),
+        // In front of the document's own: reading never changes it.
+        this.readCompartment.of(this.readingExtension()),
         EditorState.readOnly.of(handle.readOnly),
         keymap.of([
           ...yUndoManagerKeymap,
@@ -493,11 +592,15 @@ export class MarkdownView implements ViewInstance {
             if (path !== undefined) shared.embedMenu(v, host, path, at);
           },
           blockMenu: (v, block, at) => shared.blockMenu(v, block, at),
+          fieldExtensions: () => shared.fieldExtensions(),
           ...(shared.comment ? { comment: (v, range) => shared.comment!(v, range) } : {}),
         }),
         syntaxHighlighting(highlightStyle),
         EditorView.lineWrapping,
         drawSelection(),
+        // Up from the first row of the note goes into its name (as down from there comes back).
+        // (In front of the keys that move the cursor, which take the arrow at any place.)
+        Prec.high(keymap.of([{ key: 'ArrowUp', run: () => this.enterTitle() }])),
         dropCursor(),
         rectangularSelection(),
         closeBrackets(),
@@ -513,14 +616,12 @@ export class MarkdownView implements ViewInstance {
           autocorrect: 'on',
           autocapitalize: 'sentences',
         }),
-        this.modeCompartment.of(this.shared.sourceMode() ? sourceModeStyling : livePreview),
+        this.modeCompartment.of(
+          this.shared.sourceMode() && !this.reading ? sourceModeStyling : livePreview,
+        ),
         this.contributedCompartment.of(this.shared.contributed()),
         EditorView.updateListener.of((u) => {
           if (u.docChanged || u.focusChanged) this.shared.onActiveChange(this);
-          if (u.docChanged && this.reading) {
-            clearTimeout(this.readingTimer);
-            this.readingTimer = setTimeout(() => this.renderReading(), 250);
-          }
         }),
       ],
     });
@@ -529,7 +630,9 @@ export class MarkdownView implements ViewInstance {
   private onMouseDown(e: MouseEvent): void {
     const link = (e.target as HTMLElement).closest<HTMLElement>('.cm-pm-link');
     const href = link?.dataset.href;
-    if (!href || !(e.metaKey || e.ctrlKey)) return;
+    // While reading a click follows a link; while writing it takes Cmd/Ctrl (a plain click
+    // puts the cursor into its text).
+    if (!href || !(this.reading || e.metaKey || e.ctrlKey)) return;
     e.preventDefault();
     if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
       this.shared.openExternal(href);

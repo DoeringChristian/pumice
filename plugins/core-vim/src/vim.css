@@ -1,0 +1,81 @@
+/* ---- vim mode ----------------------------------------------------------------------------- */
+/* The block cursor of normal mode, in the app's colour */
+.pm-vim .cm-fat-cursor {
+  background: var(--accent) !important;
+  color: var(--accent-text, #fff) !important;
+  opacity: 0.85;
+}
+.pm-vim:not(.cm-focused) .cm-fat-cursor {
+  background: none !important;
+  outline: 1px solid var(--accent) !important;
+  color: transparent !important;
+}
+/* The line under the note with the mode, the keys typed so far and the command after ":" */
+.pm-vim .cm-panels {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+/* The note scrolls in the page, not in the editor: the line stays at the bottom of the window
+   instead of under the last line of a long note. */
+.pm-vim .cm-panels.cm-panels-bottom {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+}
+.pm-vim .cm-vim-panel {
+  padding: 3px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  min-height: 1.5em;
+}
+.pm-vim .cm-vim-panel input {
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+/* Leap: a letter over each place the two characters stand */
+.pm-vim-leap-anchor {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 0;
+  vertical-align: baseline;
+}
+.pm-vim-leap-label {
+  position: absolute;
+  left: 0;
+  bottom: -0.15em;
+  z-index: 5;
+  min-width: 0.9em;
+  padding: 0 2px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--accent-text, #fff);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+  pointer-events: none;
+}
+.pm-vim-leap-match {
+  border-radius: 2px;
+  background: var(--accent-soft);
+  color: var(--text);
+}
+/* The rest of the text steps back while a place is picked. */
+.pm-vim-leaping .cm-line {
+  color: var(--text-faint);
+}
+
+/* A label over text that is not the editor's own (a figure's caption). */
+.pm-vim-leap-label.is-over {
+  bottom: auto;
+  pointer-events: none;
+}

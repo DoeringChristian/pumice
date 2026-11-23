@@ -1,0 +1,20 @@
+{
+  "name": "@pumice/core-vim",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.7.1",
+    "@codemirror/language": "^6.10.3",
+    "@codemirror/search": "^6.5.7",
+    "@codemirror/state": "^6.4.1",
+    "@codemirror/view": "^6.34.1",
+    "@pumice/api": "workspace:*",
+    "@pumice/ui": "workspace:*",
+    "@replit/codemirror-vim": "6.4.0",
+    "y-codemirror.next": "^0.3.5"
+  }
+}

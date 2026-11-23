@@ -197,6 +197,23 @@ export interface Platform {
   readonly chatgpt?: ChatGptHost;
   /** Absent where vault files can't be served under an address of their own (web, mobile). */
   readonly frames?: FrameHost;
+  /**
+   * Prints one HTML page (an exported note: a file in the vault's folder, with the pictures it
+   * loads from beside it) into a PDF file, also in the vault's folder. Absent where the shell
+   * cannot print without a dialog (web, mobile).
+   */
+  readonly print?: { toPdf(html: VaultPath, pdf: VaultPath): Promise<void> };
+  /**
+   * Saving to a place the user chooses in the system's own dialog (anywhere on the computer,
+   * not only in the vault). Both resolve to where it was saved, or null when the user
+   * cancelled. Absent where there is no such dialog (web, mobile).
+   */
+  readonly save?: {
+    /** One file; `name` is what the dialog proposes. */
+    file(name: string, data: string | Uint8Array): Promise<string | null>;
+    /** A folder called `name` with these files (by their path in it), in a folder chosen. */
+    folder(name: string, files: Record<string, string | Uint8Array>): Promise<string | null>;
+  };
   /** Absent where programs can't be started (web, mobile). */
   readonly process?: ProcessHost;
 }

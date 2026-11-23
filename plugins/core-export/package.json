@@ -1,0 +1,19 @@
+{
+  "name": "@pumice/core-export",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@pumice/api": "workspace:*",
+    "@pumice/ui": "workspace:*"
+  },
+  "scripts": {
+    "build:runtime": "node scripts/build-runtime.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.5"
+  }
+}

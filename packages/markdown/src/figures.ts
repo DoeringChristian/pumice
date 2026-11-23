@@ -7,6 +7,8 @@
  * `^eq-energy`). Numbers are counted in the order of the note whenever it is shown.
  */
 
+import { isEmbedSize } from './links';
+
 export type FigureKind = 'fig' | 'tab' | 'eq';
 
 export interface NumberedItem {
@@ -40,7 +42,6 @@ export function figureReference(item: Pick<NumberedItem, 'kind' | 'number'>): st
   return item.kind === 'eq' ? `(${item.number})` : figureLabel(item);
 }
 
-const SIZE = /^\s*\d+(x\d+)?\s*$/;
 const MEDIA =
   /\.(png|apng|jpe?g|jfif|gif|webp|svg|bmp|avif|ico|mp4|m4v|mov|mkv|ogv|webm|mp3|wav|m4a|aac|ogg|oga|opus|flac|pdf|html?|excalidraw)$/i;
 
@@ -48,7 +49,7 @@ const MEDIA =
 export function embedCaption(alias: string | undefined): string | undefined {
   if (!alias) return undefined;
   const parts = alias.split(/\\?\|/);
-  if (SIZE.test(parts[parts.length - 1]!)) parts.pop();
+  if (isEmbedSize(parts[parts.length - 1]!)) parts.pop();
   const caption = parts.join('|').trim();
   return caption || undefined;
 }
@@ -62,7 +63,7 @@ export function setEmbedCaption(inner: string, caption: string): string {
   const sep = /\\\|/.test(inner) ? '\\|' : '|';
   const parts = inner.split(/\\?\|/);
   const target = parts.shift() ?? '';
-  const size = parts.length && SIZE.test(parts[parts.length - 1]!) ? parts.pop() : undefined;
+  const size = parts.length && isEmbedSize(parts[parts.length - 1]!) ? parts.pop() : undefined;
   // What would end the embed or split the caption cannot be part of it.
   const text = caption
     .replace(/[|[\]\n]+/g, ' ')

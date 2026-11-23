@@ -136,3 +136,24 @@
     transition: none;
   }
 }
+
+/* Columns side by side: a line of ||| in the slide starts the next one. */
+.pm-slide-columns {
+  display: flex;
+  align-items: center;
+  gap: 48px;
+}
+.pm-slide-column {
+  min-width: 0;
+}
+.pm-slide-column > :first-child {
+  margin-top: 0;
+}
+.pm-slide-column > :last-child {
+  margin-bottom: 0;
+}
+.pm-slide-column img,
+.pm-slide-column video,
+.pm-slide-column .pm-frame {
+  max-width: 100%;
+}

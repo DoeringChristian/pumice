@@ -1,4 +1,5 @@
 import {
+  TEXT_WIDTH,
   dirname,
   type DisposableLike,
   type MetadataIndexApi,
@@ -120,6 +121,11 @@ async function openSource(entry: VaultPath, files: VaultPath[], remote: string[]
       dispose: () => access.dispose(),
     };
   }
+  return inlineSource(entry, deps);
+}
+
+/** The frame's page put together here, with what it refers to inside it (no host needed). */
+function inlineSource(entry: VaultPath, deps: FrameDeps) {
   const urls: string[] = [];
   const base = dirname(entry);
   const inline = async (ref: string): Promise<string | undefined> => {
@@ -133,19 +139,23 @@ async function openSource(entry: VaultPath, files: VaultPath[], remote: string[]
     if (deps.vault.get(path)?.kind !== 'file') return undefined;
     return dataUrl(await deps.vault.readBinary(path), mime(path));
   };
+  const html = async () => {
+    let html = await deps.vault.read(entry);
+    const refs = [
+      ...html.matchAll(
+        /<(?:script|img|video|audio|source|link)\b[^>]*?\s(?:src|href)=(["'])(.*?)\1/gi,
+      ),
+    ];
+    for (const ref of refs) {
+      const url = await inline(ref[2]!);
+      if (url) html = html.replace(ref[0], ref[0].replace(ref[2]!, url));
+    }
+    return html;
+  };
   return {
+    html,
     page: async () => {
-      let html = await deps.vault.read(entry);
-      const refs = [
-        ...html.matchAll(
-          /<(?:script|img|video|audio|source|link)\b[^>]*?\s(?:src|href)=(["'])(.*?)\1/gi,
-        ),
-      ];
-      for (const ref of refs) {
-        const url = await inline(ref[2]!);
-        if (url) html = html.replace(ref[0], ref[0].replace(ref[2]!, url));
-      }
-      const url = URL.createObjectURL(new Blob([withKit(html)], { type: 'text/html' }));
+      const url = URL.createObjectURL(new Blob([withKit(await html())], { type: 'text/html' }));
       urls.push(url);
       return url;
     },
@@ -178,6 +188,17 @@ export interface MountedFrame {
    * frame cannot become that (another HTML file): show it anew.
    */
   setSpec(spec: FrameSpec): boolean;
+}
+
+/** Frames that are shown, by their element: how each is written out for an export. */
+const exporters = new WeakMap<HTMLElement, (light: boolean) => Promise<string>>();
+
+/** See `FramesApi.exportHtml`. */
+export async function exportFrameHtml(
+  figure: HTMLElement,
+  light: boolean,
+): Promise<string | undefined> {
+  return exporters.get(figure)?.(light);
 }
 
 /** What the file list puts on a drag: the vault path. */
@@ -215,9 +236,33 @@ export async function mountFrame(
   let spec = options.spec;
   const figure = h('figure', { class: 'pm-frame' });
   figure.classList.toggle('is-fill', !!options.fill);
-  if (spec.width && !options.fill) figure.style.width = `${spec.width}px`;
+  if (spec.width && !options.fill) {
+    // As for pictures: a share of the text's width, so it is the same share everywhere.
+    figure.style.width = `calc(var(--pm-text-w, 100%) * ${+(spec.width / TEXT_WIDTH).toFixed(5)})`;
+    figure.style.maxWidth = '100%';
+  }
   container.replaceChildren(figure);
   let disposed = false;
+  exporters.set(figure, async (light) => {
+    const entry = resolveEntry(spec.file, sourcePath, deps);
+    const inline = inlineSource(entry, deps);
+    const { targets } = await refsOf(spec.settings);
+    // The data as addresses that hold it (a page opened from a file cannot load files).
+    const settings = (await mapRefs(spec.settings, async (ref) =>
+      ref.kind === 'web' ? ref.target : await inline.file(targets.get(ref.raw)!),
+    )) as Record<string, unknown>;
+    const theme: FrameTheme = light
+      ? {
+          dark: false,
+          vars: Object.fromEntries(SERIES.light.map((c, i) => [`--series-${i + 1}`, c])),
+        }
+      : currentTheme();
+    const given = JSON.stringify({ ...settings, [HOST_KEY]: theme }).replace(/</g, '\\u003c');
+    return withKit(
+      await inline.html(),
+      `<script>window.__pumiceSettings=${given}</script>${FRAME_KIT}`,
+    );
+  });
   let source: Awaited<ReturnType<typeof openSource>> | undefined;
   let frame: HTMLIFrameElement | undefined;
   let watched = new Set<VaultPath>();

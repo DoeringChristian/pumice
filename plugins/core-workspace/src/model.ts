@@ -730,9 +730,21 @@ function remove<T>(array: T[], item: T): void {
   if (i !== -1) array.splice(i, 1);
 }
 
+/**
+ * A layout chosen for trying it out (Settings → Diagnostics): kept on this device only, and
+ * read when the window is laid out. Setting it and sending a `resize` applies it.
+ */
+export const LAYOUT_OVERRIDE_KEY = 'pumice.layout';
+
 /** Phone below 640 px, tablet below 1024 px or with a coarse pointer, desktop otherwise. */
 export function computeLayout(): WorkspaceLayout {
   if (typeof window === 'undefined') return 'desktop';
+  try {
+    const forced = window.localStorage?.getItem(LAYOUT_OVERRIDE_KEY);
+    if (forced === 'phone' || forced === 'tablet' || forced === 'desktop') return forced;
+  } catch {
+    // No storage here: the size decides.
+  }
   const w = window.innerWidth;
   if (w < 640) return 'phone';
   if (w < 1024 && window.matchMedia?.('(pointer: coarse)').matches) return 'tablet';

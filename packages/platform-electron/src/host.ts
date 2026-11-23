@@ -26,6 +26,11 @@ export interface PumiceHost {
   onBeforeClose(listener: () => Promise<void>): () => void;
   openExternal(url: string): Promise<void>;
   revealInFileManager(path: string): Promise<void>;
+  /** Prints one HTML page (an exported note, by its path in the vault folder) into a PDF. */
+  printToPdf(html: string, pdf: string): Promise<void>;
+  /** Save dialogs: where it was saved, or null when cancelled. */
+  saveFile(name: string, data: string | Uint8Array): Promise<string | null>;
+  saveFolder(name: string, files: Record<string, string | Uint8Array>): Promise<string | null>;
   spelling: {
     /** The misspelled word that was just right-clicked and its corrections, or null. */
     atPointer(): Promise<{ word: string; suggestions: string[] } | null>;

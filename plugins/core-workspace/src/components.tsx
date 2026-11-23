@@ -69,8 +69,95 @@ export function WorkspaceRoot({ model, vaultName }: { model: WorkspaceModel; vau
   );
 }
 
+/**
+ * The bar along the bottom of a phone: the panels, as many actions as fit, and a "More" button
+ * for the rest (among them the settings). A bar that scrolls sideways hides what is beyond
+ * the edge of the screen, without a sign that there is more.
+ */
+function PhoneBar({ model }: { model: WorkspaceModel }) {
+  const leftPanels = model.panels.filter((p) => p.side === 'left');
+  const hasRight = model.panels.some((p) => p.side === 'right');
+  const run = (action: () => unknown) => {
+    model.closeDrawers();
+    void Promise.resolve(action()).catch((e: unknown) =>
+      model.notify(e instanceof Error ? e.message : String(e), { kind: 'error' }),
+    );
+  };
+  // A button takes about 52px; "More" and the right sidebar's button have their places.
+  const places = Math.max(4, Math.floor((window.innerWidth - 16) / 52));
+  const room = Math.max(0, places - leftPanels.length - 1 - (hasRight ? 1 : 0));
+  const shown = model.ribbonActions.slice(0, room);
+  const more = model.ribbonActions.slice(room);
+  return (
+    <nav className="pm-ribbon pm-phone-bar" aria-label="Ribbon">
+      {leftPanels.map((p) => {
+        const on = model.sidebars.left.open && model.sidebars.left.activePanel === p.id;
+        return (
+          <button
+            key={p.id}
+            className="pm-icon-button"
+            data-active={on}
+            aria-pressed={on}
+            aria-label={p.title}
+            title={p.title}
+            onClick={() => (on ? model.toggleSidebar('left', false) : model.showPanel(p.id))}
+          >
+            <Icon name={p.icon ?? 'file'} />
+          </button>
+        );
+      })}
+      {shown.map((a) => (
+        <button
+          key={a.id}
+          className="pm-icon-button pm-ribbon-action"
+          aria-label={a.title}
+          title={a.title}
+          onClick={() => run(a.run)}
+        >
+          <Icon name={a.icon} />
+        </button>
+      ))}
+      <button
+        className="pm-icon-button"
+        aria-label="More"
+        title="More"
+        aria-haspopup="menu"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          model.showContextMenu(
+            [
+              ...more.map((a) => ({ label: a.title, icon: a.icon, run: () => run(a.run) })),
+              ...(more.length ? (['separator'] as const) : []),
+              {
+                label: 'Settings',
+                icon: 'settings',
+                run: () => run(() => model.commands().execute('settings.open')),
+              },
+            ],
+            // Over the bar: the menu opens upwards from the button.
+            { x: r.left, y: r.top - 8 },
+          );
+        }}
+      >
+        <Icon name="more-vertical" />
+      </button>
+      {hasRight && (
+        <button
+          className="pm-icon-button"
+          title="Toggle right sidebar"
+          aria-label="Toggle right sidebar"
+          onClick={() => model.toggleSidebar('right')}
+        >
+          <Icon name="panel-right" />
+        </button>
+      )}
+    </nav>
+  );
+}
+
 function Ribbon({ model }: { model: WorkspaceModel }) {
   const leftPanels = model.panels.filter((p) => p.side === 'left');
+  if (model.layout === 'phone') return <PhoneBar model={model} />;
   return (
     <nav className="pm-ribbon" aria-label="Ribbon">
       <button
@@ -441,21 +528,30 @@ function QuickPick({
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
   const listRef = useRef<HTMLUListElement>(null);
-  const items = useMemo(() => {
-    const base =
+  const [items, setItems] = useState<QuickPickItem[]>([]);
+  useEffect(() => {
+    let latest = true;
+    const show = (base: QuickPickItem[]) => {
+      if (!latest) return;
+      const limited = base.slice(0, 200);
+      const extra =
+        query.trim() &&
+        options.onEmpty &&
+        !limited.some((i) => i.label.toLowerCase() === query.trim().toLowerCase())
+          ? options.onEmpty(query.trim())
+          : undefined;
+      setItems(extra ? [...limited, extra] : limited);
+    };
+    const found =
       typeof options.items === 'function'
         ? options.items(query)
         : fuzzyFilter(query, options.items, (i) => `${i.label} ${i.detail ?? ''}`);
-    const limited = base.slice(0, 200);
-    if (
-      query.trim() &&
-      options.onEmpty &&
-      !limited.some((i) => i.label.toLowerCase() === query.trim().toLowerCase())
-    ) {
-      const extra = options.onEmpty(query.trim());
-      if (extra) return [...limited, extra];
-    }
-    return limited;
+    // What is at hand is shown at once; a search when it comes back (if it is still asked for).
+    if (Array.isArray(found)) show(found);
+    else void found.then(show, () => show([]));
+    return () => {
+      latest = false;
+    };
   }, [options, query]);
 
   useEffect(() => setSelected(0), [query]);

@@ -9,7 +9,9 @@
 }
 
 .pm-markdown-page {
-  max-width: 760px;
+  /* 700px of text between 32px on each side: a size without a unit is counted against
+     that width (`|350` is half the line, `|700` all of it). */
+  max-width: 764px;
   margin: 0 auto;
   padding: 40px 32px 40vh;
 }
@@ -1010,4 +1012,210 @@
   box-sizing: border-box;
   width: 0;
   min-width: 100%;
+}
+
+/* ---- how the note is shown: edit, read, source -------------------------------------------- */
+.pm-markdown-view {
+  position: relative;
+}
+.pm-mode-switch {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  z-index: 6;
+  display: flex;
+  gap: 1px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-elevated);
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+.pm-mode-switch:hover,
+.pm-mode-switch:focus-within {
+  opacity: 1;
+}
+.pm-mode-switch-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.pm-mode-switch-button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.pm-mode-switch-button.is-on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.pm-mode-switch-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pm-mode-switch {
+    transition: none;
+  }
+}
+
+/* ---- reading: the editor is really gone ---------------------------------------------------- */
+/* The editor's own style sheet says `display: flex !important`, which keeps it on screen (and
+   editable) under the reading view when it is only marked as hidden. */
+.pm-markdown-page .cm-editor[hidden] {
+  display: none !important;
+}
+/* Nothing of the note can be changed while it is read: not its name, not its checkboxes. */
+.pm-is-reading .pm-inline-title {
+  cursor: default;
+}
+.pm-is-reading .pm-reading-view input[type='checkbox'] {
+  pointer-events: none;
+}
+
+/* ---- a narrow window ------------------------------------------------------------------------ */
+/* The text is as wide as the room it has, whatever is in it. The editor's own style keeps it
+   from getting narrower than its widest unbreakable part (a wide picture, a long formula),
+   which pushed the text and the buttons of pictures out under the right sidebar. */
+.pm-markdown-page .cm-content {
+  min-width: 0;
+}
+/* What cannot wrap is cut to the line instead, and scrolls sideways where that makes sense. */
+.pm-markdown-page .cm-pm-block,
+.pm-markdown-page .cm-pm-embed {
+  max-width: 100%;
+}
+.pm-markdown-page .cm-pm-block-math,
+.pm-markdown-page .cm-pm-math.is-display,
+.pm-markdown-page .cm-pm-math-preview {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.pm-markdown-page .cm-pm-block .pm-frame,
+.pm-markdown-page .cm-pm-embed .pm-frame,
+.pm-markdown-page .cm-pm-embed .pm-video {
+  max-width: 100%;
+}
+
+/* ---- reading: as it is drawn for writing, with nothing to change it ----------------------- */
+.pm-is-reading .cm-pm-resize,
+.pm-is-reading .cm-pm-embed-menu,
+.pm-is-reading .cm-pm-caption.is-empty,
+.pm-is-reading .cm-pm-media-caret-layer,
+.pm-is-reading .pm-table-add,
+.pm-is-reading .pm-table-handle {
+  display: none !important;
+}
+.pm-is-reading .cm-pm-checkbox,
+.pm-is-reading .cm-pm-caption-text,
+.pm-is-reading .pm-frame-caption,
+.pm-is-reading .pm-table-widget [contenteditable] {
+  pointer-events: none;
+}
+.pm-is-reading .cm-pm-caption.is-editable .cm-pm-caption-text:hover {
+  background: none;
+}
+
+/* ---- a narrow screen (phone) --------------------------------------------------------------- */
+@media (max-width: 600px) {
+  /* The mode switch stands beside the note's name, not over it. */
+  .pm-markdown-page .pm-inline-title {
+    padding-right: 96px;
+    box-sizing: border-box;
+  }
+  .pm-mode-switch {
+    top: 6px;
+    right: 10px;
+    opacity: 0.9;
+  }
+  /* The arrow that folds a section fits into the narrower margin. */
+  .cm-pm-fold {
+    left: -16px;
+    width: 15px;
+    opacity: 0.45;
+  }
+}
+
+/* The same when the phone layout is on whatever the window's size (Settings, Diagnostics). */
+/* The mode switch stands beside the note's name, not over it. */
+.pm-layout-phone .pm-markdown-page .pm-inline-title {
+  padding-right: 96px;
+  box-sizing: border-box;
+}
+.pm-layout-phone .pm-mode-switch {
+  top: 6px;
+  right: 10px;
+  opacity: 0.9;
+}
+/* The arrow that folds a section fits into the narrower margin. */
+.pm-layout-phone .cm-pm-fold {
+  left: -16px;
+  width: 15px;
+  opacity: 0.45;
+}
+
+/* A list item that wraps continues under its own text (see `cm-pm-hang` in the live preview):
+   the line is set in by what stands in front of the text, and its first row set back out. */
+.pm-markdown-page .cm-line.cm-pm-hang {
+  --pm-hang: calc(
+    var(--pm-hang-steps, 0) * (1.1em + var(--pm-space, 0.28em)) + var(--pm-hang-chars, 0) * 0.6em
+  );
+  padding-left: var(--pm-hang);
+  text-indent: calc(-1 * var(--pm-hang));
+}
+/* What stands in the line (markers, pictures, formulas) starts where it is put. */
+.pm-markdown-page .cm-line.cm-pm-hang > * {
+  text-indent: 0;
+}
+
+/* A caption written in an editor of its own (key bindings from a plugin: vim mode). */
+.cm-pm-caption-text.has-editor,
+.pm-frame-caption.has-editor {
+  display: inline-block;
+  min-width: 10em;
+  max-width: 100%;
+  vertical-align: top;
+  text-align: left;
+}
+.has-editor > .cm-editor {
+  outline: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+}
+.has-editor > .cm-editor .cm-scroller {
+  font: inherit;
+  line-height: inherit;
+  overflow: visible;
+}
+.has-editor > .cm-editor .cm-content,
+.has-editor > .cm-editor .cm-line {
+  padding: 0;
+}
+
+/* The note's name in an editor of its own (vim mode). */
+.pm-inline-title[hidden] {
+  display: none;
+}
+.pm-inline-title.has-editor {
+  line-height: 1.25;
+}
+
+/* What holds the note's text takes the focus where the text cannot be written in (reading):
+   so the keys scroll it. It is not marked for that: the whole note would get a frame. */
+.pm-markdown-scroller:focus,
+.pm-markdown-scroller:focus-visible,
+.pm-markdown-page .cm-scroller:focus,
+.pm-markdown-page .cm-scroller:focus-visible,
+.pm-markdown-page .cm-content:focus-visible,
+.pm-text-view .cm-scroller:focus-visible {
+  outline: none;
 }
