@@ -31,6 +31,7 @@ import manifestJson from '../manifest.json';
 import { embedAt } from './resize';
 import './editor.css';
 import { MarkdownView } from './markdown-view';
+import { TextView } from './text-view';
 import { HEADING_PREFIX, linePrefixChange, TASK_PREFIX, type LinePrefix } from './toolbar';
 
 export { MarkdownView } from './markdown-view';
@@ -115,7 +116,9 @@ export const plugin = definePlugin({
               closeLeft: () => ctx.settings.get('closeLeft', true),
               // Through the command, so the editor does not depend on the comments plugin.
               comment: (_v, range) =>
-                void ctx.commands.execute('comments.add', range).catch(() => undefined),
+                void ctx.commands
+                  .execute('comments.add', { ...range, media: true })
+                  .catch(() => undefined),
               openExternal: (url) => void shell.openExternal(url),
               embedMenu: (v, host, path, at) => showEmbedMenu(v, host, path, at),
               blockMenu: (v, block, at) => showBlockMenu(v, block, at),
@@ -144,7 +147,29 @@ export const plugin = definePlugin({
     ctx.register(
       workspace.registerFileHandler({
         viewType: 'markdown',
-        extensions: ['md', 'markdown', 'txt', 'tex'],
+        extensions: ['md', 'markdown'],
+      }),
+    );
+    // Any other file that holds text opens as plain text: when nothing else opens its type,
+    // or when it is chosen ("Open with…").
+    ctx.register(
+      workspace.registerView({
+        type: 'text',
+        title: 'Text',
+        icon: 'file-text',
+        async create(view, state) {
+          const text = new TextView(view, { documents, workspace });
+          await text.setState(state);
+          return text;
+        },
+      }),
+    );
+    ctx.register(
+      workspace.registerFileHandler({
+        viewType: 'text',
+        title: 'Plain text',
+        extensions: ['*'],
+        optional: true,
       }),
     );
 

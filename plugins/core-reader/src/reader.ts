@@ -83,8 +83,16 @@ export interface ReaderDeps {
   workspace: WorkspaceApi;
 }
 
-/** The vault's LaTeX preamble, unless the settings name another file. */
-export const DEFAULT_PREAMBLE = 'preamble.tex';
+/**
+ * The vault's LaTeX preamble, unless the settings name another file: a note whose `tex` code
+ * blocks hold the definitions.
+ */
+export const DEFAULT_PREAMBLE = 'texpreamble.md';
+/**
+ * Other names it is found under when that note does not exist: as a plain .tex file, and
+ * where it was kept before.
+ */
+export const OTHER_PREAMBLES = ['texpreamble.tex', 'preamble.md', 'preamble.tex'];
 
 export class ReaderImpl implements ReaderApi {
   private readonly embeds: EmbedRenderer[] = [];
@@ -259,7 +267,11 @@ export class ReaderImpl implements ReaderApi {
 
   /** Where the vault's LaTeX preamble is kept. */
   preamblePath(): VaultPath {
-    return this.deps.ctx.settings.get('preamble', DEFAULT_PREAMBLE).trim() || DEFAULT_PREAMBLE;
+    const set = this.deps.ctx.settings.get('preamble', '').trim();
+    if (set) return set;
+    const { vault } = this.deps;
+    if (vault.get(DEFAULT_PREAMBLE)) return DEFAULT_PREAMBLE;
+    return OTHER_PREAMBLES.find((path) => vault.get(path)) ?? DEFAULT_PREAMBLE;
   }
 
   /** Reads the preambles again and draws every formula on screen with them. */

@@ -72,6 +72,29 @@ export function blockSizeEdit(source: string, size: Size): string {
   return lines.join('\n');
 }
 
+/**
+ * A fenced frame block (with its fences) with its `caption` line set: after `file`, or in
+ * place of the one that is there. An empty caption removes the line.
+ */
+export function blockCaptionEdit(source: string, caption: string): string {
+  const lines = source.split('\n');
+  const close = lines.length - 1 - (lines[lines.length - 1] === '' ? 1 : 0);
+  if (lines.length < 2 || !/^\s*(`{3,}|~{3,})/.test(lines[close] ?? '')) return source;
+  const indent = /^\s*/.exec(lines[0]!)![0];
+  const text = caption.replace(/\s+/g, ' ').trim();
+  const at = lines.findIndex((l, i) => i > 0 && i < close && /^\s*caption\s*:/.test(l));
+  // Quoted, so that a colon or a hash in the caption is not taken for YAML.
+  const line = `${indent}caption: ${JSON.stringify(text)}`;
+  if (at >= 0) {
+    if (text) lines[at] = line;
+    else lines.splice(at, 1);
+  } else if (text) {
+    const file = lines.findIndex((l, i) => i > 0 && i < close && /^\s*file\s*:/.test(l));
+    lines.splice(file >= 0 ? file + 1 : close, 0, line);
+  }
+  return lines.join('\n');
+}
+
 const SNAPS: Array<[string, number]> = [
   ['1/4', 1 / 4],
   ['1/3', 1 / 3],
@@ -98,6 +121,31 @@ export function snapWidth(
 
 // Pictures, videos, frames, and drawings (which are embedded as an SVG).
 const SELECTOR = 'img:not(.cm-widgetBuffer), video, .pm-frame, .pm-excalidraw-embed > svg';
+
+/**
+ * Gives what an embed shows the size its text says, in place (as a drag of its handle does).
+ * False if there is nothing in `host` that could be sized: it has to be drawn anew then.
+ */
+export function applyEmbedSize(
+  host: HTMLElement,
+  size: { width?: number; height?: number },
+): boolean {
+  const target = host.querySelector<HTMLElement>(SELECTOR);
+  if (!target || target.closest('.pm-embed[data-embed-type="note"]')) return false;
+  target.style.width = size.width ? `${size.width}px` : '';
+  target.style.maxWidth = size.width ? '100%' : '';
+  const frame = target.classList.contains('pm-frame')
+    ? target.querySelector<HTMLElement>('.pm-frame-view')
+    : null;
+  if (frame) {
+    if (size.height) frame.style.height = `${size.height}px`;
+  } else {
+    // Pictures and videos keep their proportions unless a height is given.
+    target.style.height = size.height ? `${size.height}px` : 'auto';
+    if (!size.height) target.removeAttribute('height');
+  }
+  return true;
+}
 
 /**
  * Adds the handle to `host` if it shows something that can be sized. Call again after the

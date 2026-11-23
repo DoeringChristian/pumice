@@ -120,3 +120,22 @@ describe('captions and targets', () => {
     expect(isFigureTarget('Other note.md')).toBe(false);
   });
 });
+
+describe('setting a caption', () => {
+  it('writes it between the target and the size', async () => {
+    const { setEmbedCaption } = await import('../src/figures');
+    expect(setEmbedCaption('pic.png', 'A view')).toBe('pic.png|A view');
+    expect(setEmbedCaption('pic.png|300', 'A view')).toBe('pic.png|A view|300');
+    expect(setEmbedCaption('pic.png|Old|300x200', 'New')).toBe('pic.png|New|300x200');
+    expect(setEmbedCaption('folder/pic.png#page=2|Old', 'New')).toBe('folder/pic.png#page=2|New');
+  });
+  it('removes it when it is empty, keeping the size', async () => {
+    const { setEmbedCaption } = await import('../src/figures');
+    expect(setEmbedCaption('pic.png|Old|300', '  ')).toBe('pic.png|300');
+    expect(setEmbedCaption('pic.png|Old', '')).toBe('pic.png');
+  });
+  it('keeps out what would break the embed', async () => {
+    const { setEmbedCaption } = await import('../src/figures');
+    expect(setEmbedCaption('pic.png', 'a | b ]] c')).toBe('pic.png|a b c');
+  });
+});

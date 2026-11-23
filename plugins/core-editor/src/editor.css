@@ -171,7 +171,10 @@
 }
 
 .cm-pm-checkbox {
-  margin: 0 0.35em 0 0;
+  /* As wide as a bullet (see .cm-pm-indent): what is nested starts under the text. */
+  width: 0.9em;
+  height: 0.9em;
+  margin: 0 0.2em 0 0;
   vertical-align: -0.1em;
   accent-color: var(--accent);
   cursor: pointer;
@@ -209,7 +212,7 @@
 
 .cm-pm-bullet {
   display: inline-block;
-  width: 0.6em;
+  width: 1.1em;
   color: var(--text-muted);
   font-weight: 700;
   text-align: center;
@@ -248,7 +251,6 @@
 .cm-pm-math-source {
   font-family: var(--font-mono);
   font-size: 0.9em;
-  color: var(--text-muted);
 }
 .cm-pm-math {
   cursor: text;
@@ -620,7 +622,7 @@
   margin: 0;
 }
 .cm-editor .cm-tooltip.cm-pm-math-tip {
-  padding: 6px 10px;
+  padding: 10px 18px;
   border: 1px solid var(--border);
   border-radius: var(--radius-m);
   background: var(--bg-elevated);
@@ -747,43 +749,66 @@
 }
 
 /* ---- TeX in a formula's source ------------------------------------------------------------ */
-.cm-pm-tex-command {
-  color: #a34fb0;
+/* The source of a formula is green as a whole (the same whether the parser takes it for one
+   or it is one that is being written, see `typedInlineMath`); within it, the parts of TeX
+   have their own colours. These hold against the colour of the whole, which the editor puts
+   on the innermost element. */
+.cm-pm-math-source {
+  color: #4c8a3f;
 }
-.cm-pm-tex-environment {
-  color: #2a8a86;
+.cm-pm-math-mark,
+.cm-pm-math-mark * {
+  color: var(--text-faint) !important;
 }
-.cm-pm-tex-brace {
-  color: var(--text-faint);
+.cm-pm-tex-command,
+.cm-pm-tex-command * {
+  color: #a34fb0 !important;
 }
-.cm-pm-tex-script {
-  color: #2f6fb0;
+.cm-pm-tex-environment,
+.cm-pm-tex-environment * {
+  color: #2a8a86 !important;
 }
-.cm-pm-tex-number {
-  color: #b0662a;
+.cm-pm-tex-brace,
+.cm-pm-tex-brace * {
+  color: var(--text-faint) !important;
 }
-.cm-pm-tex-comment {
-  color: var(--text-faint);
+.cm-pm-tex-script,
+.cm-pm-tex-script * {
+  color: #2f6fb0 !important;
+}
+.cm-pm-tex-number,
+.cm-pm-tex-number * {
+  color: #b0662a !important;
+}
+.cm-pm-tex-comment,
+.cm-pm-tex-comment * {
+  color: var(--text-faint) !important;
   font-style: italic;
 }
 
-/* What a TeX completion gives, beside the list */
-.cm-editor .cm-tooltip.cm-completionInfo:has(.cm-pm-tex-info) {
-  padding: 8px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-m);
-  background: var(--bg-elevated);
-  color: var(--text);
-  box-shadow: var(--shadow);
+/* What a TeX completion gives, at the right end of its row */
+.cm-editor .cm-tooltip.cm-tooltip-autocomplete > ul > li:has(.cm-pm-tex-option) {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
 }
-.cm-pm-tex-info {
-  min-width: 28px;
-  font-size: 1.25em;
+.cm-pm-tex-option {
+  flex: none;
+  min-width: 2.2em;
+  margin-left: auto;
+  padding-left: 18px;
+  font-family: var(--font-text);
+  font-size: 1.05em;
+  line-height: 1;
   text-align: center;
   white-space: nowrap;
 }
-.cm-pm-tex-info .katex-display {
-  margin: 0;
+/* Where the cursor is, in the preview of a formula that is being written */
+.pm-math-caret {
+  margin: 0 -1px;
+  /* KaTeX gives every border the colour of the text. */
+  border-left: 2px solid var(--accent) !important;
 }
 
 /* ---- the cursor beside a picture, video, drawing or frame --------------------------------- */
@@ -819,4 +844,170 @@
 /* The editor's own cursor has no sensible place there. */
 .cm-editor.cm-pm-at-media .cm-cursorLayer {
   visibility: hidden;
+}
+
+/* ---- nested lists: even steps, and a line for each level above -------------------------- */
+.cm-pm-indent {
+  position: relative;
+  display: inline-block;
+  /* A marker (bullet or checkbox) and the space behind it. */
+  width: calc(1.1em + var(--pm-space, 0.28em));
+  white-space: pre;
+  vertical-align: top;
+}
+.cm-pm-indent::before {
+  content: '';
+  position: absolute;
+  /* Under the middle of the marker of the level above. */
+  left: 0.5em;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--border);
+}
+
+/* ---- the space around embedded media ------------------------------------------------------ */
+/* Every embed is one box within its line, whatever it shows. Laid out as a block it would stand
+   between two empty lines of its own, and pictures would sit apart from text differently than
+   videos or drawings do. */
+.pm-markdown-page .cm-line > .cm-pm-embed.pm-embed {
+  display: inline-block;
+  margin: 0.3em 0;
+  vertical-align: top;
+}
+/* What fills the line when it has no width of its own. */
+.pm-markdown-page
+  .cm-line
+  > .cm-pm-embed.pm-embed:not(.is-sized):is(
+    [data-embed-type='note'],
+    [data-embed-type='pdf'],
+    [data-embed-type='frame']
+  ) {
+  width: 100%;
+}
+/* No room for descenders under a picture, video or drawing: it is not a letter. */
+.cm-pm-embed > img,
+.cm-pm-embed > .pm-video,
+.cm-pm-embed > .pm-excalidraw-embed,
+.cm-pm-embed > .pm-excalidraw-embed > svg {
+  display: block;
+}
+.cm-pm-embed > .pm-video {
+  display: flex;
+}
+
+/* A caption that can be written where it is read */
+.cm-pm-caption.is-editable .cm-pm-caption-text {
+  border-radius: 3px;
+  cursor: text;
+}
+.cm-pm-caption.is-editable .cm-pm-caption-text:hover {
+  background: var(--bg-hover);
+}
+/* A figure without a caption offers one when the pointer is on it. */
+.cm-pm-caption.is-empty {
+  visibility: hidden;
+  color: var(--text-faint);
+}
+.cm-pm-embed:hover > .cm-pm-caption.is-empty,
+.cm-pm-caption.is-empty:has(.is-editing) {
+  visibility: visible;
+}
+/* While it is written: the same text in the same place, only marked as the thing being
+   edited. Nothing here may change how it is laid out: text that moves when the editing ends
+   moves under the click that ended it. */
+.cm-pm-caption-text.is-editing,
+.pm-frame-caption.is-editing {
+  border-radius: 3px;
+  outline: none;
+  background: var(--bg-hover);
+  box-shadow: 0 1px 0 var(--accent);
+  cursor: text;
+}
+/* An empty one still needs a place for the cursor. */
+.cm-pm-caption-text.is-editing:empty {
+  display: inline-block;
+  min-width: 6em;
+  min-height: 1em;
+  vertical-align: top;
+}
+/* Under a frame block: only while it has no caption of its own. */
+.cm-pm-block-code:hover > .cm-pm-caption.is-empty {
+  visibility: visible;
+}
+.cm-pm-block-code:has(.pm-frame-caption) > .cm-pm-frame-caption-offer {
+  display: none;
+}
+.cm-pm-block-code .pm-frame-caption {
+  cursor: text;
+}
+
+/* ---- a text file that is not a note ------------------------------------------------------- */
+.pm-text-view {
+  overflow: hidden;
+}
+.pm-text-view .cm-editor {
+  height: 100%;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+}
+.pm-text-view .cm-editor.cm-focused {
+  outline: none;
+}
+.pm-text-view .cm-scroller {
+  font-family: inherit;
+  line-height: 1.55;
+}
+.pm-text-view .cm-content {
+  padding: 12px 0 40vh;
+  caret-color: var(--accent);
+}
+.pm-text-view .cm-gutters {
+  border-right: 0;
+  background: transparent;
+  color: var(--text-faint);
+}
+.pm-text-view .cm-activeLine,
+.pm-text-view .cm-activeLineGutter {
+  background: var(--bg-hover);
+}
+.pm-text-view .cm-cursor {
+  border-left: 2px solid var(--accent);
+}
+.pm-text-view .cm-selectionBackground,
+.pm-text-view .cm-focused .cm-selectionBackground {
+  background: var(--selection) !important;
+}
+.pm-text-view-message {
+  margin: auto;
+  padding: 24px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* The preview of an inline formula: a bubble with a tail that points at the formula */
+.cm-pm-math-tip-formula {
+  font-size: 1.1em;
+  white-space: nowrap;
+}
+.cm-editor .cm-tooltip.cm-pm-math-tip .cm-tooltip-arrow::before {
+  border-top-color: var(--border);
+  border-bottom-color: var(--border);
+}
+.cm-editor .cm-tooltip.cm-pm-math-tip .cm-tooltip-arrow::after {
+  border-top-color: var(--bg-elevated);
+  border-bottom-color: var(--bg-elevated);
+}
+
+/* ---- an embed is as wide as what it shows -------------------------------------------------- */
+/* The caption and a video's controls take the width of the picture or video above them, and
+   follow it while it is resized. Left to themselves they would make the embed as wide as
+   their own text (a long caption would stand out beyond a narrow picture, and the controls
+   would stay behind when a video is dragged smaller). */
+.cm-pm-embed > .cm-pm-caption,
+.cm-pm-embed > .pm-video > .pm-video-controls {
+  box-sizing: border-box;
+  width: 0;
+  min-width: 100%;
 }

@@ -1,5 +1,5 @@
 import { syntaxTree } from '@codemirror/language';
-import type { Range } from '@codemirror/state';
+import type { EditorState, Range } from '@codemirror/state';
 import {
   Decoration,
   ViewPlugin,
@@ -57,6 +57,89 @@ export function texTokens(tex: string): TexToken[] {
   return out;
 }
 
+/** Marks where the cursor is in a formula's preview: nothing wide, as tall as a letter. */
+const CARET = '{\\htmlClass{pm-math-caret}{\\mathstrut}}';
+
+/**
+ * `tex` with a mark where the cursor is (`offset` into it), for the preview of a formula that
+ * is being written. The mark only goes where it cannot change what the formula means: not
+ * into the name of a command, and not between a command and what it takes.
+ */
+export function withCaret(tex: string, offset: number): string {
+  let at = Math.max(0, Math.min(tex.length, offset));
+  for (let i = 0; i < tex.length && i < at;) {
+    if (tex[i] === '%') {
+      // In a comment there is nothing to show.
+      const end = tex.indexOf('\n', i);
+      if (end < 0 || end >= at) return tex;
+      i = end + 1;
+    } else if (tex[i] === '\\') {
+      const name = /^[a-zA-Z]+\*?/.exec(tex.slice(i + 1))?.[0];
+      if (name) {
+        // Within `\\name`, or behind it where what it takes (or its limits) begins: in front
+        // of it. Behind a command that stands alone (`\\alpha |`) the mark stays.
+        const nameEnd = i + 1 + name.length;
+        let end = nameEnd;
+        while (tex[end] === ' ') end++;
+        if (at < nameEnd || (at <= end && /^\s*[{[^_]/.test(tex.slice(at)))) at = i;
+        i = end;
+      } else {
+        // `\\\\`, `\\{`, `\\,`: two characters that belong together.
+        if (at === i + 1) at = i;
+        i += 2;
+      }
+    } else i++;
+  }
+  return tex.slice(0, at) + CARET + tex.slice(at);
+}
+
+/**
+ * A `$…$` formula that is being written and, right now, ends in a space: `$a + |$`. Read
+ * strictly that is not a formula (a `$` after a space is a price: "$5 and $6"), so it would
+ * stop being one at every space typed. With the cursor at its end it is taken for the formula
+ * it is about to be. Columns within `line`; undefined if there is none at `column`.
+ */
+export function typedInlineMath(
+  line: string,
+  column: number,
+): { from: number; to: number; tex: string } | undefined {
+  // Only spaces between the cursor and the `$` that closes it.
+  let close = column;
+  while (close < line.length && (line[close] === ' ' || line[close] === '\t')) close++;
+  if (line[close] !== '$' || line[close + 1] === '$' || line[close - 1] === '$') return undefined;
+  for (let open = Math.min(column, close) - 1; open >= 0; open--) {
+    if (line[open] !== '$') continue;
+    // Not `\$`, not part of `$$`, and with something right behind it.
+    if (line[open - 1] === '\\' || line[open - 1] === '$' || line[open + 1] === '$')
+      return undefined;
+    const tex = line.slice(open + 1, close);
+    if (!tex.trim() || /^\s/.test(tex)) return undefined;
+    // Without a space at its end it is a formula anyway.
+    if (!/\s$/.test(tex)) return undefined;
+    return { from: open, to: close + 1, tex };
+  }
+  return undefined;
+}
+
+/** The same, at the cursor of an editor: positions in the note. */
+export function typedInlineMathAt(
+  state: EditorState,
+): { from: number; to: number; tex: string } | undefined {
+  const sel = state.selection.main;
+  if (!sel.empty) return undefined;
+  const line = state.doc.lineAt(sel.head);
+  if (line.length > 5000) return undefined;
+  const found = typedInlineMath(line.text, sel.head - line.from);
+  if (!found) return undefined;
+  // Not in code, where a `$` is just a `$`.
+  for (let node = syntaxTree(state).resolveInner(sel.head, -1); ;) {
+    if (/Code|Frontmatter|Comment/.test(node.name)) return undefined;
+    if (!node.parent) break;
+    node = node.parent;
+  }
+  return { from: line.from + found.from, to: line.from + found.to, tex: found.tex };
+}
+
 const marks: Record<TexKind, Decoration> = {
   command: Decoration.mark({ class: 'cm-pm-tex-command' }),
   environment: Decoration.mark({ class: 'cm-pm-tex-environment' }),
@@ -86,6 +169,11 @@ function build(view: EditorView): DecorationSet {
       },
     });
   }
+  // The formula that is being written at the cursor (see `typedInlineMath`).
+  const typed = typedInlineMathAt(state);
+  if (typed)
+    for (const token of texTokens(typed.tex))
+      found.push(marks[token.kind].range(typed.from + 1 + token.from, typed.from + 1 + token.to));
   return Decoration.set(found, true);
 }
 
@@ -96,7 +184,13 @@ export const texHighlighting = ViewPlugin.fromClass(
       this.decorations = build(view);
     }
     update(u: ViewUpdate) {
-      if (u.docChanged || u.viewportChanged || syntaxTree(u.startState) !== syntaxTree(u.state))
+      const typed = (state: EditorState) => typedInlineMathAt(state)?.from;
+      if (
+        u.docChanged ||
+        u.viewportChanged ||
+        syntaxTree(u.startState) !== syntaxTree(u.state) ||
+        (u.selectionSet && typed(u.startState) !== typed(u.state))
+      )
         this.decorations = build(u.view);
     }
   },

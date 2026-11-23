@@ -33,7 +33,10 @@ export type ViewLocation = 'main' | 'left' | 'right';
 
 export interface FileHandlerRegistration {
   viewType: string;
-  /** Matched against the end of the file name, longest match wins. */
+  /**
+   * Matched against the end of the file name, longest match wins. `*` stands for any file:
+   * such a handler opens what nothing else opens (register it as `optional`).
+   */
   extensions: string[];
   /** Tells this way of opening a file apart from others for the same type (default: the view type). */
   id?: string;

@@ -1,0 +1,138 @@
+.pm-slides {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  overflow: hidden;
+}
+.pm-slides-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: default;
+}
+/* Laid out at a fixed size and scaled to the window as a whole, so a slide looks the same on
+   every screen. */
+.pm-slide {
+  flex: none;
+  box-sizing: border-box;
+  width: 1280px;
+  height: 720px;
+  padding: 56px 88px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  transform-origin: center;
+  overflow: hidden;
+}
+.pm-slide-content.pm-rendered {
+  font-size: 30px;
+  line-height: 1.4;
+}
+.pm-slide-content > :last-child {
+  margin-bottom: 0;
+}
+.pm-slide-content h1 {
+  font-size: 2em;
+  line-height: 1.15;
+  margin: 0 0 0.5em;
+}
+.pm-slide-content h2 {
+  font-size: 1.5em;
+  line-height: 1.2;
+  margin: 0 0 0.5em;
+}
+.pm-slide-content h3 {
+  font-size: 1.2em;
+  margin: 0 0 0.4em;
+}
+/* A slide that is only a title: in the middle. */
+.pm-slide-content > h1:only-child,
+.pm-slide-content > h2:only-child {
+  text-align: center;
+}
+.pm-slide-content img,
+.pm-slide-content video {
+  max-height: 480px;
+  width: auto;
+  max-width: 100%;
+}
+.pm-slide-content pre {
+  font-size: 0.7em;
+}
+.pm-slide-content li + li {
+  margin-top: 0.25em;
+}
+
+.pm-slides-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--accent);
+  transition: width 0.2s;
+}
+.pm-slides-bar {
+  position: absolute;
+  right: 16px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.pm-slides.is-active .pm-slides-bar,
+.pm-slides-bar:hover,
+.pm-slides-bar:focus-within {
+  opacity: 1;
+}
+.pm-slides-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.pm-slides-button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.pm-slides-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.pm-slides-counter {
+  min-width: 56px;
+  padding: 0 4px;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pm-slides-progress,
+  .pm-slides-bar {
+    transition: none;
+  }
+}

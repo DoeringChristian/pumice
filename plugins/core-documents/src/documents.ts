@@ -13,6 +13,7 @@ import {
   type VaultChange,
   type VaultPath,
 } from '@pumice/api';
+import { notText, textCodec } from './markdown-codec';
 import * as Y from 'yjs';
 
 const ORIGIN_PROVIDER = 'pumice:provider-load';
@@ -218,8 +219,13 @@ export class DocumentsImpl implements DocumentsApi, Disposable {
   }
 
   private async load(path: VaultPath): Promise<OpenDocument> {
-    const codec = this.codecFor(path);
-    if (!codec) throw new Error(`No document codec for '${path}'`);
+    let codec = this.codecFor(path);
+    if (!codec) {
+      // No kind of document is known for this file: it is opened as text, if it is text.
+      const why = notText(await this.vault.readBinary(path));
+      if (why) throw new Error(`'${basename(path)}' can’t be opened as text: ${why}.`);
+      codec = textCodec;
+    }
     const content = await this.vault.read(path);
     const doc = new OpenDocument(path, codec, this);
     const provider = this.providers.find((p) => p.handles(path));

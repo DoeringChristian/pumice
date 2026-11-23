@@ -30,12 +30,23 @@ export function decorateCallout(el: HTMLElement): void {
   if (fold && !fold.firstChild) fold.append(createIcon('chevron-down', 14));
 }
 
-const PREAMBLE_TEMPLATE = `% LaTeX preamble: what is defined here can be used in every formula of this vault.
-% A note adds its own definitions with a "preamble" property.
-%
-% \\newcommand{\\R}{\\mathbb{R}}
+const EXAMPLES = `% \\newcommand{\\R}{\\mathbb{R}}
 % \\newcommand{\\norm}[1]{\\left\\lVert #1 \\right\\rVert}
-% \\DeclareMathOperator{\\tr}{tr}
+% \\DeclareMathOperator{\\tr}{tr}`;
+
+/** The preamble as a note: what is defined in its tex blocks, with room to say what it is for. */
+const preambleNote = (tex: string) => `# LaTeX preamble
+
+What is defined in the \`tex\` blocks of this note can be used in every formula of this vault.
+A note adds its own definitions with a \`preamble\` property.
+
+\`\`\`tex
+${tex || EXAMPLES}
+\`\`\`
+`;
+
+const PREAMBLE_TEX = `% LaTeX preamble: what is defined here can be used in every formula of this vault.
+${EXAMPLES}
 `;
 
 export const plugin = definePlugin({
@@ -59,8 +70,27 @@ export const plugin = definePlugin({
     const vault = ctx.use(Vault);
     const workspace = ctx.use(Workspace);
     const openPreamble = async () => {
-      const path = reader.preamblePath();
-      if (!vault.get(path)) await vault.create(path, PREAMBLE_TEMPLATE);
+      let path = reader.preamblePath();
+      // A preamble under its earlier name (preamble.tex, preamble.md) moves to where it is
+      // kept now. A texpreamble.tex is the user's choice of a plain .tex file and stays.
+      const earlier = /^preamble\.(tex|md)$/.test(path) && !ctx.settings.get('preamble', '').trim();
+      if (earlier && path.endsWith('.md')) {
+        await vault.rename(path, DEFAULT_PREAMBLE);
+        path = DEFAULT_PREAMBLE;
+        reader.refreshMath();
+      } else if (earlier) {
+        const old = path;
+        const tex = (await vault.read(old)).trimEnd();
+        await vault.create(DEFAULT_PREAMBLE, preambleNote(tex));
+        path = DEFAULT_PREAMBLE;
+        reader.refreshMath();
+        workspace.notify(
+          `The preamble is now the note ${DEFAULT_PREAMBLE}; ${old} is no longer read and can be deleted.`,
+          { timeout: 8000 },
+        );
+      } else if (!vault.get(path)) {
+        await vault.create(path, /\.(md|markdown)$/i.test(path) ? preambleNote('') : PREAMBLE_TEX);
+      }
       await workspace.openFile(path);
     };
     ctx.commands.register({
@@ -105,7 +135,7 @@ export const plugin = definePlugin({
                 h(
                   'span',
                   {},
-                  'A file with definitions every formula in this vault can use, such as \\newcommand{\\R}{\\mathbb{R}} or \\DeclareMathOperator{\\tr}{tr}. A .tex file is read as it is; of a note, the latex code blocks are read.',
+                  'A note with definitions every formula in this vault can use, such as \\newcommand{\\R}{\\mathbb{R}} or \\DeclareMathOperator{\\tr}{tr}, written in tex code blocks. (A .tex file can be named instead; it is read as it is.)',
                   h('br'),
                   'A note adds its own with a “preamble” property: TeX written there, or the name of another preamble file.',
                 ),
@@ -113,10 +143,10 @@ export const plugin = definePlugin({
                   'span',
                   { class: 'pm-setting-controls' },
                   textInput(
-                    ctx.settings.get('preamble', DEFAULT_PREAMBLE),
+                    ctx.settings.get('preamble', '') || reader.preamblePath(),
                     (v) => {
                       void ctx.settings
-                        .set('preamble', v.trim() || DEFAULT_PREAMBLE)
+                        .set('preamble', v.trim() === DEFAULT_PREAMBLE ? '' : v.trim())
                         .then(() => reader.refreshMath());
                     },
                     { placeholder: DEFAULT_PREAMBLE },

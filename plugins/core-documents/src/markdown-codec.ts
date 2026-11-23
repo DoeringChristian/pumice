@@ -15,6 +15,24 @@ function fromLf(text: string, eol: string): string {
   return eol === '\n' ? text : text.replace(/\n/g, eol);
 }
 
+/** More than this is not opened for editing. */
+const MAX_TEXT_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Whether the bytes of a file are text that can be edited and written back unchanged: UTF-8,
+ * without the zero bytes of a binary file. Returns why not, if not.
+ */
+export function notText(bytes: Uint8Array): string | undefined {
+  if (bytes.byteLength > MAX_TEXT_BYTES) return 'it is too large to edit here';
+  if (bytes.subarray(0, 8192).includes(0)) return 'it is not a text file';
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return undefined;
+  } catch {
+    return 'it is not text in UTF-8';
+  }
+}
+
 export const markdownCodec: DocumentCodec = {
   id: 'markdown',
   extensions: ['md', 'markdown', 'txt'],
@@ -35,3 +53,9 @@ export const markdownCodec: DocumentCodec = {
     return true;
   },
 };
+
+/**
+ * Any other file that holds text (a .tex, a .json, a script, …): edited as the text it is.
+ * Used for files no codec is registered for, once their content was found to be text.
+ */
+export const textCodec: DocumentCodec = { ...markdownCodec, id: 'text', extensions: [] };

@@ -53,6 +53,24 @@ export function embedCaption(alias: string | undefined): string | undefined {
   return caption || undefined;
 }
 
+/**
+ * The inside of an embed (`target#sub|alias`, without the brackets) with its caption set,
+ * keeping a size at the end: `pic.png|A caption|300`. An empty caption removes it.
+ */
+export function setEmbedCaption(inner: string, caption: string): string {
+  // In a table cell the bar is written `\|`.
+  const sep = /\\\|/.test(inner) ? '\\|' : '|';
+  const parts = inner.split(/\\?\|/);
+  const target = parts.shift() ?? '';
+  const size = parts.length && SIZE.test(parts[parts.length - 1]!) ? parts.pop() : undefined;
+  // What would end the embed or split the caption cannot be part of it.
+  const text = caption
+    .replace(/[|[\]\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return [target, ...(text ? [text] : []), ...(size !== undefined ? [size] : [])].join(sep);
+}
+
 /** Whether an embed target is something shown as a figure (not an embedded note). */
 export function isFigureTarget(target: string): boolean {
   return MEDIA.test(target.trim());

@@ -1,0 +1,16 @@
+{
+  "id": "core.slides",
+  "name": "Slides",
+  "version": "0.1.0",
+  "description": "Presents a note as slides: a line with --- starts the next slide.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.workspace": "^0.1.0",
+    "core.vault": "^0.1.0",
+    "core.documents": "^0.1.0",
+    "core.reader": "^0.1.0"
+  },
+  "optionalDependencies": {
+    "core.editor": "^0.1.0"
+  }
+}

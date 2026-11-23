@@ -340,3 +340,8 @@
   font-weight: 600;
   line-height: 16px;
 }
+/* Started from the comment button of a picture or video: the box stands over that button (the
+   top right corner), not beside the picture. */
+.cm-editor .cm-tooltip.pm-comment-popover.is-over-media {
+  transform: translateX(min(0px, calc(-100% + 34px)));
+}

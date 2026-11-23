@@ -222,8 +222,10 @@ export class WorkspaceModel implements WorkspaceApi {
     const name = basename(path).toLowerCase();
     const found = new Map<string, { handler: FileHandlerRegistration; ext: string }>();
     for (const handler of this.fileHandlers) {
-      for (const ext of handler.extensions) {
-        if (!name.endsWith(`.${ext.toLowerCase()}`)) continue;
+      for (const listed of handler.extensions) {
+        // `*`: any file (a plain text view); it never takes a file from a viewer for its type.
+        const ext = listed === '*' ? '' : listed;
+        if (ext && !name.endsWith(`.${ext.toLowerCase()}`)) continue;
         const id = handler.id ?? handler.viewType;
         const known = found.get(id);
         if (!known || ext.length > known.ext.length) found.set(id, { handler, ext });
@@ -255,7 +257,10 @@ export class WorkspaceModel implements WorkspaceApi {
     if (chosen) return chosen;
     const regular = all.find((c) => !c.handler.optional);
     if (regular) return regular.handler;
-    return all.length === 1 ? all[0]!.handler : undefined;
+    // One viewer made for this type opens it; a viewer for any file only when there is none.
+    const made = all.filter((c) => c.ext !== '');
+    if (made.length === 1) return made[0]!.handler;
+    return made.length === 0 && all.length === 1 ? all[0]!.handler : undefined;
   }
 
   private titleOf(handler: FileHandlerRegistration): string {
@@ -458,7 +463,13 @@ export class WorkspaceModel implements WorkspaceApi {
     });
     this.closedTabs = this.closedTabs.slice(-20);
     this.destroyLeaf(leaf);
-    if (this.activeTab === leaf) this.activate(this.tabs[Math.min(index, this.tabs.length - 1)]);
+    this.recentTabs = this.recentTabs.filter((t) => t !== leaf && this.tabs.includes(t));
+    // Back to the tab that was looked at before this one (its neighbour if there was none).
+    if (this.activeTab === leaf || !this.activeTab)
+      this.activate(
+        this.recentTabs[this.recentTabs.length - 1] ??
+          this.tabs[Math.min(index, this.tabs.length - 1)],
+      );
     else this.update();
   }
 
@@ -467,8 +478,12 @@ export class WorkspaceModel implements WorkspaceApi {
     if (last) await this.openView(last.viewType, { state: last.state, newTab: true });
   }
 
+  /** The tabs in the order they were last looked at, the current one last. */
+  private recentTabs: Leaf[] = [];
+
   activate(leaf: Leaf | undefined): void {
     this.activeTab = leaf;
+    if (leaf) this.recentTabs = [...this.recentTabs.filter((t) => t !== leaf), leaf];
     this.update();
     if (leaf) requestAnimationFrame(() => this.focusActive());
   }

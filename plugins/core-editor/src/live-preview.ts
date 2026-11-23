@@ -1,6 +1,8 @@
 import {
+  applyEmbedSize,
   attachMenuButton,
   attachResizeHandle,
+  blockCaptionEdit,
   blockSizeEdit,
   embedSizeEdit,
   type Size,
@@ -43,6 +45,7 @@ import {
   parseEmbedSize,
   setEmbedSize,
   embedCaption,
+  setEmbedCaption,
   figureLabel,
   figureReference,
   isFigureTarget,
@@ -50,6 +53,7 @@ import {
   type FigureKind,
   type NumberedItem,
 } from '@pumice/api';
+import { typedInlineMathAt, withCaret } from './tex';
 import { calloutStyle, createIcon } from '@pumice/ui';
 
 /**
@@ -392,9 +396,13 @@ function inlineMathAt(state: EditorState): { from: number; tex: string } | undef
       const tex = state.doc.sliceString(node.from + mark, node.to - mark);
       return tex.trim() ? { from: node.from, tex } : undefined;
     }
-    if (!node.parent) return undefined;
+    if (!node.parent) break;
     node = node.parent;
   }
+  // One that ends in a space at the moment, with the cursor at its end: still a formula
+  // while it is written.
+  const typed = typedInlineMathAt(state);
+  return typed ? { from: typed.from, tex: typed.tex } : undefined;
 }
 
 /** While an inline formula is being written, what it gives floats under it. */
@@ -410,17 +418,26 @@ const inlineMathPreview = StateField.define<Tooltip | null>({
       pos: math.from,
       // Above: under the formula it would cover the rest of a paragraph that is being written.
       above: true,
-      arrow: false,
+      // A tail that points at the formula, as on a speech bubble.
+      arrow: true,
       create(view) {
         const dom = document.createElement('div');
-        dom.className = 'cm-pm-math-tip pm-math is-inline';
+        dom.className = 'cm-pm-math-tip';
+        // The formula has an element of its own: the tail is the bubble's other child.
+        const math = document.createElement('div');
+        math.className = 'cm-pm-math-tip-formula pm-math is-inline';
+        dom.append(math);
         let shown = '';
         const draw = (state: EditorState) => {
           const now = inlineMathAt(state);
-          if (!now || now.tex === shown) return;
-          shown = now.tex;
+          if (!now) return;
+          // With a mark where the cursor is in the source.
+          const caret = state.selection.main.head - (now.from + 1);
+          const tex = caret >= 0 && caret <= now.tex.length ? withCaret(now.tex, caret) : now.tex;
+          if (tex === shown) return;
+          shown = tex;
           const deps = state.facet(previewDeps);
-          void deps?.reader?.renderMath(now.tex, false, dom, formulaSource(deps));
+          void deps?.reader?.renderMath(tex, false, math, formulaSource(deps));
         };
         draw(view.state);
         return { dom, update: (update) => draw(update.state) };
@@ -454,19 +471,148 @@ function itemAt(state: EditorState, pos: number, kind: FigureKind, exact = false
     ?.find((i) => i.kind === kind && (!exact || i.column === pos - line.from));
 }
 
-/** Puts the caption (and number) under an embedded picture, video or frame. */
+/** Whether a mouse button (or a finger) is down at the moment. */
+let pointerDown = false;
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerdown', () => (pointerDown = true), true);
+  for (const type of ['pointerup', 'pointercancel'])
+    window.addEventListener(type, () => (pointerDown = false), true);
+  // The window itself losing the focus (not a field in it: their `blur` passes here too).
+  window.addEventListener('blur', (e) => {
+    if (e.target === window) pointerDown = false;
+  });
+}
+
+/** Writes a caption that was edited under a figure into the note. */
+const captionEdits = new WeakMap<HTMLElement, (caption: string) => void>();
+
+/**
+ * Makes a caption editable where it stands, as the text it is (no box in its place: nothing
+ * around it moves when the editing starts or ends). Enter or leaving it keeps what was
+ * written, Escape leaves the caption as it was. Call it from the `mousedown` that starts the
+ * editing, without preventing its default: the cursor then lands where the click was.
+ */
+function editCaption(
+  slot: HTMLElement,
+  current: string,
+  commit: (caption: string) => void,
+  done: () => void,
+): void {
+  // An offer of a caption ("Add a caption") makes room for the caption itself.
+  if (!current) slot.textContent = '';
+  slot.contentEditable = 'plaintext-only';
+  slot.spellcheck = true;
+  slot.classList.add('is-editing');
+  slot.setAttribute('role', 'textbox');
+  slot.setAttribute('aria-label', 'Caption');
+  let finished = false;
+  const stop = (e: Event) => e.stopPropagation();
+  // The caption is not part of the note's text: nothing typed or clicked in it is the editor's.
+  const mine = [
+    'keydown',
+    'keyup',
+    'keypress',
+    'beforeinput',
+    'input',
+    'click',
+    'paste',
+    'cut',
+    'copy',
+    'compositionstart',
+    'compositionend',
+  ];
+  const finish = (keep: boolean) => {
+    if (finished) return;
+    finished = true;
+    const next = (slot.textContent ?? '').replace(/\s+/g, ' ').trim();
+    slot.removeEventListener('keydown', onKey);
+    slot.removeEventListener('blur', onBlur);
+    const settle = () => {
+      slot.removeAttribute('contenteditable');
+      slot.removeAttribute('role');
+      slot.classList.remove('is-editing');
+      for (const type of mine) slot.removeEventListener(type, stop);
+      if (!keep || next === current.trim()) done();
+      else commit(next);
+    };
+    // Left by a click into the note: nothing changes on screen (and nothing in the note) until
+    // that click is over. Whatever moved under the pressed button would turn the click into
+    // a selection.
+    if (!pointerDown) return settle();
+    const after = () => {
+      window.removeEventListener('pointerup', after, true);
+      window.removeEventListener('pointercancel', after, true);
+      setTimeout(settle);
+    };
+    window.addEventListener('pointerup', after, true);
+    window.addEventListener('pointercancel', after, true);
+  };
+  const onKey = (e: KeyboardEvent) => {
+    // "Select all" is all of the caption, not all of the note around it (what is typed next
+    // would replace the note).
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      const range = document.createRange();
+      range.selectNodeContents(slot);
+      const selection = document.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      finish(true);
+      slot.blur();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      finish(false);
+      slot.blur();
+    }
+  };
+  const onBlur = () => finish(true);
+  slot.addEventListener('keydown', onKey);
+  slot.addEventListener('blur', onBlur);
+  for (const type of mine) slot.addEventListener(type, stop);
+  // The click that started it puts the cursor where it was; an empty caption has no text to
+  // click into.
+  if (!current) setTimeout(() => slot.focus());
+}
+
+/**
+ * Puts the caption (and number) under an embedded picture, video or frame. Where the caption
+ * can be written into the note (see `captionEdits`), a click on it edits it in place, and a
+ * figure without one offers the field when the pointer is on it.
+ */
 function setCaption(host: HTMLElement, label: string | undefined, caption: string | undefined) {
   host.querySelector(':scope > .cm-pm-caption')?.remove();
-  if (!label && !caption) return;
+  const edit = captionEdits.get(host);
+  if (!label && !caption && !edit) return;
   const el = document.createElement('span');
   el.className = 'cm-pm-caption';
   if (label) {
     const number = document.createElement('span');
     number.className = 'cm-pm-caption-label';
-    number.textContent = caption ? `${label}: ` : label;
+    number.textContent = caption || edit ? `${label}: ` : label;
     el.append(number);
   }
-  if (caption) el.append(caption);
+  const text = document.createElement('span');
+  text.className = 'cm-pm-caption-text';
+  if (caption) text.textContent = caption;
+  el.append(text);
+  if (edit) {
+    el.classList.add('is-editable');
+    if (!caption) {
+      el.classList.add('is-empty');
+      text.textContent = 'Add a caption';
+    }
+    text.title = 'Click to edit the caption';
+    text.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      // Already being written: the click moves the cursor within it.
+      if (text.isContentEditable) return;
+      editCaption(text, caption ?? '', edit, () => setCaption(host, label, caption));
+    });
+  }
   host.append(el);
 }
 
@@ -488,9 +634,10 @@ class LabelWidget extends WidgetType {
 
 const embedOf = new WeakMap<HTMLElement, EmbedWidget>();
 
-class EmbedWidget extends WidgetType {
-  private disposable: { dispose(): void } | undefined;
+/** What draws an embed and keeps it current, to be released with its element. */
+const embedRenders = new WeakMap<HTMLElement, { dispose(): void }>();
 
+class EmbedWidget extends WidgetType {
   constructor(
     readonly target: string,
     readonly subpath: string | undefined,
@@ -519,10 +666,30 @@ class EmbedWidget extends WidgetType {
     return isFigureTarget(this.target) ? embedCaption(this.alias) : undefined;
   }
 
-  /** Only the number changed (a figure was added above): what is shown stays. */
-  override updateDOM(dom: HTMLElement): boolean {
+  /**
+   * What is shown stays when only what stands around it changed: its number (a figure was
+   * added above), or the caption or size of a figure (written under it, or dragged). Drawing
+   * it anew would load the picture again and make the note jump.
+   */
+  override updateDOM(dom: HTMLElement, view: EditorView): boolean {
     const shown = embedOf.get(dom);
-    if (!shown || !this.same(shown)) return false;
+    if (!shown) return false;
+    if (!this.same(shown)) {
+      const sameFigure =
+        shown.target === this.target &&
+        shown.subpath === this.subpath &&
+        shown.sourcePath === this.sourcePath &&
+        isFigureTarget(this.target);
+      if (!sameFigure) return false;
+      const size = parseEmbedSize(this.alias);
+      if (!applyEmbedSize(dom, size)) return false;
+      dom.classList.toggle('is-sized', !!size.width);
+      if (size.width) dom.style.setProperty('--embed-w', `${size.width}px`);
+      else dom.style.removeProperty('--embed-w');
+      const picture = dom.querySelector<HTMLImageElement>(':scope > img');
+      if (picture) picture.alt = this.caption ?? picture.alt;
+      view.requestMeasure();
+    }
     embedOf.set(dom, this);
     setCaption(dom, this.label, this.caption);
     return true;
@@ -541,6 +708,21 @@ class EmbedWidget extends WidgetType {
       const now = embedOf.get(el) ?? this;
       setCaption(el, now.label, now.caption);
     };
+    // Only figures have captions (the alias of an embedded note is its title).
+    if (isFigureTarget(this.target) && !view.state.readOnly)
+      captionEdits.set(el, (text) => {
+        const start = view.posAtDOM(el);
+        let node = syntaxTree(view.state).resolveInner(start, 1);
+        while (node.name !== 'Embed' && node.parent) node = node.parent;
+        if (node.name !== 'Embed') return;
+        const source = view.state.doc.sliceString(node.from, node.to);
+        const inner = /^!\[\[([\s\S]*)\]\]$/.exec(source)?.[1];
+        if (inner === undefined) return;
+        view.dispatch({
+          changes: { from: node.from, to: node.to, insert: `![[${setEmbedCaption(inner, text)}]]` },
+          userEvent: 'input.caption',
+        });
+      });
     const reader = view.state.facet(previewDeps)?.reader;
     // Events inside the widget do not reach the editor's own handlers.
     el.addEventListener('contextmenu', (e) => {
@@ -606,7 +788,7 @@ class EmbedWidget extends WidgetType {
           },
         })
         .then((d) => {
-          this.disposable = d;
+          embedRenders.set(el, d);
           view.requestMeasure();
           caption();
           attachResizeHandle(view, el, resize);
@@ -616,8 +798,10 @@ class EmbedWidget extends WidgetType {
     return el;
   }
 
-  override destroy(): void {
-    this.disposable?.dispose();
+  /** By the element: the widget that is asked may be a later one that took the element over. */
+  override destroy(dom: HTMLElement): void {
+    embedRenders.get(dom)?.dispose();
+    embedRenders.delete(dom);
   }
 
   override ignoreEvent(): boolean {
@@ -742,6 +926,39 @@ class BlockWidget extends WidgetType {
           );
         attach();
         menu();
+        // A frame's caption is written where it is read: a click on it, or on the offer of
+        // one under a frame that has none.
+        if (/^\s*(`{3,}|~{3,})\s*frame\b/.test(this.source) && !view.state.readOnly) {
+          const write = (caption: string) => {
+            const { source, from } = blockOf.get(el)!;
+            const next = blockCaptionEdit(source, caption);
+            if (next !== source)
+              view.dispatch({
+                changes: { from, to: from + source.length, insert: next },
+                userEvent: 'input.caption',
+              });
+          };
+          const offer = document.createElement('span');
+          offer.className = 'cm-pm-caption is-editable is-empty cm-pm-frame-caption-offer';
+          const offerText = document.createElement('span');
+          offerText.className = 'cm-pm-caption-text';
+          offerText.textContent = 'Add a caption';
+          offer.append(offerText);
+          el.append(offer);
+          el.addEventListener('mousedown', (e) => {
+            const target = e.target as HTMLElement;
+            const shown = target.closest<HTMLElement>('.pm-frame-caption');
+            const slot = shown ?? (target.closest('.cm-pm-frame-caption-offer') ? offerText : null);
+            if (!slot) return;
+            e.stopPropagation();
+            // Already being written: the click moves the cursor within it.
+            if (slot.isContentEditable) return;
+            const before = shown?.textContent ?? '';
+            editCaption(slot, before, write, () => {
+              slot.textContent = shown ? before : 'Add a caption';
+            });
+          });
+        }
         // The frame itself appears a moment after the block.
         el.addEventListener('pumice-resize', () => {
           attach();
@@ -751,6 +968,8 @@ class BlockWidget extends WidgetType {
     }
     el.addEventListener('mousedown', (e) => {
       if ((e.target as HTMLElement).closest('a') && (e.metaKey || e.ctrlKey)) return;
+      // A caption is edited where it stands (see above): the cursor stays out of it.
+      if ((e.target as HTMLElement).closest('.pm-frame-caption, .cm-pm-caption')) return;
       e.preventDefault();
       const { source, from } = blockOf.get(el)!;
       let anchor = kind === 'properties' ? Math.min(4, from + source.length) : from;
@@ -1118,6 +1337,46 @@ function buildDecorations(view: EditorView): DecorationSet {
       },
     });
   }
+  // The indentation of nested list items: each step is as wide as a marker with its space, so
+  // a nested item starts under the text of the one above, and carries a faint line that shows
+  // how far the list above it reaches.
+  for (const { from, to } of view.visibleRanges) {
+    for (let pos = from; pos <= to;) {
+      const line = state.doc.lineAt(pos);
+      pos = line.to + 1;
+      const indent = /^[ \t]+/.exec(line.text)?.[0];
+      if (!indent || indent.length === line.length) continue;
+      let listed = false;
+      for (let n = syntaxTree(state).resolveInner(line.from + indent.length, 1); ;) {
+        if (n.name === 'FencedCode' || n.name === 'CodeBlock') {
+          listed = false;
+          break;
+        }
+        if (n.name === 'BulletList' || n.name === 'OrderedList') listed = true;
+        if (!n.parent) break;
+        n = n.parent;
+      }
+      if (!listed) continue;
+      for (let i = 0; i < indent.length;) {
+        // A step is a tab or two spaces; a single space left over is kept as it is.
+        const length = indent[i] === '\t' ? 1 : indent[i + 1] === ' ' ? 2 : 1;
+        if (indent[i] === '\t' || length === 2)
+          decorations.push(
+            Decoration.mark({ class: 'cm-pm-indent' }).range(line.from + i, line.from + i + length),
+          );
+        i += length;
+      }
+    }
+  }
+  // A formula that is being written and ends in a space right now looks like one all the same.
+  const typedMath = typedInlineMathAt(state);
+  if (typedMath)
+    decorations.push(
+      Decoration.mark({ class: 'cm-pm-math-source' }).range(typedMath.from, typedMath.to),
+      // Its dollars are grey, as the parser's are.
+      Decoration.mark({ class: 'cm-pm-math-mark' }).range(typedMath.from, typedMath.from + 1),
+      Decoration.mark({ class: 'cm-pm-math-mark' }).range(typedMath.to - 1, typedMath.to),
+    );
   // A table's caption line: "Table: …" reads "Table 2: …" unless it is being edited.
   for (const items of itemsByLine(state).values()) {
     for (const item of items) {

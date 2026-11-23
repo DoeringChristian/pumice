@@ -23,6 +23,7 @@ import markdown from '@pumice/core-markdown';
 import media from '@pumice/core-media';
 import outline from '@pumice/core-outline';
 import pdf from '@pumice/core-pdf';
+import slides from '@pumice/core-slides';
 import snippets from '@pumice/core-snippets';
 import palette from '@pumice/core-palette';
 import properties from '@pumice/core-properties';
@@ -61,6 +62,7 @@ export const bundledPlugins: PluginModule[] = [
   media,
   frames,
   pdf,
+  slides,
   snippets,
   vaults,
   explorer,

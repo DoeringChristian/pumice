@@ -1,6 +1,7 @@
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { sectionFolding } from './folding';
+import { listEditing } from './lists';
 import { texHighlighting } from './tex';
 import { commonmarkLanguage, markdown, markdownKeymap } from '@codemirror/lang-markdown';
 import { yamlFrontmatter } from '@codemirror/lang-yaml';
@@ -43,7 +44,7 @@ import * as Y from 'yjs';
 import { completionExtension } from './completion';
 import { livePreview, previewDeps, sourceModeStyling } from './live-preview';
 
-const highlightStyle = HighlightStyle.define([
+export const highlightStyle = HighlightStyle.define([
   { tag: tags.heading, fontWeight: '650' },
   { tag: tags.strong, fontWeight: '650' },
   { tag: tags.emphasis, fontStyle: 'italic' },
@@ -99,8 +100,6 @@ export interface EditorShared {
   /** Whether to show the touch toolbar (phone/tablet layouts). */
   touch: () => boolean;
 }
-
-const isPlainText = (path: string) => /\.(tex|txt)$/i.test(path);
 
 /** A tab showing one markdown file. */
 export class MarkdownView implements ViewInstance {
@@ -423,8 +422,7 @@ export class MarkdownView implements ViewInstance {
     });
   }
 
-  setSourceMode(wanted: boolean): void {
-    const source = wanted || isPlainText(this.handle?.path ?? '');
+  setSourceMode(source: boolean): void {
     this.editor.dispatch({
       effects: this.modeCompartment.reconfigure(source ? sourceModeStyling : livePreview),
     });
@@ -505,6 +503,7 @@ export class MarkdownView implements ViewInstance {
         closeBrackets(),
         completionExtension({ closeLeft: () => this.shared.closeLeft() }),
         sectionFolding(),
+        listEditing(),
         texHighlighting,
         search({ top: true }),
         highlightSelectionMatches(),
@@ -514,10 +513,7 @@ export class MarkdownView implements ViewInstance {
           autocorrect: 'on',
           autocapitalize: 'sentences',
         }),
-        // A file that is not a note (a .tex preamble, a .txt) is shown as it is written.
-        this.modeCompartment.of(
-          this.shared.sourceMode() || isPlainText(handle.path) ? sourceModeStyling : livePreview,
-        ),
+        this.modeCompartment.of(this.shared.sourceMode() ? sourceModeStyling : livePreview),
         this.contributedCompartment.of(this.shared.contributed()),
         EditorView.updateListener.of((u) => {
           if (u.docChanged || u.focusChanged) this.shared.onActiveChange(this);

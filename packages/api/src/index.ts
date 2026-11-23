@@ -38,6 +38,7 @@ export {
   figureLabel,
   figureReference,
   embedCaption,
+  setEmbedCaption,
   isFigureTarget,
   type NumberedItem,
   type FigureKind,

@@ -29,11 +29,18 @@ export interface BubbleDeps {
 }
 
 /** Opens the comment box for a range (null closes it). */
-export const openComposer = StateEffect.define<{ from: number; to: number } | null>();
+/** A range the comment box is open for; `above`: the box stands over its end, not under it. */
+export interface ComposerRange {
+  from: number;
+  to: number;
+  above?: boolean;
+}
+
+export const openComposer = StateEffect.define<ComposerRange | null>();
 const setDragging = StateEffect.define<boolean>();
 
 interface BubbleState {
-  composer: { from: number; to: number } | null;
+  composer: ComposerRange | null;
   /** A mouse selection is in progress: the button waits until it ends. */
   dragging: boolean;
 }
@@ -44,6 +51,7 @@ const bubbleField = StateField.define<BubbleState>({
     let { composer, dragging } = value;
     if (composer && tr.docChanged) {
       composer = {
+        ...composer,
         from: tr.changes.mapPos(composer.from, 1),
         to: tr.changes.mapPos(composer.to, -1),
       };
@@ -61,12 +69,13 @@ const bubbleField = StateField.define<BubbleState>({
 
 function composerDom(
   view: EditorView,
-  range: { from: number; to: number },
+  range: ComposerRange,
   deps: BubbleDeps,
   path: () => VaultPath | undefined,
 ): HTMLElement {
   const box = document.createElement('div');
-  box.className = 'pm-comment-popover';
+  // Over a picture's corner it reaches back over the picture, to stand at its comment button.
+  box.className = `pm-comment-popover${range.above ? ' is-over-media' : ''}`;
   const input = document.createElement('textarea');
   input.className = 'pm-comment-input';
   input.rows = 2;
@@ -192,7 +201,9 @@ function tooltips(
     return [
       {
         pos: composer.to,
-        above: false,
+        // For a picture or video: over its top right corner, where its comment button is
+        // (under its end is the far corner of the picture).
+        above: !!composer.above,
         arrow: false,
         create: (view) => ({ dom: composerDom(view, composer, deps, path) }),
       },

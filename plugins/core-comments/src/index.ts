@@ -211,7 +211,7 @@ export const plugin = definePlugin({
     const addComment = (given?: unknown) => {
       const active = editor.active();
       if (!active) return;
-      const g = given as { from?: unknown; to?: unknown } | undefined;
+      const g = given as { from?: unknown; to?: unknown; media?: unknown } | undefined;
       const { from, to } =
         typeof g?.from === 'number' && typeof g.to === 'number'
           ? { from: g.from, to: g.to }
@@ -223,7 +223,9 @@ export const plugin = definePlugin({
         if (word) range = { from: word.from, to: word.to };
       }
       // The comment box opens next to the text.
-      active.view.dispatch({ effects: openComposer.of(range) });
+      active.view.dispatch({
+        effects: openComposer.of(g?.media ? { ...range, above: true } : range),
+      });
     };
 
     ctx.commands.register({

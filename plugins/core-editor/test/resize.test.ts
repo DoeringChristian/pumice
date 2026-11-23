@@ -65,3 +65,19 @@ describe('embed sizes', () => {
     expect(embedAt('nothing', 0)).toBeNull();
   });
 });
+
+describe('the caption of a frame block', () => {
+  it('is written after the file, replaced, or removed', async () => {
+    const { blockCaptionEdit } = await import('../src/resize');
+    const block = '```frame\nfile: frames/bars/index.html\nwidth: 300\n```';
+    const captioned = blockCaptionEdit(block, 'Sales: 2024 #1');
+    expect(captioned).toBe(
+      '```frame\nfile: frames/bars/index.html\ncaption: "Sales: 2024 #1"\nwidth: 300\n```',
+    );
+    expect(blockCaptionEdit(captioned, 'Other')).toBe(
+      '```frame\nfile: frames/bars/index.html\ncaption: "Other"\nwidth: 300\n```',
+    );
+    expect(blockCaptionEdit(captioned, ' ')).toBe(block);
+    expect(blockCaptionEdit(block, '')).toBe(block);
+  });
+});

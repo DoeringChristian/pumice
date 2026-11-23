@@ -352,6 +352,9 @@ importers:
       '@pumice/core-settings':
         specifier: workspace:*
         version: link:../../plugins/core-settings
+      '@pumice/core-slides':
+        specifier: workspace:*
+        version: link:../../plugins/core-slides
       '@pumice/core-snippets':
         specifier: workspace:*
         version: link:../../plugins/core-snippets
@@ -997,6 +1000,15 @@ importers:
         version: link:../../packages/ui
 
   plugins/core-settings:
+    dependencies:
+      '@pumice/api':
+        specifier: workspace:*
+        version: link:../../packages/api
+      '@pumice/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+
+  plugins/core-slides:
     dependencies:
       '@pumice/api':
         specifier: workspace:*

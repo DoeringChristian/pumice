@@ -170,24 +170,19 @@ const ENVIRONMENTS = [
   ),
 );
 
-/** The completions, each with what it gives drawn beside the list while it is selected. */
-function withPictures(options: Completion[], state: EditorState): Completion[] {
+/**
+ * What a TeX completion gives, drawn at the right end of its row in the list (an environment
+ * is too tall for a row and has none).
+ */
+function texPicture(completion: Completion, state: EditorState): Node | null {
+  const sample = samples.get(completion);
   const deps = state.facet(previewDeps);
-  const reader = deps?.reader;
-  if (!reader) return options;
-  return options.map((option) => {
-    const sample = samples.get(option);
-    if (!sample) return option;
-    return {
-      ...option,
-      info: () => {
-        const dom = document.createElement('div');
-        dom.className = 'cm-pm-tex-info pm-math';
-        void reader.renderMath(sample, sample.includes('\\begin'), dom, formulaSource(deps));
-        return dom;
-      },
-    };
-  });
+  if (!sample || sample.includes('\\begin') || !deps?.reader) return null;
+  const dom = document.createElement('span');
+  dom.className = 'cm-pm-tex-option pm-math';
+  dom.setAttribute('aria-hidden', 'true');
+  void deps.reader.renderMath(sample, false, dom, formulaSource(deps));
+  return dom;
 }
 
 /**
@@ -258,14 +253,14 @@ function mathSource(context: CompletionContext): CompletionResult | null {
     return {
       from: begin.from,
       to: context.pos + (closed ? 1 : 0),
-      options: withPictures(ENVIRONMENTS, context.state),
+      options: ENVIRONMENTS,
     };
   }
   const command = context.matchBefore(/\\[a-zA-Z]*$/);
   if (!command || (command.text.length < 2 && !context.explicit)) return null;
   return {
     from: command.from,
-    options: withPictures(MATH, context.state),
+    options: MATH,
     validFor: /^\\[a-zA-Z]*$/,
   };
 }
@@ -384,6 +379,8 @@ export function completionExtension(opts: { closeLeft?: () => boolean } = {}): E
       icons: false,
       activateOnTyping: true,
       closeOnBlur: true,
+      // Behind the name and what is said about it.
+      addToOptions: [{ render: texPicture, position: 90 }],
     }),
     editorCompletions.of(fenceSource),
     editorCompletions.of(mathSource),

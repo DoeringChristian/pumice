@@ -1,5 +1,7 @@
 import {
   EllipsisVertical,
+  Presentation,
+  Maximize,
   Play,
   Pause,
   Volume2,
@@ -122,6 +124,8 @@ const registry = new Map<string, IconNode>(
     outdent: IndentDecrease,
     'check-square': CheckSquare,
     play: Play,
+    presentation: Presentation,
+    maximize: Maximize,
     pause: Pause,
     volume: Volume2,
     'volume-off': VolumeX,
