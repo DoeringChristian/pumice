@@ -20,7 +20,8 @@ import {
   type VaultPath,
   type WorkspaceApi,
 } from '@pumice/api';
-import { createIcon } from '@pumice/ui';
+import { PreambleStore } from './preamble';
+import { createIcon, createVideoPlayer } from '@pumice/ui';
 import { numberRendered, setEmbedCaption } from './figures';
 import { showLightbox } from './lightbox';
 import { renderTex } from './math';
@@ -29,8 +30,9 @@ import { renderTex } from './math';
 const MAX_DEPTH = 4;
 
 const IMAGE = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico'];
-const AUDIO = ['mp3', 'wav', 'm4a', 'ogg', 'flac', 'webm', '3gp'];
-const VIDEO = ['mp4', 'mov', 'mkv', 'ogv'];
+const AUDIO = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'flac', '3gp'];
+// As in the viewer (a .webm is shown as a video).
+const VIDEO = ['mp4', 'm4v', 'mov', 'mkv', 'ogv', 'webm'];
 const MIME: Record<string, string> = {
   svg: 'image/svg+xml',
   jpg: 'image/jpeg',
@@ -81,6 +83,9 @@ export interface ReaderDeps {
   workspace: WorkspaceApi;
 }
 
+/** The vault's LaTeX preamble, unless the settings name another file. */
+export const DEFAULT_PREAMBLE = 'preamble.tex';
+
 export class ReaderImpl implements ReaderApi {
   private readonly embeds: EmbedRenderer[] = [];
   private readonly codeBlocks = new Map<string, CodeBlockRenderer>();
@@ -89,6 +94,7 @@ export class ReaderImpl implements ReaderApi {
 
   constructor(private readonly deps: ReaderDeps) {
     this.registerBuiltins();
+    this.watchPreambles();
   }
 
   registerEmbedRenderer(renderer: EmbedRenderer): Disposable {
@@ -146,7 +152,11 @@ export class ReaderImpl implements ReaderApi {
 
     const tasks: Array<Promise<unknown>> = [];
     for (const el of container.querySelectorAll<HTMLElement>('.pm-math')) {
-      tasks.push(this.renderMath(el.dataset.tex ?? '', el.classList.contains('is-display'), el));
+      tasks.push(
+        this.renderMath(el.dataset.tex ?? '', el.classList.contains('is-display'), el, {
+          sourcePath: opts.sourcePath,
+        }),
+      );
     }
     for (const el of container.querySelectorAll<HTMLElement>('.pm-embed')) {
       tasks.push(
@@ -221,12 +231,98 @@ export class ReaderImpl implements ReaderApi {
     return store;
   }
 
-  async renderMath(tex: string, display: boolean, container: HTMLElement): Promise<void> {
+  /** Formulas on screen, to draw them again when a preamble changes. */
+  private readonly drawn = new Map<
+    HTMLElement,
+    { tex: string; display: boolean; path?: VaultPath }
+  >();
+  private readonly preambles = new PreambleStore({
+    path: () => this.preamblePath(),
+    exists: (path) => !!this.deps.vault.get(path),
+    read: async (path) => this.deps.documents.peek(path) ?? (await this.deps.vault.read(path)),
+    property: (note) => this.deps.index.getFile(note)?.meta?.frontmatter?.preamble,
+    resolve: (target, from) => this.deps.index.resolve(target, from)?.file.path,
+    katex: async () => (await (this.katex ??= import('katex'))).default,
+    report: (path, errors) => {
+      const text = `LaTeX preamble (${path}): ${errors.join('; ')}`;
+      // Said once for the same mistakes, not at every formula.
+      if (this.reported.has(text)) return;
+      this.reported.add(text);
+      this.deps.workspace.notify(text, { kind: 'warning', timeout: 8000 });
+    },
+  });
+  private readonly reported = new Set<string>();
+
+  loopVideos(): boolean {
+    return this.deps.ctx.settings.get('loopVideos', true);
+  }
+
+  /** Where the vault's LaTeX preamble is kept. */
+  preamblePath(): VaultPath {
+    return this.deps.ctx.settings.get('preamble', DEFAULT_PREAMBLE).trim() || DEFAULT_PREAMBLE;
+  }
+
+  /** Reads the preambles again and draws every formula on screen with them. */
+  refreshMath(): void {
+    this.preambles.reset();
+    this.reported.clear();
+    this.redrawMath();
+  }
+
+  private redrawMath(): void {
+    for (const [el, formula] of [...this.drawn]) {
+      if (!el.isConnected) this.drawn.delete(el);
+      else
+        void this.renderMath(formula.tex, formula.display, el, {
+          ...(formula.path !== undefined ? { sourcePath: formula.path } : {}),
+        });
+    }
+  }
+
+  private watchPreambles(): void {
+    const { vault, index, ctx } = this.deps;
+    ctx.register(
+      vault.onDidChange((changes) => {
+        const paths = changes.flatMap((c) =>
+          c.type === 'delete'
+            ? [c.path]
+            : c.type === 'rename'
+              ? [c.oldPath, c.entry.path]
+              : [c.entry.path],
+        );
+        if (paths.map((p) => this.preambles.fileChanged(p)).some(Boolean)) {
+          this.reported.clear();
+          this.redrawMath();
+        }
+      }),
+    );
+    ctx.register(
+      index.onDidChange((paths) => {
+        if (paths.map((p) => this.preambles.noteChanged(p)).some(Boolean)) this.redrawMath();
+      }),
+    );
+  }
+
+  async renderMath(
+    tex: string,
+    display: boolean,
+    container: HTMLElement,
+    opts: { sourcePath?: VaultPath } = {},
+  ): Promise<void> {
     this.katex ??= import('katex');
     try {
       const katex = (await this.katex).default;
+      const macros = await this.preambles.for(opts.sourcePath);
+      // Elements that are gone make room.
+      if (this.drawn.size > 400)
+        for (const el of [...this.drawn.keys()]) if (!el.isConnected) this.drawn.delete(el);
+      this.drawn.set(container, {
+        tex,
+        display,
+        ...(opts.sourcePath !== undefined ? { path: opts.sourcePath } : {}),
+      });
       // A formula with a mistake is drawn as far as it is right, the wrong part in red.
-      const problem = renderTex(katex, tex, display, container);
+      const problem = renderTex(katex, tex, display, container, macros);
       container.classList.add('is-rendered');
       container.classList.toggle('has-error', !!problem);
       if (problem) container.title = problem;
@@ -380,12 +476,22 @@ export class ReaderImpl implements ReaderApi {
       id: 'video',
       extensions: VIDEO,
       render: async (ctx) => {
-        const video = document.createElement('video');
-        video.controls = true;
+        // The app's own controls, the same as in the viewer.
+        const path = ctx.file!.path;
+        const { dom, video } = createVideoPlayer(
+          await this.blobUrl(path, ctx.file!.extension, (d) => ctx.register(d)),
+          {
+            // As for a picture: a click enlarges it; with Cmd/Ctrl it opens in a tab.
+            onClick: (shown, e) => {
+              if (e.metaKey || e.ctrlKey) void this.deps.workspace.openFile(path, { newTab: true });
+              else showLightbox(shown.currentSrc || shown.src, ctx.file!.title, shown);
+            },
+          },
+        );
+        video.loop = this.loopVideos();
         const { width } = parseEmbedSize(ctx.alias);
         if (width) video.width = width;
-        video.src = await this.blobUrl(ctx.file!.path, ctx.file!.extension, (d) => ctx.register(d));
-        ctx.container.append(video);
+        ctx.container.append(dom);
       },
     });
     this.registerEmbedRenderer({

@@ -135,13 +135,22 @@ export class CommentStore implements CommentsApi {
     range: { from: number; to: number },
     body: string,
     author = this.deps.author(),
+    opts: { draft?: boolean } = {},
   ): Promise<CommentThread> {
     return this.mutate(path, (file, text) => {
       const thread: CommentThread = {
         id: newId(),
         anchor: createAnchor(text, range.from, range.to),
         resolved: false,
-        comments: [{ id: newId(), author, body, created: new Date().toISOString() }],
+        comments: [
+          {
+            id: newId(),
+            author,
+            body,
+            created: new Date().toISOString(),
+            ...(opts.draft ? { draft: true } : {}),
+          },
+        ],
       };
       file.threads.push(thread);
       return thread;
@@ -153,6 +162,16 @@ export class CommentStore implements CommentsApi {
       const c: CommentEntry = { id: newId(), author, body, created: new Date().toISOString() };
       this.thread(file, threadId).comments.push(c);
       return c;
+    });
+  }
+
+  /** A draft is sent: it is a comment like any other from now on. */
+  publish(path: VaultPath, threadId: string, commentId: string) {
+    return this.mutate(path, (file) => {
+      const c = this.thread(file, threadId).comments.find((x) => x.id === commentId);
+      if (!c) throw new Error('This comment no longer exists.');
+      delete c.draft;
+      c.created = new Date().toISOString();
     });
   }
 

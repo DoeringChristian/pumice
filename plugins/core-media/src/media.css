@@ -85,9 +85,26 @@
   cursor: grabbing;
 }
 .pm-media-video {
+  /* Zoomed and moved like a picture (see .pm-media-image). */
   margin: auto;
-  max-width: 100%;
-  max-height: 100%;
+  flex: none;
+  max-width: none;
+  height: auto;
+  cursor: grab;
+}
+.pm-media-stage.is-dragging .pm-media-video {
+  cursor: grabbing;
+}
+.pm-media-controls {
+  flex: none;
+  border-top: 1px solid var(--border);
+}
+.pm-media-controls[hidden] {
+  display: none;
+}
+.pm-media-controls .pm-video-controls {
+  height: 36px;
+  padding: 0 12px;
 }
 .pm-media-audio {
   margin: auto;

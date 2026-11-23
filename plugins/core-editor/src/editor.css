@@ -492,8 +492,12 @@
   flex: 1 1 0;
   min-width: min(160px, 100%);
 }
+/* A width is the room an embed takes in the row, the space to its neighbour included: two of
+   half the text width stand beside each other, as do three thirds. */
 .pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-pm-embed.is-sized {
-  flex: 0 1 auto;
+  flex: 1 1 calc(var(--embed-w, 200px) - 12px);
+  max-width: var(--embed-w, none);
+  min-width: 0;
 }
 .pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-pm-embed .pm-embed,
 .pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-pm-embed .pm-frame {
@@ -502,6 +506,15 @@
 /* The invisible helpers the editor puts around widgets take no room in the row. */
 .pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-widgetBuffer {
   display: none;
+}
+/* Neither does what stands for the hidden space between two embeds (it would add a gap), but
+   it stays in the page: the cursor's place between the two is tied to it. */
+.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) {
+  position: relative;
+}
+.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > :not(.cm-pm-embed):empty {
+  position: absolute;
+  width: 0;
 }
 
 /* The "more" button of an embedded picture, video or frame */
@@ -731,4 +744,79 @@
   font-size: 0.8em;
   font-weight: 400;
   cursor: pointer;
+}
+
+/* ---- TeX in a formula's source ------------------------------------------------------------ */
+.cm-pm-tex-command {
+  color: #a34fb0;
+}
+.cm-pm-tex-environment {
+  color: #2a8a86;
+}
+.cm-pm-tex-brace {
+  color: var(--text-faint);
+}
+.cm-pm-tex-script {
+  color: #2f6fb0;
+}
+.cm-pm-tex-number {
+  color: #b0662a;
+}
+.cm-pm-tex-comment {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* What a TeX completion gives, beside the list */
+.cm-editor .cm-tooltip.cm-completionInfo:has(.cm-pm-tex-info) {
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-elevated);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.cm-pm-tex-info {
+  min-width: 28px;
+  font-size: 1.25em;
+  text-align: center;
+  white-space: nowrap;
+}
+.cm-pm-tex-info .katex-display {
+  margin: 0;
+}
+
+/* ---- the cursor beside a picture, video, drawing or frame --------------------------------- */
+.cm-pm-media-caret-layer {
+  pointer-events: none;
+}
+.cm-pm-media-caret {
+  position: absolute;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  animation: cm-pm-caret-blink 1.2s steps(1) infinite;
+}
+/* Two names for the same blinking: changing it at every move starts it anew, visible first. */
+.cm-pm-media-caret.is-a {
+  animation-name: cm-pm-caret-blink-2;
+}
+@keyframes cm-pm-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes cm-pm-caret-blink-2 {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-pm-media-caret {
+    animation: none;
+  }
+}
+/* The editor's own cursor has no sensible place there. */
+.cm-editor.cm-pm-at-media .cm-cursorLayer {
+  visibility: hidden;
 }

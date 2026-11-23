@@ -24,6 +24,8 @@ export interface BubbleDeps {
     body: string,
   ): Promise<string | undefined>;
   submit(path: VaultPath, range: { from: number; to: number }, body: string): Promise<void>;
+  /** Keeps what was written when the box is left without sending it. */
+  saveDraft(path: VaultPath, range: { from: number; to: number }, body: string): Promise<void>;
 }
 
 /** Opens the comment box for a range (null closes it). */
@@ -162,6 +164,19 @@ function composerDom(
   input.placeholder = 'Add a comment…';
   requestAnimationFrame(sync);
   box.append(input, attachMentionCompletion(input, deps.mentions), to, error, actions);
+  // A click elsewhere closes the box; what was written is kept as a draft, not sent.
+  const outside = (e: MouseEvent) => {
+    if (!box.isConnected) return document.removeEventListener('mousedown', outside, true);
+    if (box.contains(e.target as Node)) return;
+    document.removeEventListener('mousedown', outside, true);
+    const body = input.value.trim();
+    const p = path();
+    const current = view.state.field(bubbleField).composer ?? range;
+    if (body && p !== undefined && !input.disabled) void deps.saveDraft(p, current, body);
+    // The click goes where it was aimed: the box only goes away.
+    view.dispatch({ effects: openComposer.of(null) });
+  };
+  requestAnimationFrame(() => document.addEventListener('mousedown', outside, true));
   // The tooltip is added after this returns.
   requestAnimationFrame(() => input.focus());
   return box;

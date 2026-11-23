@@ -18,7 +18,7 @@ import {
 import { button, h, settingItem, textInput, toggle } from '@pumice/ui';
 import '@pumice/ui/panel.css';
 import manifestJson from '../manifest.json';
-import { ChatStore, age, type SavedChat } from './chats';
+import { ChatStore, newChatId, storableItems, type SavedChat } from './chats';
 import { Ledger, revertChange, trackedFiles, minimalChange, type AgentChange } from './ledger';
 import { ChatManager, chatName, mentionOf, type OpenChat } from './manager';
 import { AgentPanelState, renderAgentPanel, type Attachment } from './panel';
@@ -227,6 +227,32 @@ export const plugin = definePlugin({
       }
       return openChat(saved.agent, saved);
     };
+    /** A second chat that starts with everything said in this one; both go on separately. */
+    const forkChat = (id: string, name?: string): OpenChat | undefined => {
+      const chat = manager.get(id);
+      if (!chat) return undefined;
+      const snapshot = chat.session.snapshot();
+      const now = new Date().toISOString();
+      const title = name?.trim() || `${chatName(chat)} (fork)`;
+      const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+      const saved: SavedChat = {
+        version: 1,
+        id: newChatId(),
+        agent: chat.session.config.id,
+        title,
+        name: title,
+        created: now,
+        updated: now,
+        forkedFrom: id,
+        items: copy(storableItems(snapshot.items)),
+        // The built-in assistant continues from the same conversation state; an external
+        // agent is told what was said (its own session cannot be shared by two chats).
+        ...(snapshot.input ? { input: copy(snapshot.input) } : {}),
+      };
+      const fork = openChat(saved.agent, saved);
+      saveNow(fork);
+      return fork;
+    };
     const closeChat = (id: string) => {
       const chat = manager.get(id);
       // Write what is pending before the conversation goes.
@@ -276,6 +302,7 @@ export const plugin = definePlugin({
               listChats: () => chats.list(),
               resumeChat,
               closeChat,
+              forkChat,
               renameChat: (id, name) => {
                 manager.rename(id, name);
                 const chat = manager.get(id);

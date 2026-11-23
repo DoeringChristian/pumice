@@ -33,6 +33,8 @@ export interface AgentPanelDeps {
   listChats(): Promise<ChatSummary[]>;
   /** Opens a saved conversation again (undefined if it cannot be opened). */
   resumeChat(id: string): Promise<OpenChat | undefined>;
+  /** Opens a copy of a chat that starts with everything said in it. */
+  forkChat(id: string, name?: string): OpenChat | undefined;
   /** Stops a chat's agent; the conversation stays among the earlier ones. */
   closeChat(id: string): void;
   renameChat(id: string, name: string): void;
@@ -513,6 +515,14 @@ export function renderAgentPanel(
               },
             },
             {
+              label: 'Fork',
+              icon: 'copy',
+              run: () => {
+                const fork = deps.forkChat(id);
+                if (fork) attach(fork);
+              },
+            },
+            {
               label: 'Close (stops its agent)',
               icon: 'x',
               run: () => deps.closeChat(id),
@@ -654,10 +664,11 @@ export function renderAgentPanel(
     if (!text) return;
     commandList.hidden = true;
     matches = [];
-    if (/^\/new\s*$/.test(text)) {
+    // Commands about the chat itself: done here, not sent to the agent.
+    const own = /^\/(new|rename|fork|close|delete)(?:\s+([\s\S]*))?$/.exec(text);
+    if (own && runOwnCommand(own[1]!, (own[2] ?? '').trim())) {
       input.value = '';
       state.draft = '';
-      startChat();
       return;
     }
     if (!chat || !session || session.status === 'closed' || session.status === 'error') {
@@ -680,6 +691,42 @@ export function renderAgentPanel(
     manager.send(chat!, item, interrupt);
     renderQueue();
   };
+  /** `/new`, `/rename`, `/fork`, `/close`, `/delete`. False if it could not be done. */
+  const runOwnCommand = (name: string, arg: string): boolean => {
+    if (name === 'new') {
+      startChat();
+      return true;
+    }
+    if (!chat) {
+      workspace.notify('There is no chat open yet.', { kind: 'warning' });
+      return false;
+    }
+    const id = chat.session.chatId;
+    if (name === 'rename') {
+      if (!arg) {
+        workspace.notify('Write the new name after /rename.', { kind: 'warning' });
+        return false;
+      }
+      deps.renameChat(id, arg);
+    } else if (name === 'fork') {
+      const fork = deps.forkChat(id, arg || undefined);
+      if (!fork) return false;
+      attach(fork);
+      workspace.notify(`Forked: “${chatName(fork)}” starts with this conversation.`, {
+        timeout: 4000,
+      });
+    } else if (name === 'close') deps.closeChat(id);
+    else if (name === 'delete') {
+      const title = chatName(chat);
+      void workspace
+        .confirm(`Delete the chat “${title}”? This cannot be undone.`, {
+          confirmLabel: 'Delete',
+          danger: true,
+        })
+        .then((ok) => (ok ? deps.deleteChat(id) : undefined));
+    }
+    return true;
+  };
   send.addEventListener('click', () => submit());
   stop.addEventListener('click', () => session?.cancel());
   // ---- slash commands: "/" at the start of the message lists what the agent understands -----
@@ -690,8 +737,16 @@ export function renderAgentPanel(
   let selected = 0;
   const allCommands = () => [
     ...(session?.commands ?? []),
-    // Works with every agent: handled here, not sent.
+    // Work with every agent: handled here, not sent.
     { name: 'new', description: 'Start a new chat with this agent' },
+    { name: 'rename', description: 'Give this chat a name', hint: 'the name' },
+    {
+      name: 'fork',
+      description: 'Continue in a second chat that starts with this conversation',
+      hint: 'a name (optional)',
+    },
+    { name: 'close', description: 'Stop this chat’s agent; the chat stays under Earlier' },
+    { name: 'delete', description: 'Delete this chat' },
   ];
   const renderCommands = () => {
     const typed = /^\/([\w-]*)$/.exec(input.value);

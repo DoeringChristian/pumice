@@ -129,6 +129,12 @@ export const plugin = definePlugin({
               void showPanel();
               maybeAskAgent(path, thread.id, body);
             },
+            saveDraft: async (path, range, body) => {
+              const thread = await store.addThread(path, range, body, author(), { draft: true });
+              state.focusThread = thread.id;
+              state.fire();
+              workspace.notify('Kept as a draft comment (not sent).', { timeout: 2500 });
+            },
           },
           ectx,
         ),
@@ -201,10 +207,15 @@ export const plugin = definePlugin({
       }),
     );
 
-    const addComment = () => {
+    /** On the selection, or on a range that is given (a picture's "comment" button). */
+    const addComment = (given?: unknown) => {
       const active = editor.active();
       if (!active) return;
-      const { from, to } = active.view.state.selection.main;
+      const g = given as { from?: unknown; to?: unknown } | undefined;
+      const { from, to } =
+        typeof g?.from === 'number' && typeof g.to === 'number'
+          ? { from: g.from, to: g.to }
+          : active.view.state.selection.main;
       let range = { from, to };
       if (from === to) {
         // No selection: comment on the word at the cursor.
@@ -270,7 +281,7 @@ export const plugin = definePlugin({
         label: 'Add comment',
         icon: 'message-square-plus',
         order: 10,
-        run: addComment,
+        run: () => addComment(),
       }),
     );
     ctx.register(
@@ -279,7 +290,7 @@ export const plugin = definePlugin({
         title: 'Add comment',
         icon: 'message-square-plus',
         order: 80,
-        run: addComment,
+        run: () => addComment(),
       }),
     );
 

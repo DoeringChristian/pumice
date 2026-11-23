@@ -151,7 +151,11 @@ export function attachResizeHandle(
     start = {
       x: e.clientX,
       y: e.clientY,
-      width: target.getBoundingClientRect().width,
+      // The width it has in the text: beside others on a line it is drawn a little narrower
+      // (the space between them comes out of it), and a drag goes on from the written width.
+      width:
+        Number.parseFloat(host.style.getPropertyValue('--embed-w')) ||
+        target.getBoundingClientRect().width,
       height: box.height,
     };
     handle.setPointerCapture(e.pointerId);
@@ -167,6 +171,8 @@ export function attachResizeHandle(
     const width = Math.round(snap?.width ?? free);
     target.style.width = `${width}px`;
     target.style.maxWidth = '100%';
+    // In a row the room it takes follows the drag, so it shows as it will be when let go.
+    if (host.style.getPropertyValue('--embed-w')) host.style.setProperty('--embed-w', `${width}px`);
     const frame = frameOf();
     if (frame) {
       const height = Math.round(Math.max(40, Math.min(4000, start.height + e.clientY - start.y)));
@@ -223,9 +229,10 @@ export function attachMenuButton(
    * (enlarges it, is handled by the frame), so there is a "</>" button for getting at the text.
    */
   edit?: () => void,
+  /** Starts a comment on what is shown, without going to its source first. */
+  comment?: () => void,
 ): void {
-  host.querySelector(':scope > .cm-pm-embed-menu')?.remove();
-  host.querySelector(':scope > .cm-pm-embed-edit')?.remove();
+  for (const old of host.querySelectorAll(':scope > .cm-pm-embed-menu')) old.remove();
   const target = host.querySelector<HTMLElement>(`${SELECTOR}, audio, iframe`);
   if (!target || target.closest('.pm-embed[data-embed-type="note"]')) return;
   host.classList.add('cm-pm-has-menu');
@@ -254,6 +261,25 @@ export function attachMenuButton(
     });
     host.append(source);
   }
+  let note: HTMLButtonElement | undefined;
+  if (comment) {
+    note = document.createElement('button');
+    note.type = 'button';
+    note.className = 'cm-pm-embed-menu cm-pm-embed-comment';
+    note.title = 'Add a comment';
+    note.setAttribute('aria-label', 'Add a comment');
+    note.append(createIcon('message-square-plus', 14));
+    note.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    note.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      comment();
+    });
+    host.append(note);
+  }
   const place = () => {
     // The corner of what is shown, which may be narrower than the line.
     const box = target.getBoundingClientRect();
@@ -265,6 +291,10 @@ export function attachMenuButton(
     if (source) {
       source.style.left = `${Math.max(0, left - 26)}px`;
       source.style.top = top;
+    }
+    if (note) {
+      note.style.left = `${Math.max(0, left - (source ? 52 : 26))}px`;
+      note.style.top = top;
     }
   };
   // The editor must not take these as clicks into the text.

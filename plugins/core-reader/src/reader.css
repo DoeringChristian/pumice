@@ -436,7 +436,8 @@
 .pm-lightbox.is-zoomed {
   cursor: grab;
 }
-.pm-lightbox img {
+.pm-lightbox img,
+.pm-lightbox video {
   max-width: 94vw;
   max-height: 94vh;
   border-radius: 4px;
@@ -444,4 +445,23 @@
   transform-origin: center;
   user-select: none;
   -webkit-user-drag: none;
+}
+
+/* A video's controls stay along the bottom while it is zoomed and moved. */
+.pm-lightbox video {
+  max-height: calc(94vh - 56px);
+}
+.pm-lightbox-controls {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  width: min(720px, 90vw);
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+  transform: translateX(-50%);
+  cursor: default;
 }

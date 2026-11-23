@@ -7,5 +7,8 @@
   "dependencies": {
     "core.vault": "^0.1.0",
     "core.workspace": "^0.1.0"
+  },
+  "optionalDependencies": {
+    "core.reader": "^0.1.0"
   }
 }

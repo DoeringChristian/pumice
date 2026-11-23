@@ -1,19 +1,49 @@
+import { createVideoControls } from '@pumice/ui';
+
 /**
- * A picture enlarged over the whole window. A click, Escape or scrolling away closes it; the
- * wheel (with Ctrl/Cmd, or a pinch) zooms in on the pointer.
+ * A picture or a video enlarged over the whole window. A click, Escape or scrolling away
+ * closes it; the wheel (with Ctrl/Cmd, or a pinch) zooms in on the pointer. A video has its
+ * controls along the bottom and goes on from where the one in the note was; only its play
+ * button plays it.
  */
-export function showLightbox(src: string, alt = ''): void {
+export function showLightbox(src: string, alt = '', from?: HTMLVideoElement): void {
   document.querySelector('.pm-lightbox')?.remove();
   const overlay = document.createElement('div');
   overlay.className = 'pm-lightbox';
   overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-label', alt || 'Picture');
+  overlay.setAttribute('aria-label', alt || (from ? 'Video' : 'Picture'));
   overlay.tabIndex = -1;
-  const img = document.createElement('img');
-  img.src = src;
-  img.alt = alt;
-  img.draggable = false;
+  let img: HTMLImageElement | HTMLVideoElement;
+  let controls: HTMLElement | undefined;
+  if (from) {
+    const video = document.createElement('video');
+    video.src = src;
+    video.playsInline = true;
+    video.muted = from.muted;
+    video.loop = from.loop;
+    video.volume = from.volume;
+    const wasPlaying = !from.paused && !from.ended;
+    from.pause();
+    video.addEventListener(
+      'loadedmetadata',
+      () => {
+        video.currentTime = from.currentTime;
+        if (wasPlaying) void video.play().catch(() => undefined);
+      },
+      { once: true },
+    );
+    controls = createVideoControls(video);
+    controls.classList.add('pm-lightbox-controls');
+    img = video;
+  } else {
+    const picture = document.createElement('img');
+    picture.src = src;
+    picture.alt = alt;
+    picture.draggable = false;
+    img = picture;
+  }
   overlay.append(img);
+  if (controls) overlay.append(controls);
 
   let scale = 1;
   let x = 0;
@@ -24,16 +54,30 @@ export function showLightbox(src: string, alt = ''): void {
   };
   const previous = document.activeElement as HTMLElement | null;
   const close = () => {
+    // The video in the note is where this one got to.
+    if (from && img instanceof HTMLVideoElement) {
+      img.pause();
+      if (Number.isFinite(img.currentTime)) from.currentTime = img.currentTime;
+      from.muted = img.muted;
+    }
     overlay.remove();
     document.removeEventListener('keydown', onKey, true);
     previous?.focus?.();
   };
   const onKey = (e: KeyboardEvent) => {
+    if (e.key === ' ' && img instanceof HTMLVideoElement && !controls?.contains(e.target as Node)) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (img.paused || img.ended) void img.play().catch(() => undefined);
+      else img.pause();
+      return;
+    }
     if (e.key !== 'Escape') return;
     e.preventDefault();
     e.stopPropagation();
     close();
   };
+  const onControls = (e: Event) => !!controls?.contains(e.target as Node);
   overlay.addEventListener(
     'wheel',
     (e) => {
@@ -54,6 +98,7 @@ export function showLightbox(src: string, alt = ''): void {
   // Drag to move around when zoomed in; a click without a drag closes.
   let drag: { x: number; y: number; ox: number; oy: number; moved: boolean } | undefined;
   overlay.addEventListener('pointerdown', (e) => {
+    if (onControls(e)) return;
     drag = { x: e.clientX, y: e.clientY, ox: x, oy: y, moved: false };
     overlay.setPointerCapture(e.pointerId);
   });
@@ -66,9 +111,11 @@ export function showLightbox(src: string, alt = ''): void {
       apply();
     }
   });
-  overlay.addEventListener('pointerup', () => {
-    const moved = drag?.moved;
+  overlay.addEventListener('pointerup', (e) => {
+    if (!drag) return;
+    const moved = drag.moved;
     drag = undefined;
+    if (overlay.hasPointerCapture(e.pointerId)) overlay.releasePointerCapture(e.pointerId);
     if (!moved) close();
   });
   document.addEventListener('keydown', onKey, true);

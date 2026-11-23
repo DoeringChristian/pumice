@@ -73,7 +73,7 @@ function group(tex: string, i: number): string {
 
 /**
  * The same formula with every symbol wrapped so that the rendered picture carries its place in
- * the source (`data-p`, an offset into `tex`).
+ * the source (`data-p`, an offset into `tex`, and `data-n`, its length there).
  */
 export function instrumentTex(tex: string): string {
   let out = '';
@@ -82,7 +82,8 @@ export function instrumentTex(tex: string): string {
   let argument = false;
   let raw = false;
   const mark = (at: number, symbol: string, braces: boolean) => {
-    const wrapped = `\\htmlData{p=${at}}{${symbol}}`;
+    // Where the symbol starts in the source and how long it is there (`\\alpha` is six).
+    const wrapped = `\\htmlData{p=${at},n=${symbol.length}}{${symbol}}`;
     out += braces ? `{${wrapped}}` : wrapped;
   };
   for (let i = 0; i < tex.length;) {
@@ -230,9 +231,12 @@ export function renderTex(
   tex: string,
   display: boolean,
   container: HTMLElement,
+  /** Commands of the preamble. */
+  macros: Record<string, unknown> = {},
 ): string | undefined {
-  const options = { ...OPTIONS, displayMode: display };
-  const draw = (source: string) => katex.render(source, container, options);
+  // A copy for each drawing: a formula's own `\\gdef` stays its own.
+  const draw = (source: string) =>
+    katex.render(source, container, { ...OPTIONS, displayMode: display, macros: { ...macros } });
   try {
     try {
       draw(instrumentTex(tex));

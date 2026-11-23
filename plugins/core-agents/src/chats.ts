@@ -23,6 +23,8 @@ export interface SavedChat extends ChatSnapshot {
   title: string;
   /** A name the user gave the chat (the title is then this name). */
   name?: string;
+  /** The chat this one was forked from: it starts with that conversation. */
+  forkedFrom?: string;
   /** ISO timestamps. */
   created: string;
   updated: string;
@@ -45,6 +47,21 @@ export function chatTitle(items: TranscriptItem[]): string {
   const text = (first && 'text' in first ? first.text : '').replace(/\s+/g, ' ').trim();
   if (!text) return 'New chat';
   return text.length > 60 ? `${text.slice(0, 57).trimEnd()}…` : text;
+}
+
+/** What was said so far, as text for an agent that starts a fork without remembering it. */
+export function transcriptText(items: TranscriptItem[], limit = 24_000): string {
+  const said = items.flatMap((item) =>
+    item.kind === 'user'
+      ? [`User: ${item.text}`]
+      : item.kind === 'agent'
+        ? [`Assistant: ${item.text}`]
+        : [],
+  );
+  let text = said.join('\n\n');
+  // The end of a long conversation matters most.
+  if (text.length > limit) text = `[…]\n${text.slice(text.length - limit)}`;
+  return text;
 }
 
 /** The transcript as it can be written to a file: nothing is left waiting or running. */

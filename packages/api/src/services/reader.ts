@@ -49,8 +49,19 @@ export interface ReaderApi {
       numbered?: boolean;
     },
   ): Promise<Disposable>;
-  /** Renders TeX with KaTeX (loaded on first use). */
-  renderMath(tex: string, display: boolean, container: HTMLElement): Promise<void>;
+  /**
+   * Renders TeX with KaTeX (loaded on first use), with the commands of the vault's LaTeX
+   * preamble and, given `sourcePath`, of that note's own. Drawn again by itself when a
+   * preamble changes.
+   */
+  renderMath(
+    tex: string,
+    display: boolean,
+    container: HTMLElement,
+    opts?: { sourcePath?: VaultPath },
+  ): Promise<void>;
+  /** Whether videos start again when they end (a setting, on unless switched off). */
+  loopVideos(): boolean;
   /** Renders an embed (`![[target]]`) into `container`, as the reading view does. */
   /** Renders an embed and re-renders it when its target changes; `onDidRender` fires each time. */
   renderEmbed(

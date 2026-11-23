@@ -237,6 +237,17 @@ export function renderPanel(container: HTMLElement, deps: PanelDeps, state: Pane
     card.append(h('div', { class: 'pm-comment-thread-head' }, quote, header));
     for (const c of t.comments) {
       const text = h('div', { class: 'pm-comment-body' }, c.body);
+      const edit = () => {
+        const editor = composer(
+          'Edit comment',
+          'Save',
+          (b) => run(store.editComment(path, t.id, c.id, b)),
+          () => editor.replaceWith(text),
+        );
+        (editor.querySelector('textarea') as HTMLTextAreaElement).value = c.body;
+        text.replaceWith(editor);
+        editor.querySelector('textarea')?.focus();
+      };
       const entry = h(
         'div',
         { class: 'pm-comment' },
@@ -244,6 +255,13 @@ export function renderPanel(container: HTMLElement, deps: PanelDeps, state: Pane
           'div',
           { class: 'pm-comment-meta' },
           h('span', { class: 'pm-comment-author' }, c.author),
+          c.draft
+            ? h(
+                'span',
+                { class: 'pm-comment-draft', title: 'Not sent yet: nobody was asked' },
+                'Draft',
+              )
+            : null,
           h(
             'span',
             { class: 'pm-comment-time', title: new Date(c.created).toLocaleString() },
@@ -260,17 +278,7 @@ export function renderPanel(container: HTMLElement, deps: PanelDeps, state: Pane
                     {
                       label: 'Edit',
                       icon: 'pencil',
-                      run: () => {
-                        const editor = composer(
-                          'Edit comment',
-                          'Save',
-                          (b) => run(store.editComment(path, t.id, c.id, b)),
-                          () => editor.replaceWith(text),
-                        );
-                        (editor.querySelector('textarea') as HTMLTextAreaElement).value = c.body;
-                        text.replaceWith(editor);
-                        editor.querySelector('textarea')?.focus();
-                      },
+                      run: edit,
                     },
                     {
                       label: 'Copy text',
@@ -294,6 +302,22 @@ export function renderPanel(container: HTMLElement, deps: PanelDeps, state: Pane
           ),
         ),
         text,
+        // A draft is sent from here (an agent it addresses is asked only then).
+        c.draft
+          ? h(
+              'div',
+              { class: 'pm-comment-actions' },
+              button('Edit', edit, { kind: 'plain' }),
+              button(
+                'Send',
+                () =>
+                  void run(
+                    store.publish(path, t.id, c.id).then(() => deps.onReply(path, t.id, c.body)),
+                  ),
+                { kind: 'primary' },
+              ),
+            )
+          : null,
       );
       card.append(entry);
     }

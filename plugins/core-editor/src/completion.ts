@@ -10,6 +10,7 @@ import { syntaxTree } from '@codemirror/language';
 import { EditorState, Prec, type Extension } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { editorCompletions } from '@pumice/api';
+import { formulaSource, previewDeps } from './live-preview';
 
 /**
  * Suggestions and automatic closing while typing: the editor asks the sources plugins
@@ -107,25 +108,38 @@ const inMath = (state: EditorState, pos: number) => {
   }
 };
 
-const plain = (names: string) => names.split(' ').map((n) => ({ label: `\\${n}` }));
+/** What each completion draws beside the list: the symbol, or the command with placeholders. */
+const samples = new WeakMap<Completion, string>();
+const sampled = (completion: Completion, sample: string): Completion => {
+  samples.set(completion, sample);
+  return completion;
+};
+/** A snippet; its picture is the template with the names of its fields in their places. */
+const snippet = (template: string, completion: Completion, sample?: string): Completion =>
+  sampled(
+    snippetCompletion(template, completion),
+    sample ?? template.replace(/\$\{(\w*)\}/g, (_m, name: string) => name || '\\square'),
+  );
+const plain = (names: string) =>
+  names.split(' ').map((n) => sampled({ label: `\\${n}` }, `\\${n}`));
 const MATH: Completion[] = [
-  snippetCompletion('\\frac{${num}}{${den}}', { label: '\\frac', detail: 'fraction' }),
-  snippetCompletion('\\sqrt{${x}}', { label: '\\sqrt' }),
-  snippetCompletion('\\sum_{${i}}^{${n}}', { label: '\\sum', detail: 'with limits' }),
-  snippetCompletion('\\prod_{${i}}^{${n}}', { label: '\\prod', detail: 'with limits' }),
-  snippetCompletion('\\int_{${a}}^{${b}}', { label: '\\int', detail: 'with limits' }),
-  snippetCompletion('\\lim_{${x} \\to ${a}}', { label: '\\lim' }),
-  snippetCompletion('\\left(${x}\\right)', { label: '\\left(', detail: '( … )' }),
-  snippetCompletion('\\left[${x}\\right]', { label: '\\left[', detail: '[ … ]' }),
-  snippetCompletion('\\left\\{${x}\\right\\}', { label: '\\left\\{', detail: '{ … }' }),
-  snippetCompletion('\\left|${x}\\right|', { label: '\\left|', detail: '| … |' }),
+  snippet('\\frac{${num}}{${den}}', { label: '\\frac', detail: 'fraction' }),
+  snippet('\\sqrt{${x}}', { label: '\\sqrt' }),
+  snippet('\\sum_{${i}}^{${n}}', { label: '\\sum', detail: 'with limits' }),
+  snippet('\\prod_{${i}}^{${n}}', { label: '\\prod', detail: 'with limits' }),
+  snippet('\\int_{${a}}^{${b}}', { label: '\\int', detail: 'with limits' }),
+  snippet('\\lim_{${x} \\to ${a}}', { label: '\\lim' }),
+  snippet('\\left(${x}\\right)', { label: '\\left(', detail: '( … )' }),
+  snippet('\\left[${x}\\right]', { label: '\\left[', detail: '[ … ]' }),
+  snippet('\\left\\{${x}\\right\\}', { label: '\\left\\{', detail: '{ … }' }),
+  snippet('\\left|${x}\\right|', { label: '\\left|', detail: '| … |' }),
   ...['mathbf', 'mathrm', 'mathcal', 'mathbb', 'mathit', 'boldsymbol', 'text', 'operatorname'].map(
-    (n) => snippetCompletion(`\\${n}{\${x}}`, { label: `\\${n}` }),
+    (n) => snippet(`\\${n}{\${x}}`, { label: `\\${n}` }),
   ),
   ...['hat', 'bar', 'vec', 'tilde', 'dot', 'ddot', 'overline', 'underline', 'widehat'].map((n) =>
-    snippetCompletion(`\\${n}{\${x}}`, { label: `\\${n}` }),
+    snippet(`\\${n}{\${x}}`, { label: `\\${n}` }),
   ),
-  snippetCompletion('\\begin{${env}}\n\t${}\n\\end{${env}}', {
+  snippet('\\begin{${env}}\n\t${}\n\\end{${env}}', {
     label: '\\begin',
     detail: 'environment',
   }),
@@ -149,8 +163,90 @@ const ENVIRONMENTS = [
   'gathered',
   'split',
 ].map((env) =>
-  snippetCompletion(`\\begin{${env}}\n\t\${}\n\\end{${env}}`, { label: `\\begin{${env}}` }),
+  snippet(
+    `\\begin{${env}}\n\t\${}\n\\end{${env}}`,
+    { label: `\\begin{${env}}` },
+    `\\begin{${env}}${env === 'array' ? '{cc}' : ''} a & b \\\\ c & d \\end{${env}}`,
+  ),
 );
+
+/** The completions, each with what it gives drawn beside the list while it is selected. */
+function withPictures(options: Completion[], state: EditorState): Completion[] {
+  const deps = state.facet(previewDeps);
+  const reader = deps?.reader;
+  if (!reader) return options;
+  return options.map((option) => {
+    const sample = samples.get(option);
+    if (!sample) return option;
+    return {
+      ...option,
+      info: () => {
+        const dom = document.createElement('div');
+        dom.className = 'cm-pm-tex-info pm-math';
+        void reader.renderMath(sample, sample.includes('\\begin'), dom, formulaSource(deps));
+        return dom;
+      },
+    };
+  });
+}
+
+/**
+ * What closes a delimiter after `\left`: typing `\left(` adds `\right)` behind the cursor.
+ */
+const RIGHT_OF: Record<string, string> = {
+  '(': ')',
+  '[': ']',
+  '\\{': '\\}',
+  '|': '|',
+  '\\|': '\\|',
+  '<': '>',
+  '\\langle': '\\rangle',
+  '\\lVert': '\\rVert',
+  '\\lvert': '\\rvert',
+  '\\lfloor': '\\rfloor',
+  '\\lceil': '\\rceil',
+  '\\lbrace': '\\rbrace',
+  '\\lbrack': '\\rbrack',
+};
+
+/** The `\right…` that belongs behind the cursor once `before` (the line up to it) was typed. */
+export function rightFor(before: string, after: string): string | undefined {
+  const m = /\\left\s*(\\[a-zA-Z]+|\\[{|]|[([|<])$/.exec(before);
+  if (!m) return undefined;
+  const right = RIGHT_OF[m[1]!];
+  if (!right) return undefined;
+  // `\left\lang` is not finished, and a `\right` that is there already is not doubled.
+  if (/^[a-zA-Z]/.test(after) && m[1]!.length > 2) return undefined;
+  if (/^\s*\\right(?![a-zA-Z])/.test(after)) return undefined;
+  return `\\right${right}`;
+}
+
+const closeLeft = (enabled: () => boolean) =>
+  EditorView.updateListener.of((update) => {
+    if (!update.docChanged || !enabled()) return;
+    if (!update.transactions.some((tr) => tr.isUserEvent('input.type'))) return;
+    const { state } = update;
+    const sel = state.selection.main;
+    if (!sel.empty || !inMath(state, sel.head)) return;
+    const line = state.doc.lineAt(sel.head);
+    const before = line.text.slice(0, sel.head - line.from);
+    let after = line.text.slice(sel.head - line.from);
+    // The bracket that was closed automatically behind the cursor gives way to `\\right)`.
+    const closed = { '(': ')', '[': ']', '{': '}' }[before.slice(-1)];
+    const drop = closed !== undefined && after.startsWith(closed) ? 1 : 0;
+    after = after.slice(drop);
+    const right = rightFor(before, after);
+    if (!right) return;
+    // After this update has been applied.
+    queueMicrotask(() => {
+      if (update.view.state !== state) return;
+      update.view.dispatch({
+        changes: { from: sel.head, to: sel.head + drop, insert: ` ${right}` },
+        selection: { anchor: sel.head },
+        userEvent: 'input.complete',
+      });
+    });
+  });
 
 /** Inside math: commands after a backslash, environments after `\begin{`. */
 function mathSource(context: CompletionContext): CompletionResult | null {
@@ -159,11 +255,19 @@ function mathSource(context: CompletionContext): CompletionResult | null {
   if (begin) {
     // Swallow the brace closed automatically.
     const closed = context.state.doc.sliceString(context.pos, context.pos + 1) === '}';
-    return { from: begin.from, to: context.pos + (closed ? 1 : 0), options: ENVIRONMENTS };
+    return {
+      from: begin.from,
+      to: context.pos + (closed ? 1 : 0),
+      options: withPictures(ENVIRONMENTS, context.state),
+    };
   }
   const command = context.matchBefore(/\\[a-zA-Z]*$/);
   if (!command || (command.text.length < 2 && !context.explicit)) return null;
-  return { from: command.from, options: MATH, validFor: /^\\[a-zA-Z]*$/ };
+  return {
+    from: command.from,
+    options: withPictures(MATH, context.state),
+    validFor: /^\\[a-zA-Z]*$/,
+  };
 }
 
 /** Enter after an opening ``` or `$$`: the block is closed, the cursor stays inside. */
@@ -272,8 +376,9 @@ async function allSources(context: CompletionContext): Promise<CompletionResult 
   return null;
 }
 
-export function completionExtension(): Extension {
+export function completionExtension(opts: { closeLeft?: () => boolean } = {}): Extension {
   return [
+    closeLeft(opts.closeLeft ?? (() => true)),
     autocompletion({
       override: [allSources],
       icons: false,

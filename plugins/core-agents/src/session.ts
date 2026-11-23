@@ -1,4 +1,4 @@
-import { newChatId, type ChatSnapshot, type SavedChat } from './chats';
+import { newChatId, transcriptText, type ChatSnapshot, type SavedChat } from './chats';
 import {
   PROTOCOL_VERSION,
   client as acpClient,
@@ -196,6 +196,8 @@ export class AgentSession implements ChatSession {
   }
 
   private briefed = false;
+  /** The conversation a fork continues, given to the agent with its first message. */
+  private earlier = '';
 
   private push(item: NewItem): TranscriptItem {
     const full = { ...item, id: nextItemId++ } as TranscriptItem;
@@ -255,7 +257,11 @@ export class AgentSession implements ChatSession {
         clientInfo: { name: 'Pumice', version: '0.1.0' },
       });
       this.authMethods = init.authMethods ?? [];
-      if (this.saved && !(await this.resume(!!init.agentCapabilities?.loadSession))) {
+      if (this.saved?.forkedFrom && !this.saved.sessionId) {
+        // A fork: the agent starts anew and is told what was said, with the next message.
+        this.earlier = transcriptText(this.saved.items);
+        this.briefed = false;
+      } else if (this.saved && !(await this.resume(!!init.agentCapabilities?.loadSession))) {
         this.push({
           kind: 'info',
           text: `${this.config.name} could not pick this conversation up again. The messages above are kept, but it does not remember them: say what it needs to know.`,
@@ -343,10 +349,20 @@ export class AgentSession implements ChatSession {
     this.setStatus('working');
     const about = this.briefed ? '' : this.guidance();
     this.briefed = true;
+    const earlier = this.earlier;
+    this.earlier = '';
     try {
       const res = await this.conn.agent.request('session/prompt', {
         sessionId: this.sessionId,
         prompt: [
+          ...(earlier
+            ? [
+                {
+                  type: 'text' as const,
+                  text: `This conversation continues an earlier one. What was said there (background, not a request):\n${earlier}`,
+                },
+              ]
+            : []),
           ...(about
             ? [
                 {

@@ -11,5 +11,8 @@
     "core.index": "^0.1.0",
     "core.workspace": "^0.1.0"
   },
-  "permissions": ["shell"]
+  "permissions": ["shell"],
+  "optionalDependencies": {
+    "core.settings": "^0.1.0"
+  }
 }

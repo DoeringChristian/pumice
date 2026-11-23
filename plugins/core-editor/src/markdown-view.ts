@@ -1,6 +1,7 @@
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { sectionFolding } from './folding';
+import { texHighlighting } from './tex';
 import { commonmarkLanguage, markdown, markdownKeymap } from '@codemirror/lang-markdown';
 import { yamlFrontmatter } from '@codemirror/lang-yaml';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
@@ -91,9 +92,15 @@ export interface EditorShared {
   onActiveChange: (view: MarkdownView | undefined) => void;
   /** Toolbar actions for touch devices, sorted. */
   toolbarActions: () => EditorToolbarAction[];
+  /** Starts a comment on a range of the note (absent without the comments plugin). */
+  comment?: (view: EditorView, range: { from: number; to: number }) => void;
+  /** Whether `\\left(` gets its `\\right)` as it is typed. */
+  closeLeft: () => boolean;
   /** Whether to show the touch toolbar (phone/tablet layouts). */
   touch: () => boolean;
 }
+
+const isPlainText = (path: string) => /\.(tex|txt)$/i.test(path);
 
 /** A tab showing one markdown file. */
 export class MarkdownView implements ViewInstance {
@@ -416,7 +423,8 @@ export class MarkdownView implements ViewInstance {
     });
   }
 
-  setSourceMode(source: boolean): void {
+  setSourceMode(wanted: boolean): void {
+    const source = wanted || isPlainText(this.handle?.path ?? '');
     this.editor.dispatch({
       effects: this.modeCompartment.reconfigure(source ? sourceModeStyling : livePreview),
     });
@@ -487,6 +495,7 @@ export class MarkdownView implements ViewInstance {
             if (path !== undefined) shared.embedMenu(v, host, path, at);
           },
           blockMenu: (v, block, at) => shared.blockMenu(v, block, at),
+          ...(shared.comment ? { comment: (v, range) => shared.comment!(v, range) } : {}),
         }),
         syntaxHighlighting(highlightStyle),
         EditorView.lineWrapping,
@@ -494,8 +503,9 @@ export class MarkdownView implements ViewInstance {
         dropCursor(),
         rectangularSelection(),
         closeBrackets(),
-        completionExtension(),
+        completionExtension({ closeLeft: () => this.shared.closeLeft() }),
         sectionFolding(),
+        texHighlighting,
         search({ top: true }),
         highlightSelectionMatches(),
         placeholder('Start writing…'),
@@ -504,7 +514,10 @@ export class MarkdownView implements ViewInstance {
           autocorrect: 'on',
           autocapitalize: 'sentences',
         }),
-        this.modeCompartment.of(this.shared.sourceMode() ? sourceModeStyling : livePreview),
+        // A file that is not a note (a .tex preamble, a .txt) is shown as it is written.
+        this.modeCompartment.of(
+          this.shared.sourceMode() || isPlainText(handle.path) ? sourceModeStyling : livePreview,
+        ),
         this.contributedCompartment.of(this.shared.contributed()),
         EditorView.updateListener.of((u) => {
           if (u.docChanged || u.focusChanged) this.shared.onActiveChange(this);

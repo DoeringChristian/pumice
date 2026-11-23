@@ -1,4 +1,5 @@
 import {
+  Reader,
   Vault,
   Workspace,
   basename,
@@ -7,7 +8,8 @@ import {
   type VaultPath,
   type ViewState,
 } from '@pumice/api';
-import { createIcon, h } from '@pumice/ui';
+import { createIcon, createVideoControls, h } from '@pumice/ui';
+import '@pumice/ui/video.css';
 import manifestJson from '../manifest.json';
 import './media.css';
 
@@ -71,28 +73,32 @@ export const plugin = definePlugin({
             button('plus', 'Zoom in', () => step(1)),
           );
           const bar = h('div', { class: 'pm-media-bar' }, info, zoomTools);
-          view.container.append(h('div', { class: 'pm-media' }, bar, stage));
+          // A video's controls stay in place under the picture while it is zoomed and moved.
+          const controls = h('div', { class: 'pm-media-controls', hidden: true });
+          view.container.append(h('div', { class: 'pm-media' }, bar, stage, controls));
 
           let path: VaultPath | undefined;
           let url: string | undefined;
-          let image: HTMLImageElement | undefined;
+          /** The picture that is zoomed and moved: an image, or a video. */
+          let image: HTMLImageElement | HTMLVideoElement | undefined;
+          const natural = () =>
+            image instanceof HTMLVideoElement
+              ? { w: image.videoWidth, h: image.videoHeight }
+              : { w: image?.naturalWidth ?? 0, h: image?.naturalHeight ?? 0 };
           /** null: fit the window; a number: that scale. */
           let zoom: number | null = null;
           let generation = 0;
 
           const fitScale = () => {
-            if (!image?.naturalWidth) return 1;
+            const { w, h: height } = natural();
+            if (!w || !height) return 1;
             const pad = 32;
-            return Math.min(
-              1,
-              (stage.clientWidth - pad) / image.naturalWidth,
-              (stage.clientHeight - pad) / image.naturalHeight,
-            );
+            return Math.min(1, (stage.clientWidth - pad) / w, (stage.clientHeight - pad) / height);
           };
           const applyZoom = () => {
             if (!image) return;
             const scale = zoom ?? fitScale();
-            image.style.width = `${Math.max(1, Math.round(image.naturalWidth * scale))}px`;
+            image.style.width = `${Math.max(1, Math.round(natural().w * scale))}px`;
             zoomLabel.textContent =
               zoom === null ? `Fit (${Math.round(scale * 100)}%)` : `${Math.round(scale * 100)}%`;
             stage.classList.toggle('is-fit', zoom === null);
@@ -168,7 +174,10 @@ export const plugin = definePlugin({
             else if (e.key === '-') step(-1);
             else if (e.key === '0') zoomTo(null);
             else if (e.key === '1') zoomTo(1);
-            else return;
+            else if (e.key === ' ' && image instanceof HTMLVideoElement) {
+              if (image.paused || image.ended) void image.play().catch(() => undefined);
+              else image.pause();
+            } else return;
             e.preventDefault();
           });
           const resize = new ResizeObserver(() => zoom === null && applyZoom());
@@ -182,6 +191,8 @@ export const plugin = definePlugin({
             image = undefined;
             zoom = null;
             stage.replaceChildren();
+            controls.replaceChildren();
+            controls.hidden = true;
             if (!path) return;
             view.setFile(path);
             view.setTitle(basename(path));
@@ -202,7 +213,7 @@ export const plugin = definePlugin({
             }
             if (gen !== generation) return;
             url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime(e) }));
-            zoomTools.hidden = !IMAGE.includes(e);
+            zoomTools.hidden = !IMAGE.includes(e) && !VIDEO.includes(e);
             if (IMAGE.includes(e)) {
               const img = h('img', {
                 class: 'pm-media-image',
@@ -227,7 +238,27 @@ export const plugin = definePlugin({
               stage.append(h('audio', { class: 'pm-media-audio', controls: true, src: url }));
             } else {
               info.textContent = size(bytes.byteLength);
-              stage.append(h('video', { class: 'pm-media-video', controls: true, src: url }));
+              const video = h('video', {
+                class: 'pm-media-video',
+                src: url,
+                preload: 'metadata',
+                playsInline: true,
+                loop: ctx.tryUse(Reader)?.loopVideos() ?? true,
+              });
+              video.addEventListener('loadedmetadata', () => {
+                if (gen !== generation) return;
+                image = video;
+                info.textContent = `${video.videoWidth} × ${video.videoHeight} px · ${size(bytes.byteLength)}`;
+                applyZoom();
+              });
+              video.addEventListener('error', () =>
+                stage.replaceChildren(
+                  h('div', { class: 'pm-media-error' }, 'This video can’t be played here.'),
+                ),
+              );
+              stage.append(video);
+              controls.append(createVideoControls(video));
+              controls.hidden = false;
             }
           };
 

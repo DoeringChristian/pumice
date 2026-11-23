@@ -1,0 +1,157 @@
+/* ---- video: the app's own controls ---------------------------------------------------------- */
+.pm-video {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  max-width: 100%;
+  vertical-align: top;
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.pm-video-picture {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  cursor: zoom-in;
+}
+.pm-video-controls {
+  container-type: inline-size;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1;
+  user-select: none;
+}
+.pm-video-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.pm-video-button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.pm-video-button:focus-visible,
+.pm-video-progress:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.pm-video-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pm-video-progress {
+  position: relative;
+  flex: 1;
+  min-width: 30px;
+  height: 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  touch-action: none;
+}
+.pm-video-progress::before,
+.pm-video-progress-loaded,
+.pm-video-progress-played {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 0;
+  height: 2px;
+  border-radius: 1px;
+}
+.pm-video-progress::before {
+  right: 0;
+  background: var(--border);
+}
+.pm-video-progress-loaded {
+  background: var(--text-faint);
+  opacity: 0.6;
+}
+.pm-video-progress-played {
+  background: var(--accent);
+}
+.pm-video-progress-knob {
+  position: absolute;
+  top: 3px;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.pm-video-progress:hover .pm-video-progress-knob,
+.pm-video-progress:focus-visible .pm-video-progress-knob,
+.pm-video-progress.is-seeking .pm-video-progress-knob {
+  opacity: 1;
+}
+
+/* How loud: a short line beside the speaker */
+.pm-video-volume {
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 14px;
+  cursor: pointer;
+  touch-action: none;
+}
+.pm-video-volume::before,
+.pm-video-volume-fill {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 0;
+  height: 2px;
+  border-radius: 1px;
+}
+.pm-video-volume::before {
+  right: 0;
+  background: var(--border);
+}
+.pm-video-volume-fill {
+  background: var(--text-muted);
+}
+.pm-video-volume-knob {
+  position: absolute;
+  top: 3px;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.pm-video-volume:hover .pm-video-volume-fill,
+.pm-video-volume:hover .pm-video-volume-knob {
+  background: var(--accent);
+}
+.pm-video-volume:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* In a narrow video the line gives way; the speaker still switches the sound. */
+@container (max-width: 260px) {
+  .pm-video-volume {
+    display: none;
+  }
+}

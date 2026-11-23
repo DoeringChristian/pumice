@@ -10,6 +10,8 @@ import type { TreeCursor } from '@lezer/common';
 import {
   Facet,
   Prec,
+  RangeSetBuilder,
+  StateEffect,
   StateField,
   type EditorState,
   type Extension,
@@ -19,8 +21,10 @@ import {
   Decoration,
   EditorView,
   ViewPlugin,
+  RectangleMarker,
   WidgetType,
   keymap,
+  layer,
   showTooltip,
   type DecorationSet,
   type Tooltip,
@@ -48,6 +52,31 @@ import {
 } from '@pumice/api';
 import { calloutStyle, createIcon } from '@pumice/ui';
 
+/**
+ * Media (a picture, a video, a drawing, a frame) is one element in the text: the cursor steps
+ * over it and it stays drawn. Its source shows only when asked for with its "</>" button,
+ * until the cursor leaves it again.
+ */
+export const showSource = StateEffect.define<{ from: number; to: number } | null>();
+const sourceShown = StateField.define<{ from: number; to: number } | null>({
+  create: () => null,
+  update(value, tr) {
+    for (const effect of tr.effects) if (effect.is(showSource)) return effect.value;
+    if (!value) return null;
+    const shown = tr.docChanged
+      ? { from: tr.changes.mapPos(value.from, -1), to: tr.changes.mapPos(value.to, 1) }
+      : value;
+    const sel = tr.state.selection.main;
+    // The cursor left it: it is drawn again.
+    if (sel.from < shown.from || sel.to > shown.to) return null;
+    return shown.from === value.from && shown.to === value.to ? value : shown;
+  },
+});
+const sourceShownAt = (state: EditorState, from: number, to: number): boolean => {
+  const shown = state.field(sourceShown, false);
+  return !!shown && shown.from <= to && shown.to >= from;
+};
+
 /** Services the preview widgets use; provided per editor. */
 export interface PreviewDeps {
   syntax: MarkdownSyntaxApi;
@@ -61,6 +90,8 @@ export interface PreviewDeps {
     block: { from: number; to: number },
     at: { x: number; y: number },
   ): void;
+  /** Starts a comment on a piece of the note (absent where there are no comments). */
+  comment?(view: EditorView, range: { from: number; to: number }): void;
 }
 
 export const previewDeps = Facet.define<PreviewDeps, PreviewDeps | undefined>({
@@ -160,6 +191,12 @@ class CalloutIconWidget extends WidgetType {
   }
 }
 
+/** The note a formula is in: its own preamble applies. */
+export function formulaSource(deps: PreviewDeps | undefined): { sourcePath?: VaultPath } {
+  const path = deps?.sourcePath();
+  return path !== undefined ? { sourcePath: path } : {};
+}
+
 /**
  * Where in the TeX source a click on a rendered formula points: the symbol under the pointer
  * (each carries its place), or the one nearest to it.
@@ -181,10 +218,10 @@ function texOffsetAt(root: HTMLElement, event: MouseEvent): number | undefined {
   }
   const el = marked ?? best?.el;
   if (!el || !Number.isFinite(offset(el))) return undefined;
-  // In the right half of a one-character symbol: behind it.
+  // In the right half of the symbol: behind it (behind all of `\alpha`, not its backslash).
   const r = el.getBoundingClientRect();
-  const single = (el.textContent ?? '').length <= 1;
-  return offset(el) + (single && event.clientX > r.left + r.width / 2 ? 1 : 0);
+  const length = Number((el as HTMLElement).dataset.n) || 1;
+  return offset(el) + (event.clientX > r.left + r.width / 2 ? length : 0);
 }
 
 class MathWidget extends WidgetType {
@@ -206,7 +243,8 @@ class MathWidget extends WidgetType {
     const el = document.createElement(this.display ? 'div' : 'span');
     el.className = `cm-pm-math pm-math ${this.display ? 'is-display' : 'is-inline'}`;
     el.textContent = this.tex;
-    void view.state.facet(previewDeps)?.reader?.renderMath(this.tex, this.display, el);
+    const deps = view.state.facet(previewDeps);
+    void deps?.reader?.renderMath(this.tex, this.display, el, formulaSource(deps));
     el.addEventListener('mousedown', (e) => {
       e.preventDefault();
       // The cursor goes to the part of the formula that was clicked.
@@ -282,20 +320,27 @@ class CodeHeaderWidget extends WidgetType {
   }
 }
 
+/** Where the TeX of a preview starts in the note, kept current as the preview is redrawn. */
+const previewStart = new WeakMap<HTMLElement, number>();
+
 /** What a formula gives, shown under its source while it is being written. */
 class MathPreviewWidget extends WidgetType {
-  constructor(readonly tex: string) {
+  constructor(
+    readonly tex: string,
+    /** Where the TeX starts in the note: a click on a symbol puts the cursor at its source. */
+    readonly texFrom: number,
+  ) {
     super();
   }
 
   override eq(other: MathPreviewWidget): boolean {
-    return other.tex === this.tex;
+    return other.tex === this.tex && other.texFrom === this.texFrom;
   }
 
   private draw(view: EditorView, inner: HTMLElement): void {
-    void view.state
-      .facet(previewDeps)
-      ?.reader?.renderMath(this.tex, true, inner)
+    const deps = view.state.facet(previewDeps);
+    void deps?.reader
+      ?.renderMath(this.tex, true, inner, formulaSource(deps))
       .then(() => view.requestMeasure());
   }
 
@@ -306,6 +351,17 @@ class MathPreviewWidget extends WidgetType {
     const inner = document.createElement('div');
     inner.className = 'pm-math is-display';
     el.append(inner);
+    previewStart.set(el, this.texFrom);
+    el.addEventListener('mousedown', (e) => {
+      const at = texOffsetAt(el, e);
+      if (at === undefined) return;
+      e.preventDefault();
+      view.dispatch({
+        selection: { anchor: (previewStart.get(el) ?? 0) + at },
+        userEvent: 'select.pointer',
+      });
+      view.focus();
+    });
     this.draw(view, inner);
     return el;
   }
@@ -314,6 +370,7 @@ class MathPreviewWidget extends WidgetType {
   override updateDOM(dom: HTMLElement, view: EditorView): boolean {
     const inner = dom.querySelector<HTMLElement>(':scope > .pm-math');
     if (!inner) return false;
+    previewStart.set(dom, this.texFrom);
     this.draw(view, inner);
     return true;
   }
@@ -362,7 +419,8 @@ const inlineMathPreview = StateField.define<Tooltip | null>({
           const now = inlineMathAt(state);
           if (!now || now.tex === shown) return;
           shown = now.tex;
-          void state.facet(previewDeps)?.reader?.renderMath(now.tex, false, dom);
+          const deps = state.facet(previewDeps);
+          void deps?.reader?.renderMath(now.tex, false, dom, formulaSource(deps));
         };
         draw(view.state);
         return { dom, update: (update) => draw(update.state) };
@@ -473,7 +531,10 @@ class EmbedWidget extends WidgetType {
   toDOM(view: EditorView): HTMLElement {
     const el = document.createElement('span');
     // An embed with a width keeps it when several stand on one line; the others share the rest.
-    el.className = `cm-pm-embed${parseEmbedSize(this.alias).width ? ' is-sized' : ''}`;
+    const width = parseEmbedSize(this.alias).width;
+    el.className = `cm-pm-embed${width ? ' is-sized' : ''}`;
+    // Beside others on a line it may give a little, so that halves and thirds fit (see CSS).
+    if (width) el.style.setProperty('--embed-w', `${width}px`);
     embedOf.set(el, this);
     // The number may change while the embed stays (see `updateDOM`).
     const caption = () => {
@@ -495,9 +556,27 @@ class EmbedWidget extends WidgetType {
     /** Puts the cursor into the embed's text, which shows it as source. */
     const editSource = () => {
       const start = view.posAtDOM(el);
-      view.dispatch({ selection: { anchor: start + 3 }, scrollIntoView: true });
+      let node = syntaxTree(view.state).resolveInner(start, 1);
+      while (node.name !== 'Embed' && node.parent) node = node.parent;
+      const to = node.name === 'Embed' ? node.to : view.state.doc.lineAt(start).to;
+      view.dispatch({
+        selection: { anchor: Math.min(start + 3, to) },
+        effects: showSource.of({ from: start, to }),
+        scrollIntoView: true,
+      });
       view.focus();
     };
+    /** A comment on the embed, started from the picture itself. */
+    const commentOn = view.state.facet(previewDeps)?.comment;
+    const comment = commentOn
+      ? () => {
+          const start = view.posAtDOM(el);
+          let node = syntaxTree(view.state).resolveInner(start, 1);
+          while (node.name !== 'Embed' && node.parent) node = node.parent;
+          const to = node.name === 'Embed' ? node.to : view.state.doc.lineAt(start).to;
+          commentOn(view, { from: start, to });
+        }
+      : undefined;
     /** Writes a new size into the embed's text (`![[x.png|300]]`). */
     const resize = (size: Size) => {
       const line = view.state.doc.lineAt(view.posAtDOM(el));
@@ -523,7 +602,7 @@ class EmbedWidget extends WidgetType {
             view.requestMeasure();
             caption();
             attachResizeHandle(view, el, resize);
-            attachMenuButton(el, menuAt, editSource);
+            attachMenuButton(el, menuAt, editSource, comment);
           },
         })
         .then((d) => {
@@ -531,7 +610,7 @@ class EmbedWidget extends WidgetType {
           view.requestMeasure();
           caption();
           attachResizeHandle(view, el, resize);
-          attachMenuButton(el, menuAt, editSource);
+          attachMenuButton(el, menuAt, editSource, comment);
         });
     }
     return el;
@@ -614,12 +693,12 @@ class BlockWidget extends WidgetType {
       math.className = 'pm-math is-display';
       math.textContent = tex;
       el.append(math);
-      void deps?.reader?.renderMath(tex, true, math);
+      void deps?.reader?.renderMath(tex, true, math, formulaSource(deps));
     } else if (this.kind === 'table' && deps) {
       el.classList.add('pm-rendered');
       el.innerHTML = deps.syntax.renderHtml(deps.syntax.parse(this.source));
       for (const m of el.querySelectorAll<HTMLElement>('.pm-math')) {
-        void deps.reader?.renderMath(m.dataset.tex ?? '', false, m);
+        void deps.reader?.renderMath(m.dataset.tex ?? '', false, m, formulaSource(deps));
       }
     } else if (this.kind === 'properties' && deps) {
       renderProperties(el, deps, this.source);
@@ -649,10 +728,17 @@ class BlockWidget extends WidgetType {
               const { source, from } = blockOf.get(el)!;
               view.dispatch({
                 selection: { anchor: Math.min(from + 4, from + source.length) },
+                effects: showSource.of({ from, to: from + source.length }),
                 scrollIntoView: true,
               });
               view.focus();
             },
+            deps.comment
+              ? () => {
+                  const { source, from } = blockOf.get(el)!;
+                  deps.comment!(view, { from, to: from + source.length });
+                }
+              : undefined,
           );
         attach();
         menu();
@@ -837,13 +923,15 @@ function buildDecorations(view: EditorView): DecorationSet {
         }
         if (name === 'Embed') {
           const source = deps?.sourcePath();
-          if (!near(node.from, node.to) && deps?.reader && source !== undefined) {
+          if (!sourceShownAt(state, node.from, node.to) && deps?.reader && source !== undefined) {
             const target = node.node.getChild('WikiLinkTarget');
             const sub = node.node.getChild('WikiLinkSubpath');
             const alias = node.node.getChild('WikiLinkAlias');
             const pipe = node.node.getChild('WikiLinkPipe');
             decorations.push(
               Decoration.replace({
+                // One element for the cursor (see `embedAtoms`).
+                atom: true,
                 widget: new EmbedWidget(
                   target ? state.doc.sliceString(target.from, target.to).trim() : '',
                   sub ? state.doc.sliceString(sub.from + 1, sub.to).trim() || undefined : undefined,
@@ -859,6 +947,13 @@ function buildDecorations(view: EditorView): DecorationSet {
                 ),
               }).range(node.from, node.to),
             );
+            // The space between two embeds of a row is not drawn: text between the elements
+            // of a row has no place on screen, and the cursor could not be kept there.
+            const gap = /^[ \t]+(?=!\[\[)/.exec(
+              state.doc.sliceString(node.to, state.doc.lineAt(node.to).to),
+            );
+            if (gap && !sourceShownAt(state, node.to, node.to + gap[0].length + 3))
+              hide(node.to, node.to + gap[0].length);
           }
           return false;
         }
@@ -1059,14 +1154,19 @@ const inlinePreview = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
 
+    /** The embeds that are drawn: each is one element for the cursor. */
+    atoms: DecorationSet = Decoration.none;
+
     constructor(view: EditorView) {
       this.decorations = buildDecorations(view);
+      this.atoms = atomsOf(this.decorations);
     }
 
     update(update: ViewUpdate) {
       if (
         update.docChanged ||
         update.viewportChanged ||
+        update.startState.field(sourceShown, false) !== update.state.field(sourceShown, false) ||
         revealChanged(update.startState, update.state) ||
         syntaxTree(update.startState) !== syntaxTree(update.state) ||
         // Within a list item, whether the cursor is at the dash decides how it is drawn.
@@ -1076,10 +1176,24 @@ const inlinePreview = ViewPlugin.fromClass(
           ))
       ) {
         this.decorations = buildDecorations(update.view);
+        this.atoms = atomsOf(this.decorations);
       }
     }
   },
   { decorations: (v) => v.decorations },
+);
+
+/** The replaced embeds among the decorations. */
+function atomsOf(decorations: DecorationSet): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  const cursor = decorations.iter();
+  for (; cursor.value; cursor.next())
+    if ((cursor.value.spec as { atom?: boolean }).atom)
+      builder.add(cursor.from, cursor.to, cursor.value);
+  return builder.finish();
+}
+const embedAtoms = EditorView.atomicRanges.of(
+  (view) => view.plugin(inlinePreview)?.atoms ?? Decoration.none,
 );
 
 /** Tables, math blocks and frontmatter become block widgets (needs a state field: they span lines). */
@@ -1128,19 +1242,23 @@ function buildBlocks(state: EditorState): DecorationSet {
         if (tex.trim()) {
           decorations.push(
             Decoration.widget({
-              widget: new MathPreviewWidget(tex),
+              widget: new MathPreviewWidget(tex, from + (/^\$\$+/.exec(source)?.[0].length ?? 0)),
               block: true,
               side: 1,
             }).range(state.doc.lineAt(to).to),
           );
         }
       }
-      if (!kind || owned.has(name) || touches(from, to)) continue;
+      // A rendered code block (a frame, …) is media: its source shows only when asked for.
+      const revealed = kind === 'code' ? sourceShownAt(state, from, to) : touches(from, to);
+      if (!kind || owned.has(name) || revealed) continue;
       // Block replacements must cover whole lines.
       const start = state.doc.lineAt(from).from;
       const end = state.doc.lineAt(to).to;
       decorations.push(
         Decoration.replace({
+          // A rendered code block is one element for the cursor (see `mediaKeys`).
+          ...(kind === 'code' ? { media: true } : {}),
           widget: new BlockWidget(
             kind,
             state.doc.sliceString(start, end),
@@ -1167,15 +1285,16 @@ function buildBlocks(state: EditorState): DecorationSet {
         const first = state.doc.lineAt(node.from);
         const last = state.doc.lineAt(node.to);
         const preview = () => {
-          const tex = state.doc
-            .sliceString(node.from, node.to)
-            .replace(/^\$\$+/, '')
-            .replace(/\$\$+\s*$/, '');
+          const source = state.doc.sliceString(node.from, node.to);
+          const lead = /^\$\$+/.exec(source)?.[0].length ?? 0;
+          const tex = source.slice(lead).replace(/\$\$+\s*$/, '');
           if (!tex.trim()) return;
           decorations.push(
-            Decoration.widget({ widget: new MathPreviewWidget(tex), block: true, side: 1 }).range(
-              last.to,
-            ),
+            Decoration.widget({
+              widget: new MathPreviewWidget(tex, node.from + lead),
+              block: true,
+              side: 1,
+            }).range(last.to),
           );
         };
         // Within one line it is drawn in place; while it is written, what it gives shows
@@ -1219,6 +1338,7 @@ const blockPreview = StateField.define<DecorationSet>({
     if (
       tr.docChanged ||
       tr.reconfigured ||
+      tr.startState.field(sourceShown, false) !== tr.state.field(sourceShown, false) ||
       revealChanged(tr.startState, tr.state) ||
       syntaxTree(tr.startState) !== syntaxTree(tr.state)
     ) {
@@ -1239,10 +1359,9 @@ const remeasure = EditorView.domEventHandlers({
 } as Parameters<typeof EditorView.domEventHandlers>[0]);
 
 /**
- * The arrow keys move through what is drawn in place of source (a formula, a frame, an
- * embedded picture or drawing) as through that source, the same from both sides: from the
- * line below, up lands on its last line, which then shows the source, and down from the line
- * above on its first.
+ * The arrow keys move into a drawn formula block as into its source, the same from both
+ * sides: from the line below, up lands on its last line, which then shows the source, and
+ * down from the line above on its first. (Media is one element and is stepped over.)
  */
 const intoDrawn = (dir: -1 | 1) => (view: EditorView) => {
   const { state } = view;
@@ -1254,13 +1373,13 @@ const intoDrawn = (dir: -1 | 1) => (view: EditorView) => {
   // Within a paragraph that wraps, the keys move within it.
   if (state.doc.lineAt(view.moveVertically(sel, dir > 0).head).number === line.number) return false;
   const next = state.doc.line(n);
-  // What is drawn in place of the next line: a block (a formula, a frame, …) over several
-  // lines, or a picture, drawing or frame embedded on a line of its own.
+  // A formula block drawn in place of the next line (media is stepped over, not entered).
   let first = next;
   let last = next;
-  let drawn = /^\s*!\[\[[^\]]*\]\]\s*$|^\s*!\[[^\]]*\]\([^)]*\)\s*$/.test(next.text);
+  let drawn = false;
   state.field(blockPreview, false)?.between(next.from, next.to, (from, to) => {
     if (to <= from || from > next.from || to < next.to) return;
+    if (!/^\s*\$\$/.test(state.doc.lineAt(from).text)) return;
     drawn = true;
     first = state.doc.lineAt(from);
     last = state.doc.lineAt(to);
@@ -1272,20 +1391,274 @@ const intoDrawn = (dir: -1 | 1) => (view: EditorView) => {
   view.dispatch({ selection: { anchor }, scrollIntoView: true, userEvent: 'select' });
   return true;
 };
+// ---- media as one element --------------------------------------------------------------------
+//
+// A picture, video, drawing or frame is one element in the text, whatever it is written as (an
+// embed within a line, or a block of several lines). The cursor has exactly two places at it:
+// before and after. These rules say so for every key, instead of leaving it to how each kind
+// of widget happens to behave.
+
+type Span = { from: number; to: number };
+
+/** The drawn media block (a frame block, …) that `pos` is at or in. */
+function blockMediaAt(state: EditorState, from: number, to = from): Span | undefined {
+  let found: Span | undefined;
+  state.field(blockPreview, false)?.between(from, to, (f, t, deco) => {
+    if (found || t <= f || !(deco.spec as { media?: boolean }).media) return;
+    found = { from: f, to: t };
+  });
+  return found;
+}
+
+/** The drawn embeds on a line, in order. */
+function embedsOn(view: EditorView, line: { from: number; to: number }): Span[] {
+  const out: Span[] = [];
+  view
+    .plugin(inlinePreview)
+    ?.atoms.between(line.from, line.to, (f, t) => void out.push({ from: f, to: t }));
+  return out;
+}
+
+/** Whether a line holds nothing but media (and the spaces between). */
+function mediaOnly(view: EditorView, line: { from: number; to: number; text: string }): boolean {
+  const embeds = embedsOn(view, line);
+  if (!embeds.length) return false;
+  let rest = line.text;
+  for (const e of [...embeds].reverse())
+    rest = rest.slice(0, e.from - line.from) + rest.slice(e.to - line.from);
+  return !rest.trim();
+}
+
+/** The element on screen that stands for a piece of media in the text. */
+function mediaElement(view: EditorView, span: Span): HTMLElement | undefined {
+  for (const el of view.contentDOM.querySelectorAll<HTMLElement>('.cm-pm-embed, .cm-pm-block')) {
+    // Embeds inside an embedded note are not in this text.
+    if (el.parentElement?.closest('.cm-pm-embed, .cm-pm-block')) continue;
+    try {
+      if (view.posAtDOM(el) === span.from) return el;
+    } catch {
+      // Not (or no longer) part of the editor's content.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The media the cursor stands at: the element in front of it, the one behind it, or both when
+ * it stands between two of a row.
+ */
+function mediaAtCursor(view: EditorView): { behind?: Span; front?: Span } | undefined {
+  const { state } = view;
+  const sel = state.selection.main;
+  if (!sel.empty) return undefined;
+  const head = sel.head;
+  const block = blockMediaAt(state, head);
+  if (block) return head === block.from ? { front: block } : { behind: block };
+  const line = state.doc.lineAt(head);
+  const embeds = embedsOn(view, line);
+  if (!embeds.length) return undefined;
+  // Only the space of a row may lie between the cursor and the element.
+  const blank = (from: number, to: number) => !state.doc.sliceString(from, to).trim();
+  let behind = embeds.find((e) => e.to === head);
+  let front = embeds.find((e) => e.from === head);
+  if (behind && !front) front = embeds.find((e) => e.from > head && blank(head, e.from));
+  if (front && !behind)
+    behind = [...embeds].reverse().find((e) => e.to < head && blank(e.to, head));
+  if (!behind && !front) return undefined;
+  return { ...(behind ? { behind } : {}), ...(front ? { front } : {}) };
+}
+
+/** Starts the blinking anew at every move, so the cursor is seen where it arrives. */
+const caretTurn = new WeakMap<EditorView, { at: number; turn: boolean }>();
+
+/**
+ * The cursor beside a piece of media, drawn here: the editor's own has no place it could be
+ * shown at there (the element stands for text that is not on screen). As tall as the element
+ * it stands at; between two, as tall as the taller.
+ */
+const mediaCaret = layer({
+  above: true,
+  class: 'cm-pm-media-caret-layer',
+  update: (update) =>
+    update.docChanged ||
+    update.selectionSet ||
+    update.focusChanged ||
+    update.viewportChanged ||
+    update.geometryChanged,
+  markers(view) {
+    const at = view.hasFocus ? mediaAtCursor(view) : undefined;
+    const behind = at?.behind && mediaElement(view, at.behind)?.getBoundingClientRect();
+    const front = at?.front && mediaElement(view, at.front)?.getBoundingClientRect();
+    view.dom.classList.toggle('cm-pm-at-media', !!(behind || front));
+    if (!behind && !front) return [];
+    const top = Math.min(behind?.top ?? Infinity, front?.top ?? Infinity);
+    const bottom = Math.max(behind?.bottom ?? -Infinity, front?.bottom ?? -Infinity);
+    // Between two: in the middle of the space between them.
+    const x =
+      behind && front && front.left >= behind.right
+        ? (behind.right + front.left) / 2 - 1
+        : behind
+          ? behind.right + 1
+          : front!.left - 3;
+    const head = view.state.selection.main.head;
+    const last = caretTurn.get(view);
+    const turn = last && last.at !== head ? !last.turn : (last?.turn ?? false);
+    caretTurn.set(view, { at: head, turn });
+    const base = view.scrollDOM.getBoundingClientRect();
+    return [
+      new RectangleMarker(
+        `cm-pm-media-caret ${turn ? 'is-a' : 'is-b'}`,
+        x - base.left + view.scrollDOM.scrollLeft,
+        top - base.top + view.scrollDOM.scrollTop,
+        null,
+        Math.max(view.defaultLineHeight, bottom - top),
+      ),
+    ];
+  },
+});
+
+/**
+ * Puts the cursor at a place beside media. The editor is not asked to scroll there (it cannot
+ * tell where that is and jumps): the element itself is brought into view if it is not.
+ */
+const moveTo = (view: EditorView, anchor: number) => {
+  view.dispatch({ selection: { anchor }, userEvent: 'select' });
+  const at = mediaAtCursor(view);
+  const span = at?.behind ?? at?.front;
+  const el = span && mediaElement(view, span);
+  if (el) el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  else view.dispatch({ effects: EditorView.scrollIntoView(anchor, { y: 'nearest' }) });
+  return true;
+};
+
+/** Left and right: across an element in one step. */
+const acrossMedia = (dir: -1 | 1) => (view: EditorView) => {
+  const { state } = view;
+  const sel = state.selection.main;
+  if (!sel.empty) return false;
+  const head = sel.head;
+  const block = blockMediaAt(state, head);
+  if (block) {
+    if (dir > 0)
+      return moveTo(view, head < block.to ? block.to : Math.min(state.doc.length, block.to + 1));
+    return moveTo(view, head > block.from ? block.from : Math.max(0, block.from - 1));
+  }
+  // Between two elements of a row there is one place, not one on each side of the space.
+  const line = state.doc.lineAt(head);
+  let at = head;
+  if (dir > 0) while (at < line.to && /[ \t]/.test(state.doc.sliceString(at, at + 1))) at++;
+  else while (at > line.from && /[ \t]/.test(state.doc.sliceString(at - 1, at))) at--;
+  for (const e of embedsOn(view, line)) {
+    if (dir > 0 && (head >= e.from || at === e.from) && head < e.to) return moveTo(view, e.to);
+    if (dir < 0 && (head <= e.to || at === e.to) && head > e.from) return moveTo(view, e.from);
+  }
+  return false;
+};
+
+/**
+ * Up and down: onto the line of an element, before it when the cursor comes from the start of
+ * a line and after it otherwise; and on from an element to the line beyond it.
+ */
+const pastMedia = (dir: -1 | 1) => (view: EditorView) => {
+  const { state } = view;
+  const sel = state.selection.main;
+  if (!sel.empty) return false;
+  const head = sel.head;
+  const line = state.doc.lineAt(head);
+  const block = blockMediaAt(state, head);
+  // Within a paragraph that wraps, the keys move within it.
+  if (!block && !mediaOnly(view, line)) {
+    if (state.doc.lineAt(view.moveVertically(sel, dir > 0).head).number === line.number)
+      return false;
+  }
+  const edge = block ? state.doc.lineAt(dir > 0 ? block.to : block.from).number : line.number;
+  const n = edge + dir;
+  if (n < 1 || n > state.doc.lines) return false;
+  const target = state.doc.line(n);
+  const atStart = block ? head === block.from : head === line.from;
+  const onward = blockMediaAt(state, target.from, target.to);
+  if (onward) return moveTo(view, atStart ? onward.from : onward.to);
+  if (mediaOnly(view, target)) return moveTo(view, atStart ? target.from : target.to);
+  // From an element to ordinary text: its start going down, its end going up, or as it was.
+  if (block || mediaOnly(view, line))
+    return moveTo(view, atStart ? target.from : dir > 0 ? target.from : target.to);
+  return false;
+};
+
+/** Text typed at a media block goes on a line of its own, before or after it. */
+const typeAtMedia = EditorView.inputHandler.of((view, _from, _to, text) => {
+  // Where the cursor is, not where the browser put the text (it sees the next line there).
+  const sel = view.state.selection.main;
+  if (!sel.empty || !text || text.includes('\n')) return false;
+  const block = blockMediaAt(view.state, sel.head);
+  if (!block) return false;
+  const before = sel.head === block.from;
+  view.dispatch({
+    changes: before
+      ? { from: block.from, insert: `${text}\n` }
+      : { from: block.to, insert: `\n${text}` },
+    selection: { anchor: before ? block.from + text.length : block.to + 1 + text.length },
+    userEvent: 'input.type',
+  });
+  return true;
+});
+
+/** Backspace behind a media block, or Delete in front of it, removes the element. */
+const deleteMedia = (forward: boolean) => (view: EditorView) => {
+  const { state } = view;
+  const sel = state.selection.main;
+  if (!sel.empty) return false;
+  const block = blockMediaAt(state, sel.head);
+  if (!block) return false;
+  const doc = state.doc;
+  if (forward ? sel.head === block.from : sel.head === block.to) {
+    // With the line break that held it, so no empty line is left behind.
+    const to = Math.min(doc.length, block.to + 1);
+    const from = to === block.to ? Math.max(0, block.from - 1) : block.from;
+    view.dispatch({
+      changes: { from, to },
+      selection: { anchor: from },
+      userEvent: forward ? 'delete.forward' : 'delete.backward',
+    });
+    return true;
+  }
+  // On the other side there is nothing of the element to delete: only an empty line goes.
+  const beyond = forward ? block.to + 1 : block.from - 1;
+  if (beyond < 0 || beyond > doc.length) return true;
+  const other = doc.lineAt(beyond);
+  if (other.length === 0) {
+    view.dispatch({
+      changes: forward ? { from: block.to, to: other.to } : { from: other.from, to: block.from },
+      userEvent: forward ? 'delete.forward' : 'delete.backward',
+    });
+    return true;
+  }
+  return moveTo(view, beyond);
+};
+
 const formulaArrows = Prec.high(
   keymap.of([
-    { key: 'ArrowUp', run: intoDrawn(-1) },
-    { key: 'ArrowDown', run: intoDrawn(1) },
+    { key: 'ArrowLeft', run: acrossMedia(-1) },
+    { key: 'ArrowRight', run: acrossMedia(1) },
+    { key: 'ArrowUp', run: (view) => pastMedia(-1)(view) || intoDrawn(-1)(view) },
+    { key: 'ArrowDown', run: (view) => pastMedia(1)(view) || intoDrawn(1)(view) },
+    { key: 'Backspace', run: deleteMedia(false) },
+    { key: 'Delete', run: deleteMedia(true) },
   ]),
 );
 
 export const livePreview: Extension = [
   revealTracking,
+  // Before the previews, which read it.
+  sourceShown,
   inlinePreview,
   blockPreview,
   inlineMathPreview,
   remeasure,
   formulaArrows,
+  Prec.high(typeAtMedia),
+  embedAtoms,
+  mediaCaret,
 ];
 
 /** Line classes that also apply in source mode (heading sizes, code blocks). */

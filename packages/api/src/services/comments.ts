@@ -17,6 +17,8 @@ export interface CommentEntry {
   /** ISO timestamps. */
   created: string;
   edited?: string;
+  /** Written but not sent yet: an agent it addresses has not been asked. */
+  draft?: boolean;
 }
 
 export interface CommentThread {

@@ -13,6 +13,7 @@ import {
   MarkdownSyntax,
   MetadataIndex,
   Reader,
+  SettingsUi,
   ShellService,
   Vault,
   Workspace,
@@ -25,6 +26,7 @@ import {
   type EditorExtensionContext,
   type PluginModule,
 } from '@pumice/api';
+import { h, settingItem, toggle } from '@pumice/ui';
 import manifestJson from '../manifest.json';
 import { embedAt } from './resize';
 import './editor.css';
@@ -110,6 +112,10 @@ export const plugin = definePlugin({
               contributed: () =>
                 factories.map((f) => f({ path: () => view?.path, sourceMode: () => sourceMode })),
               sourceMode: () => sourceMode,
+              closeLeft: () => ctx.settings.get('closeLeft', true),
+              // Through the command, so the editor does not depend on the comments plugin.
+              comment: (_v, range) =>
+                void ctx.commands.execute('comments.add', range).catch(() => undefined),
               openExternal: (url) => void shell.openExternal(url),
               embedMenu: (v, host, path, at) => showEmbedMenu(v, host, path, at),
               blockMenu: (v, block, at) => showBlockMenu(v, block, at),
@@ -138,7 +144,7 @@ export const plugin = definePlugin({
     ctx.register(
       workspace.registerFileHandler({
         viewType: 'markdown',
-        extensions: ['md', 'markdown', 'txt'],
+        extensions: ['md', 'markdown', 'txt', 'tex'],
       }),
     );
 
@@ -509,6 +515,31 @@ export const plugin = definePlugin({
       },
     ];
     for (const action of defaults) ctx.register(editorApi.registerToolbarAction(action));
+
+    const settingsUi = ctx.tryUse(SettingsUi);
+    if (settingsUi) {
+      ctx.register(
+        settingsUi.registerTab({
+          id: 'editor',
+          title: 'Editor',
+          group: 'plugins',
+          render(container) {
+            container.replaceChildren(
+              h('h2', {}, 'Editor'),
+              settingItem(
+                'Close \\left with \\right',
+                'In a formula, typing \\left( adds the matching \\right) behind the cursor (also for [ \\{ | < and \\langle, \\lVert, \\lfloor, \\lceil).',
+                toggle(
+                  ctx.settings.get('closeLeft', true),
+                  (on) => void ctx.settings.set('closeLeft', on),
+                  { label: 'Close \\left with \\right' },
+                ),
+              ),
+            );
+          },
+        }),
+      );
+    }
 
     ctx.commands.register({
       id: 'editor.toggle-reading',

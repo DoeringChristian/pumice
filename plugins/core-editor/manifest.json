@@ -13,6 +13,7 @@
   "permissions": ["shell"],
   "optionalDependencies": {
     "core.reader": "^0.1.0",
-    "core.index": "^0.1.0"
+    "core.index": "^0.1.0",
+    "core.settings": "^0.1.0"
   }
 }

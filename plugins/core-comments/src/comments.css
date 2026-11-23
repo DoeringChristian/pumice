@@ -331,3 +331,12 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.pm-comment-draft {
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+}
