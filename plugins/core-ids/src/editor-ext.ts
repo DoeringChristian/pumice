@@ -17,7 +17,7 @@ import {
 import {
   isNoteId,
   revealChanged,
-  revealedLines,
+  revealedAt,
   type EditorExtensionContext,
   type MetadataIndexApi,
 } from '@pumice/api';
@@ -45,13 +45,12 @@ export interface IdEditorDeps {
 }
 
 /**
- * `[[id|Name]]` reads as `[[⁝Name]]` on the line being edited (elsewhere the links plugin shows
+ * `[[id|Name]]` reads as `[[⁝Name]]` while the cursor is at it (elsewhere the links plugin shows
  * just the name), and the cursor skips the folded ID.
  */
 function foldIds(deps: IdEditorDeps, ctx: EditorExtensionContext): Extension {
   const build = (view: EditorView): DecorationSet => {
     if (deps.showIds()) return Decoration.none;
-    const active = revealedLines(view.state);
     const source = ctx.sourceMode();
     const out: Range<Decoration>[] = [];
     for (const { from, to } of view.visibleRanges) {
@@ -63,8 +62,8 @@ function foldIds(deps: IdEditorDeps, ctx: EditorExtensionContext): Extension {
           const target = node.node.getChild('WikiLinkTarget');
           const pipe = node.node.getChild('WikiLinkPipe');
           if (!target || !pipe) return false;
-          // Unrevealed lines in live preview already show only the name.
-          if (!source && !active.has(view.state.doc.lineAt(node.from).number)) return false;
+          // A link the cursor is not at already shows only the name in live preview.
+          if (!source && !revealedAt(view.state, node.from, node.to)) return false;
           const id = view.state.sliceDoc(target.from, target.to).trim();
           if (isNoteId(id) && deps.isId(id)) out.push(folded.range(node.from + 2, pipe.to));
           return false;

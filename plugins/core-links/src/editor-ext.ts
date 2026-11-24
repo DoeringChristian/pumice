@@ -23,7 +23,7 @@ import {
   editorCompletions,
   parseWikiLinkContent,
   revealChanged,
-  revealedLines,
+  revealedAt,
   type EditorExtensionContext,
   type LinksApi,
   type MetadataIndexApi,
@@ -120,7 +120,8 @@ function linkDecorations(deps: LinkEditorDeps, ctx: EditorExtensionContext): Ext
   const build = (view: EditorView): { decorations: DecorationSet; atomic: DecorationSet } => {
     const source = ctx.path();
     const live = !ctx.sourceMode();
-    const active = revealedLines(view.state);
+    // Only the link the cursor is in or at shows as written; the rest of its line stays drawn.
+    const at = (from: number, to: number) => revealedAt(view.state, from, to);
     const deco: Range<Decoration>[] = [];
     const atomic: Range<Decoration>[] = [];
     if (source === undefined) return { decorations: Decoration.none, atomic: Decoration.none };
@@ -138,7 +139,7 @@ function linkDecorations(deps: LinkEditorDeps, ctx: EditorExtensionContext): Ext
               'data-link-from': String(node.from),
               'data-link-to': String(node.to),
             };
-            if (live && text && !active.has(view.state.doc.lineAt(node.from).number))
+            if (live && text && !at(node.from, node.to))
               deco.push(
                 Decoration.replace({
                   widget: new LinkWidget(text, true, node.from, node.to),
@@ -150,7 +151,7 @@ function linkDecorations(deps: LinkEditorDeps, ctx: EditorExtensionContext): Ext
           if (node.name !== 'WikiLink') return node.name === 'Embed' ? false : undefined;
           const link = readLink(view.state, node);
           const resolved = deps.index.resolve(link.target, source);
-          const lineActive = active.has(view.state.doc.lineAt(link.from).number);
+          const lineActive = at(link.from, link.to);
           const attrs = {
             class: `cm-pm-wikilink${resolved || !link.target ? '' : ' is-unresolved'}`,
             'data-link-from': String(link.from),
@@ -232,14 +233,12 @@ function linkDecorations(deps: LinkEditorDeps, ctx: EditorExtensionContext): Ext
       // editable link text needs Mod.
       const widget =
         el.contentEditable === 'false' || el.closest('[contenteditable=false]') !== null;
-      const line = view.state.doc.lineAt(view.posAtDOM(el));
-      const editing =
-        view.hasFocus &&
-        view.state.selection.ranges.some((r) => r.from <= line.to && r.to >= line.from);
-      const rendered = widget || (!ctx.sourceMode() && !editing);
-      if (!rendered && !(e.metaKey || e.ctrlKey)) return false;
       const from = Number(el.dataset.linkFrom);
       const to = Number(el.dataset.linkTo);
+      const editing =
+        view.hasFocus && view.state.selection.ranges.some((r) => r.from <= to && r.to >= from);
+      const rendered = widget || (!ctx.sourceMode() && !editing);
+      if (!rendered && !(e.metaKey || e.ctrlKey)) return false;
       const source = ctx.path();
       if (Number.isNaN(from) || source === undefined) return false;
       e.preventDefault();

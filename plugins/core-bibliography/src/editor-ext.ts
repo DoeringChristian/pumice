@@ -20,7 +20,7 @@ import {
   editorCompletions,
   referenceLine,
   revealChanged,
-  revealedLines,
+  revealedAt,
   shortAuthors,
   type BibEntry,
   type BibliographyApi,
@@ -108,7 +108,6 @@ export function bibliographyExtension(deps: BibEditorDeps, ctx: EditorExtensionC
     const entries = entriesOf();
     if (!entries.size) return Decoration.none;
     const live = !ctx.sourceMode();
-    const active = revealedLines(state);
     const cited = citedIn(state);
     const deco: Range<Decoration>[] = [];
     for (const { from, to } of view.visibleRanges) {
@@ -122,7 +121,7 @@ export function bibliographyExtension(deps: BibEditorDeps, ctx: EditorExtensionC
           if (!entry) return;
           const line = state.doc.lineAt(node.from);
           const title = referenceLine(entry);
-          if (live && !active.has(line.number)) {
+          if (live && !revealedAt(state, node.from, node.to)) {
             const text = citeText(
               cited,
               entry,
