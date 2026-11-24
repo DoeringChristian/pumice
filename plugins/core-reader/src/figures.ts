@@ -120,3 +120,46 @@ export function numberRendered(container: HTMLElement, markdown: string): Number
     },
   };
 }
+
+/**
+ * Lines of a paragraph that hold figures become paragraphs of their own: two lines of two
+ * pictures each are two rows, as they are where the note is written (a paragraph is one
+ * block to the renderer, and all four would share one row that wraps where it likes).
+ */
+export function splitFigureLines(container: HTMLElement): void {
+  for (const p of [...container.querySelectorAll('p')]) {
+    if (!p.querySelector(':scope > .pm-embed')) continue;
+    const lines: Node[][] = [[]];
+    for (const node of [...p.childNodes]) {
+      if (node.nodeName === 'BR') lines.push([]);
+      else if (node.nodeType === Node.TEXT_NODE && node.textContent?.includes('\n')) {
+        node.textContent.split('\n').forEach((part, i) => {
+          if (i > 0) lines.push([]);
+          if (part) lines[lines.length - 1]!.push(document.createTextNode(part));
+        });
+      } else lines[lines.length - 1]!.push(node);
+    }
+    const has = (line: Node[]) => line.some((n) => n instanceof Element && n.matches('.pm-embed'));
+    const empty = (line: Node[]) =>
+      line.every((n) => !(n instanceof Element) && !n.textContent?.trim());
+    // Lines of text that follow each other stay one paragraph.
+    const groups: Node[][] = [];
+    let text = false;
+    for (const line of lines.filter((l) => !empty(l))) {
+      if (!has(line) && text)
+        groups[groups.length - 1]!.push(document.createTextNode('\n'), ...line);
+      else groups.push(line);
+      text = !has(line);
+    }
+    if (groups.length < 2) continue;
+    const made = groups.map((nodes, i) => {
+      const part = p.cloneNode(false) as HTMLElement;
+      part.append(...nodes);
+      // Close to each other, as lines of one paragraph are.
+      if (i > 0) part.classList.add('pm-line-after');
+      if (i < groups.length - 1) part.classList.add('pm-line-before');
+      return part;
+    });
+    p.replaceWith(...made);
+  }
+}

@@ -299,6 +299,11 @@
   height: auto;
 }
 
+/* An embed with a width is never wider than the text. */
+.pm-rendered .pm-embed.is-sized {
+  max-width: 100%;
+}
+
 /* Several embeds in one paragraph stand beside each other (see the editor's rule). */
 .pm-rendered p:has(> .pm-embed ~ .pm-embed) {
   display: flex;
@@ -311,8 +316,19 @@
   min-width: min(160px, 100%);
   margin: 0;
 }
-.pm-rendered p:has(> .pm-embed ~ .pm-embed) > .pm-embed[data-alias] {
-  flex: 0 1 auto;
+/* A width is the room an embed takes in the row, the space to its neighbour included: two of
+   half the text width stand beside each other, as do three thirds (as in the editor). */
+.pm-rendered p:has(> .pm-embed ~ .pm-embed) > .pm-embed.is-sized {
+  flex: 1 1 calc(var(--embed-w, 200px) - 12px);
+  max-width: var(--embed-w, none);
+  min-width: 0;
+}
+/* The lines of one paragraph, each a paragraph of its own (see `splitFigureLines`). */
+.pm-rendered p.pm-line-before {
+  margin-bottom: 4px;
+}
+.pm-rendered p.pm-line-after {
+  margin-top: 4px;
 }
 
 /* Captions and numbers of figures, tables and equations (reading view) */

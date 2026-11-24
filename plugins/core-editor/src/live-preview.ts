@@ -1399,29 +1399,38 @@ class EmbedWidget extends WidgetType {
         }
       : undefined;
     /** Writes a new size into the embed's text (`![[x.png|300]]`). */
-    const resize = (size: Size) => {
-      const line = view.state.doc.lineAt(view.posAtDOM(el));
-      const pos = view.posAtDOM(el) - line.from;
+    /** The changes that write a size into the text of the embed drawn at `host`. */
+    const sizeChanges = (host: HTMLElement, size: Size) => {
+      const line = view.state.doc.lineAt(view.posAtDOM(host));
+      const pos = view.posAtDOM(host) - line.from;
       const edit = embedSizeEdit(line.text, pos, size, setEmbedSize);
-      if (!edit) return;
+      if (!edit) return [];
       // A size in attributes behind the embed (`{width=50%}`) would still count: it goes.
       const behind = line.text.slice(edit.to + 2);
       const attributes = parseImageAttributes(behind);
-      view.dispatch({
-        changes: [
-          { from: line.from + edit.from, to: line.from + edit.to, insert: edit.insert },
-          ...(attributes?.size
-            ? [
-                {
-                  from: line.from + edit.to + 2,
-                  to: line.from + edit.to + 2 + attributes.length,
-                  insert: withoutImageSize(behind.slice(0, attributes.length)),
-                },
-              ]
-            : []),
-        ],
-        userEvent: 'input.resize',
-      });
+      return [
+        { from: line.from + edit.from, to: line.from + edit.to, insert: edit.insert },
+        ...(attributes?.size
+          ? [
+              {
+                from: line.from + edit.to + 2,
+                to: line.from + edit.to + 2 + attributes.length,
+                insert: withoutImageSize(behind.slice(0, attributes.length)),
+              },
+            ]
+          : []),
+      ];
+    };
+    const resize = (size: Size, row: Array<{ host: HTMLElement; width: number }> = []) => {
+      const changes = [
+        ...sizeChanges(el, size),
+        // The others on its line, whose widths changed with it (a height one has stays).
+        ...row.flatMap((o) => {
+          const height = parseEmbedSize(embedOf.get(o.host)?.alias).height;
+          return sizeChanges(o.host, { width: o.width, ...(height ? { height } : {}) });
+        }),
+      ];
+      if (changes.length) view.dispatch({ changes, userEvent: 'input.resize' });
     };
     if (reader) {
       void reader

@@ -503,6 +503,19 @@
   max-width: var(--embed-w, none);
   min-width: 0;
 }
+/* A picture with a width fills the room it has in the row: the width is the room's (a width
+   in percent would otherwise be taken of that room once more). */
+.pm-markdown-page
+  .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed)
+  > .cm-pm-embed.is-sized
+  > img:not(.cm-widgetBuffer),
+.pm-markdown-page
+  .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed)
+  > .cm-pm-embed.is-sized
+  > .pm-excalidraw-embed
+  > svg {
+  width: 100% !important;
+}
 .pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-pm-embed .pm-embed,
 .pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-pm-embed .pm-frame {
   margin: 0;

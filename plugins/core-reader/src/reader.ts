@@ -23,7 +23,7 @@ import {
 } from '@pumice/api';
 import { PreambleStore } from './preamble';
 import { createIcon, createVideoPlayer } from '@pumice/ui';
-import { numberRendered, setEmbedCaption } from './figures';
+import { numberRendered, setEmbedCaption, splitFigureLines } from './figures';
 import { showLightbox } from './lightbox';
 import { renderTex } from './math';
 
@@ -159,6 +159,8 @@ export class ReaderImpl implements ReaderApi {
       linkText,
     });
     container.classList.add('pm-rendered');
+    // A line of figures is a row of its own, as it is where the note is written.
+    splitFigureLines(container);
     // Figures, tables and equations of a whole note are numbered.
     const numbering = opts.numbered ? numberRendered(container, markdown) : undefined;
 
@@ -749,8 +751,11 @@ function sized(
   const css = embedSizeCss(parseEmbedSize(alias));
   if (css.width) {
     if (container.classList.contains('pm-embed') && !container.classList.contains('cm-pm-embed')) {
+      // (Never wider than the text: in the style sheet, where a row can say otherwise.)
       container.style.width = css.width;
-      container.style.maxWidth = '100%';
+      // In a row it is the room it takes, the space to its neighbour included (see the CSS).
+      container.style.setProperty('--embed-w', css.width);
+      container.classList.add('is-sized');
       shown.style.width = '100%';
       if (picture !== shown) picture.style.width = '100%';
     } else {

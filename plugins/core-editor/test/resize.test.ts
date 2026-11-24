@@ -7,7 +7,7 @@ import {
   withoutImageSize,
 } from '@pumice/api';
 import { describe, expect, it } from 'vitest';
-import { blockSizeEdit, embedAt, embedSizeEdit, snapWidth } from '../src/resize';
+import { blockSizeEdit, embedAt, embedSizeEdit, sameHeightWidths, snapWidth } from '../src/resize';
 
 describe('embed sizes', () => {
   it('writes Obsidian size specifiers', () => {
@@ -134,5 +134,41 @@ describe('the caption of a frame block', () => {
     );
     expect(blockCaptionEdit(captioned, ' ')).toBe(block);
     expect(blockCaptionEdit(block, '')).toBe(block);
+  });
+});
+
+describe('the width at which a picture of a row is as high as another', () => {
+  // How high each is drawn: the room it has, less its part of the gaps, by its proportions.
+  const heights = (
+    max: number,
+    w: number,
+    aspect: number,
+    others: { share: number; aspect: number }[],
+  ) => {
+    const c = 12 - 12 / (others.length + 1);
+    const total = others.reduce((s, o) => s + o.share, 0);
+    return [(w - c) / aspect, ...others.map((o) => (((max - w) * o.share) / total - c) / o.aspect)];
+  };
+  it('is half the line for two of the same proportions', () => {
+    expect(sameHeightWidths(700, 1.5, [{ share: 1, aspect: 1.5 }])[0]).toBeCloseTo(350);
+  });
+  it('gives the wider picture more room', () => {
+    const others = [{ share: 300, aspect: 16 / 9 }];
+    const [w] = sameHeightWidths(700, 4 / 3, others);
+    expect(w).toBeLessThan(350);
+    const [mine, other] = heights(700, w!, 4 / 3, others);
+    expect(mine).toBeCloseTo(other!);
+  });
+  it('finds one for each of the others, and none for what has no proportions', () => {
+    const others = [{ share: 200, aspect: 1 }, { share: 300, aspect: 2 }, { share: 100 }];
+    const found = sameHeightWidths(700, 1.5, others);
+    expect(found).toHaveLength(2);
+    const full = others.map((o) => ({ share: o.share, aspect: o.aspect ?? 1 }));
+    expect(heights(700, found[0]!, 1.5, full)[0]).toBeCloseTo(
+      heights(700, found[0]!, 1.5, full)[1]!,
+    );
+    expect(heights(700, found[1]!, 1.5, full)[0]).toBeCloseTo(
+      heights(700, found[1]!, 1.5, full)[2]!,
+    );
   });
 });

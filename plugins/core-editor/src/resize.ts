@@ -127,6 +127,36 @@ export function snapWidth(
 const written = (width: number, line: number): number =>
   Math.max(1, Math.round((Math.min(width, line) / line) * TEXT_WIDTH));
 
+/** The space between the embeds of a row (pixels; see the CSS). */
+const ROW_GAP = 12;
+
+/**
+ * The widths at which a dragged picture of a row is as high as one of the others. `max`: the
+ * width of the line; `aspect`: width by height; `others`: what else is on the line, each with
+ * the share it has of what the dragged one leaves (they give way in those proportions).
+ */
+export function sameHeightWidths(
+  max: number,
+  aspect: number,
+  others: Array<{ share: number; aspect?: number }>,
+): number[] {
+  const n = others.length + 1;
+  // What a picture is narrower than the room it takes: its part of the gaps.
+  const c = ROW_GAP - ROW_GAP / n;
+  const total = others.reduce((sum, o) => sum + o.share, 0);
+  if (!(aspect > 0) || !(total > 0)) return [];
+  return others.flatMap((o) => {
+    if (!o.aspect || !(o.aspect > 0)) return [];
+    const k = o.share / total;
+    // (w - c) / aspect = ((max - w) k - c) / o.aspect, for w.
+    const w = (max * k * aspect + c * (o.aspect - aspect)) / (o.aspect + k * aspect);
+    return w > 0 && w < max ? [w] : [];
+  });
+}
+
+/** The least room one of several on a line keeps while another is dragged wider (pixels). */
+const ROW_MIN = 60;
+
 // Pictures, videos, frames, and drawings (which are embedded as an SVG).
 const SELECTOR = 'img:not(.cm-widgetBuffer), video, .pm-frame, .pm-excalidraw-embed > svg';
 
@@ -167,7 +197,11 @@ export function applyEmbedSize(host: HTMLElement, size: EmbedSize): boolean {
 export function attachResizeHandle(
   view: EditorView,
   host: HTMLElement,
-  commit: (size: Size) => void,
+  /**
+   * `row`: the widths of the others on its line, which made room (or took what was left):
+   * in a row the widths add up to the whole line.
+   */
+  commit: (size: Size, row?: Array<{ host: HTMLElement; width: number }>) => void,
 ): void {
   // A drag is under way (a frame reports its size while it is dragged): leave it alone.
   if (host.classList.contains('is-resizing')) return;
@@ -189,10 +223,22 @@ export function attachResizeHandle(
   const label = document.createElement('span');
   label.className = 'cm-pm-resize-label';
 
-  let start: { x: number; y: number; width: number; height: number } | undefined;
+  let start:
+    { x: number; y: number; width: number; height: number; aspect: number | undefined } | undefined;
   let size: Size | undefined;
   /** How the embed stood in its row before the drag. */
   let before: { sized: boolean; width: string } | undefined;
+  /** The others on its line: what share of the line each has, and how it stood. */
+  let row: Array<{
+    host: HTMLElement;
+    target: HTMLElement | null;
+    share: number;
+    aspect: number | undefined;
+    width: number;
+    sized: boolean;
+    css: string;
+    inner: string;
+  }> = [];
   const place = () => {
     // The corner of what is sized, which may be narrower than the line.
     const box = target.getBoundingClientRect();
@@ -220,11 +266,35 @@ export function attachResizeHandle(
         Number(host.dataset.share) * (host.parentElement ?? host).getBoundingClientRect().width ||
         target.getBoundingClientRect().width,
       height: box.height,
+      aspect: box.height > 0 ? target.getBoundingClientRect().width / box.height : undefined,
     };
     before = {
       sized: host.classList.contains('is-sized'),
       width: host.style.getPropertyValue('--embed-w'),
     };
+    // The others on the line give way as this one grows, and take the room it leaves.
+    const mates = [
+      ...(host.parentElement?.querySelectorAll<HTMLElement>(':scope > .cm-pm-embed') ?? []),
+    ];
+    row = mates
+      .filter((m) => m !== host)
+      .map((m) => {
+        const t = m.querySelector<HTMLElement>(SELECTOR);
+        return {
+          host: m,
+          target: t && !t.closest('.pm-embed[data-embed-type="note"]') ? t : null,
+          share: Math.max(1, m.getBoundingClientRect().width),
+          // (A frame has a height of its own: nothing to be as high as.)
+          aspect:
+            t && !t.classList.contains('pm-frame') && t.getBoundingClientRect().height > 0
+              ? t.getBoundingClientRect().width / t.getBoundingClientRect().height
+              : undefined,
+          width: 0,
+          sized: m.classList.contains('is-sized'),
+          css: m.style.getPropertyValue('--embed-w'),
+          inner: t?.style.width ?? '',
+        };
+      });
     handle.setPointerCapture(e.pointerId);
     host.classList.add('is-resizing');
     handle.append(label);
@@ -232,9 +302,22 @@ export function attachResizeHandle(
   handle.addEventListener('pointermove', (e) => {
     if (!start) return;
     const max = (host.parentElement ?? host).getBoundingClientRect().width;
-    const free = Math.max(40, Math.min(max, start.width + e.clientX - start.x));
+    // (Each of the others on the line keeps some room.)
+    const free = Math.max(
+      40,
+      Math.min(max - row.length * ROW_MIN, start.width + e.clientX - start.x),
+    );
     // Snaps to simple fractions of the line; hold Alt to size freely.
-    const snap = e.altKey ? undefined : snapWidth(free, max);
+    let snap = e.altKey ? undefined : snapWidth(free, max);
+    // In a row also to where it is as high as one of the others (the nearer snap holds).
+    if (!e.altKey && row.length && !isFrame && start.aspect) {
+      for (const w of sameHeightWidths(max, start.aspect, row)) {
+        const limit = max - row.length * ROW_MIN;
+        if (w > limit || Math.abs(w - free) > 14) continue;
+        if (!snap || Math.abs(w - free) <= Math.abs(snap.width - free))
+          snap = { name: 'same height', width: w };
+      }
+    }
     const width = Math.round(snap?.width ?? free);
     target.style.width = `${width}px`;
     target.style.maxWidth = '100%';
@@ -242,6 +325,24 @@ export function attachResizeHandle(
     // (One that had no width shared the row evenly: it gets one with the first move.)
     host.style.setProperty('--embed-w', `${width}px`);
     host.classList.add('is-sized');
+    if (row.length) {
+      // What is left of the line is theirs, in the proportions they had.
+      const left = TEXT_WIDTH - written(width, max);
+      const total = row.reduce((sum, o) => sum + o.share, 0);
+      let given = 0;
+      row.forEach((o, i) => {
+        o.width =
+          i === row.length - 1 ? left - given : Math.max(1, Math.round((left * o.share) / total));
+        given += o.width;
+        const px = `${(o.width / TEXT_WIDTH) * max}px`;
+        o.host.style.setProperty('--embed-w', px);
+        o.host.classList.add('is-sized');
+        if (o.target) {
+          o.target.style.width = px;
+          o.target.style.maxWidth = '100%';
+        }
+      });
+    }
     const frame = frameOf();
     if (frame) {
       const height = Math.round(Math.max(40, Math.min(4000, start.height + e.clientY - start.y)));
@@ -264,14 +365,25 @@ export function attachResizeHandle(
     host.classList.remove('is-resizing');
     label.remove();
     if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
-    if (size && e.type === 'pointerup') commit(size);
+    if (size && e.type === 'pointerup')
+      commit(
+        size,
+        row.filter((o) => o.width > 0).map((o) => ({ host: o.host, width: o.width })),
+      );
     else if (before) {
+      for (const o of row) {
+        o.host.classList.toggle('is-sized', o.sized);
+        if (o.css) o.host.style.setProperty('--embed-w', o.css);
+        else o.host.style.removeProperty('--embed-w');
+        if (o.target) o.target.style.width = o.inner;
+      }
       // Given up: as it was.
       host.classList.toggle('is-sized', before.sized);
       if (before.width) host.style.setProperty('--embed-w', before.width);
       else host.style.removeProperty('--embed-w');
     }
     before = undefined;
+    row = [];
     size = undefined;
   };
   handle.addEventListener('pointerup', end);
