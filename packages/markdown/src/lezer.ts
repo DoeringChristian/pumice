@@ -11,6 +11,8 @@ import {
   type MarkdownConfig,
 } from '@lezer/markdown';
 import { Tag, tags } from '@lezer/highlight';
+import { citationKey } from './bibtex';
+import { LABEL_NAME, REFERENCE_NAME } from './links';
 
 /** Highlight tags for dialect nodes (use them in CodeMirror highlight styles). */
 export const dialectTags = {
@@ -49,10 +51,26 @@ const WikiLinkParser = {
     const contentFrom = pos + 2;
     if (cx.char(contentFrom) === 93) return -1;
     let i = contentFrom;
+    // The caption of an embed may refer to something: `![[a.png|As in [[#^fig-b]]]]`.
+    let piped = false;
     for (; i < cx.end; i++) {
       const c = cx.char(i);
-      if (c === 10 || c === 13 || c === 91) return -1;
+      if (c === 10 || c === 13) return -1;
+      if (c === 124) piped = true;
+      if (c === 91) {
+        if (start === pos || !piped || cx.char(i + 1) !== 91) return -1;
+        let j = i + 2;
+        for (; j < cx.end; j++) {
+          const d = cx.char(j);
+          if (d === 10 || d === 13 || d === 91) return -1;
+          if (d === 93) break;
+        }
+        if (j === i + 2 || cx.char(j + 1) !== 93) return -1;
+        i = j + 1;
+        continue;
+      }
       if (c === 92) {
+        if (cx.char(i + 1) === 124) piped = true;
         if (cx.char(i + 1) === 10 || i + 1 >= cx.end) return -1;
         i++;
         continue;
@@ -105,6 +123,37 @@ const HighlightParser = {
   },
 };
 
+const isNameChar = (c: number) =>
+  (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+
+/** What a citation key is made of: letters, digits, `_`, and `: . + / -` inside it. */
+const isKeyChar = (c: number) =>
+  isNameChar(c) || c === 95 || c === 58 || c === 46 || c === 43 || c === 47 || c === 45;
+
+/**
+ * `@fig-loss`: a reference to a figure, table or equation of the note. `@doe2020`: a citation
+ * of an entry of the bibliography (as in pandoc; in brackets too: `[@doe2020, p. 3]`).
+ */
+const ReferenceParser = {
+  name: 'Reference',
+  parse(cx: InlineContext, next: number, pos: number): number {
+    if (
+      next !== 64 ||
+      (pos > cx.offset && (isNameChar(cx.char(pos - 1)) || cx.char(pos - 1) === 64))
+    )
+      return -1;
+    let i = pos + 1;
+    while (i < cx.end && isKeyChar(cx.char(i))) i++;
+    // Without the punctuation of the sentence behind it.
+    const name = citationKey(cx.slice(pos + 1, i));
+    if (!name) return -1;
+    // A figure, table or equation of the note; anything else may be a key of the bibliography.
+    return cx.addElement(
+      cx.elt(REFERENCE_NAME.test(name) ? 'Reference' : 'Citation', pos, pos + 1 + name.length),
+    );
+  },
+};
+
 const TagParser = {
   name: 'Tag',
   parse(cx: InlineContext, next: number, pos: number): number {
@@ -129,6 +178,18 @@ const BlockIdParser = {
     if (i === pos + 1) return -1;
     if (i < cx.end && cx.char(i) !== 10 && cx.char(i) !== 13) return -1;
     return cx.addElement(cx.elt('BlockId', pos, i));
+  },
+};
+
+/** `{#fig-loss}`: the label of what stands before it (a figure, a table's caption, an equation). */
+const LabelParser = {
+  name: 'Label',
+  parse(cx: InlineContext, next: number, pos: number): number {
+    if (next !== 123 || cx.char(pos + 1) !== 35) return -1;
+    let i = pos + 2;
+    while (i < cx.end && (isNameChar(cx.char(i)) || cx.char(i) === 45)) i++;
+    if (cx.char(i) !== 125 || !LABEL_NAME.test(cx.slice(pos + 2, i))) return -1;
+    return cx.addElement(cx.elt('BlockId', pos, i + 1));
   },
 };
 
@@ -292,6 +353,8 @@ export const ObsidianSyntax: MarkdownConfig = {
     { name: 'Tag', style: dialectTags.tag },
     'TagMark',
     { name: 'BlockId', style: dialectTags.blockId },
+    { name: 'Reference', style: dialectTags.wikiLink },
+    'Citation',
     { name: 'Comment', style: dialectTags.comment },
     { name: 'CommentBlock', block: true, style: dialectTags.comment },
     { name: 'CommentMark', style: tags.processingInstruction },
@@ -303,10 +366,12 @@ export const ObsidianSyntax: MarkdownConfig = {
   ],
   parseInline: [
     WikiLinkParser,
+    ReferenceParser,
     FootnoteReferenceParser,
     HighlightParser,
     TagParser,
     BlockIdParser,
+    LabelParser,
     CommentParser,
     InlineMathParser,
   ],

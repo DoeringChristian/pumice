@@ -1,0 +1,18 @@
+{
+  "id": "core.bibliography",
+  "name": "Bibliography",
+  "version": "0.1.0",
+  "description": "Citations from BibTeX files: @key and [@key, p. 3] read as [1] or (Doe 2020), with the list of references at the end of the note.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.vault": "^0.1.0",
+    "core.index": "^0.1.0",
+    "core.workspace": "^0.1.0",
+    "core.editor": "^0.1.0"
+  },
+  "permissions": ["shell"],
+  "optionalDependencies": {
+    "core.reader": "^0.1.0",
+    "core.settings": "^0.1.0"
+  }
+}

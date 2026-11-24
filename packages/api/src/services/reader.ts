@@ -8,6 +8,8 @@ export interface RenderContext {
   sourcePath: VaultPath;
   /** Embed nesting depth; renderers stop at a limit to avoid cycles. */
   depth: number;
+  /** A whole note is rendered (not a part of one, like a slide or what a note embeds). */
+  whole?: boolean;
   /** Ties a resource to the lifetime of the rendered element. */
   register(disposable: DisposableLike): void;
 }

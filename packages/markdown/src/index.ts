@@ -8,3 +8,4 @@ export * from './metadata';
 export * from './frontmatter';
 export * from './render';
 export * from './table';
+export * from './bibtex';

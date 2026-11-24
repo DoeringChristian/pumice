@@ -21,6 +21,7 @@
     "@pumice/core-workspace": "workspace:*",
     "@pumice/core-settings": "workspace:*",
     "@pumice/core-markdown": "workspace:*",
+    "@pumice/core-bibliography": "workspace:*",
     "@pumice/core-ids": "workspace:*",
     "@pumice/core-index": "workspace:*",
     "@pumice/core-reader": "workspace:*",

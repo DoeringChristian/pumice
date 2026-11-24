@@ -104,6 +104,7 @@ export class ReaderImpl implements ReaderApi {
   constructor(private readonly deps: ReaderDeps) {
     this.registerBuiltins();
     this.watchPreambles();
+    this.watchMedia();
   }
 
   registerEmbedRenderer(renderer: EmbedRenderer): Disposable {
@@ -144,16 +145,18 @@ export class ReaderImpl implements ReaderApi {
     const ctx: RenderContext = {
       sourcePath: opts.sourcePath,
       depth: opts.depth ?? 0,
+      ...(opts.numbered && !opts.depth ? { whole: true } : {}),
       register: (d) => store.add(d),
     };
     const links = this.deps.ctx.tryUse(Links);
     const tree = this.deps.syntax.parse(markdown);
+    const linkText = (link: { target: string; subpath?: string; alias?: string }) =>
+      links?.displayText(link, opts.sourcePath) ??
+      this.deps.index.resolve(link.target, opts.sourcePath)?.file.title ??
+      link.target;
     container.innerHTML = this.deps.syntax.renderHtml(tree, {
       isResolved: (target) => !!this.deps.index.resolve(target, opts.sourcePath),
-      linkText: (link) =>
-        links?.displayText(link, opts.sourcePath) ??
-        this.deps.index.resolve(link.target, opts.sourcePath)?.file.title ??
-        link.target,
+      linkText,
     });
     container.classList.add('pm-rendered');
     // Figures, tables and equations of a whole note are numbered.
@@ -177,7 +180,13 @@ export class ReaderImpl implements ReaderApi {
           depth: ctx.depth,
           container: el,
           // Whenever the embed is drawn (again), its caption goes back under it.
-          onDidRender: () => setEmbedCaption(el, numbering?.embed(el)),
+          onDidRender: () =>
+            setEmbedCaption(el, numbering?.embed(el), (link) =>
+              // A label of this note reads as it is numbered right now (the index may lag).
+              !link.target && link.subpath?.startsWith('^')
+                ? (numbering?.reference(link.subpath.slice(1)) ?? linkText(link))
+                : linkText(link),
+            ),
         }).then((d) => store.add(d)),
       );
     }
@@ -441,15 +450,90 @@ export class ReaderImpl implements ReaderApi {
     return a;
   }
 
+  /**
+   * The files that are shown, as addresses the page can load: read once and kept while in use
+   * and for a while after. A picture that scrolls out of a note and back in is the same
+   * picture to the browser (the same address), which then has it at hand; read anew each time
+   * it was decoded anew each time, and a long note with large figures scrolled in jerks.
+   */
+  private readonly media = new Map<
+    VaultPath,
+    { url: Promise<string>; bytes: number; users: number; used: number }
+  >();
+  /** How much is kept that nothing shows at the moment. */
+  private static readonly KEEP_UNUSED = 256 * 1024 * 1024;
+
+  private dropMedia(path: VaultPath): void {
+    const entry = this.media.get(path);
+    if (!entry) return;
+    this.media.delete(path);
+    void entry.url.then((url) => URL.revokeObjectURL(url)).catch(() => undefined);
+  }
+
+  /** Lets go of what nothing shows, oldest first, once it is more than is worth keeping. */
+  private trimMedia(): void {
+    const unused = [...this.media.entries()]
+      .filter(([, e]) => e.users === 0)
+      .sort((x, y) => y[1].used - x[1].used);
+    let kept = 0;
+    for (const [path, entry] of unused) {
+      kept += entry.bytes;
+      if (kept > ReaderImpl.KEEP_UNUSED) this.dropMedia(path);
+    }
+  }
+
+  private watchMedia(): void {
+    this.deps.vault.onDidChange((changes) => {
+      // A file that changed is read again by what shows it next (an embed draws itself anew
+      // when its file changes); what still shows the old one keeps its address until then.
+      for (const c of changes) {
+        const paths =
+          c.type === 'delete' ? [c.path] : c.type === 'rename' ? [c.oldPath] : [c.entry.path];
+        for (const path of paths) {
+          const entry = this.media.get(path);
+          if (!entry) continue;
+          if (entry.users === 0) this.dropMedia(path);
+          else this.media.delete(path);
+        }
+      }
+    });
+  }
+
   private async blobUrl(
     path: VaultPath,
     ext: string,
     register: (d: Disposable) => void,
   ): Promise<string> {
-    const bytes = await this.deps.vault.readBinary(path);
-    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mimeFor(ext) }));
-    register(toDisposable(() => URL.revokeObjectURL(url)));
-    return url;
+    let entry = this.media.get(path);
+    if (!entry) {
+      const fresh = {
+        url: this.deps.vault.readBinary(path).then((bytes) => {
+          fresh.bytes = bytes.byteLength;
+          return URL.createObjectURL(new Blob([bytes as BlobPart], { type: mimeFor(ext) }));
+        }),
+        bytes: 0,
+        users: 0,
+        used: 0,
+      };
+      entry = fresh;
+      this.media.set(path, entry);
+      // One that could not be read is tried again next time.
+      entry.url.catch(() => this.media.get(path) === fresh && this.media.delete(path));
+    }
+    const mine = entry;
+    mine.users++;
+    mine.used = Date.now();
+    register(
+      toDisposable(() => {
+        mine.users--;
+        mine.used = Date.now();
+        // No longer the file's (it changed meanwhile) and no longer shown: gone.
+        if (mine.users === 0 && this.media.get(path) !== mine)
+          void mine.url.then((url) => URL.revokeObjectURL(url)).catch(() => undefined);
+        else this.trimMedia();
+      }),
+    );
+    return mine.url;
   }
 
   private registerBuiltins(): void {
@@ -458,6 +542,8 @@ export class ReaderImpl implements ReaderApi {
       extensions: IMAGE,
       render: async (ctx) => {
         const img = document.createElement('img');
+        // Decoded beside the page, not in its way: a large picture does not hold up scrolling.
+        img.decoding = 'async';
         img.alt = ctx.alias && !/^\d+(x\d+)?$/.test(ctx.alias) ? ctx.alias : ctx.file!.title;
         sized(ctx.container, img, ctx.alias);
         img.src = await this.blobUrl(ctx.file!.path, ctx.file!.extension, (d) => ctx.register(d));

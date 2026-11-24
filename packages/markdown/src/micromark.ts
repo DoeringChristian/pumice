@@ -17,6 +17,8 @@ import type {
   TokenizeContext,
   Tokenizer,
 } from 'micromark-util-types';
+import { citationKey } from './bibtex';
+import { LABEL_NAME } from './links';
 
 declare module 'micromark-util-types' {
   interface TokenTypeMap {
@@ -29,6 +31,8 @@ declare module 'micromark-util-types' {
     highlightSequenceTemporary: 'highlightSequenceTemporary';
     highlightText: 'highlightText';
     tag: 'tag';
+    reference: 'reference';
+    figureLabel: 'figureLabel';
     blockId: 'blockId';
     comment: 'comment';
     commentFlow: 'commentFlow';
@@ -39,6 +43,7 @@ declare module 'micromark-util-types' {
 
 const enum C {
   bang = 33,
+  at = 64,
   hash = 35,
   dollar = 36,
   percent = 37,
@@ -47,6 +52,9 @@ const enum C {
   backslash = 92,
   bracketClose = 93,
   caret = 94,
+  braceOpen = 123,
+  pipe = 124,
+  braceClose = 125,
 }
 
 const isDigit = (code: Code) => code !== null && code >= 48 && code <= 57;
@@ -64,11 +72,15 @@ function tokenizeWikiLink(
   ok: State,
   nok: State,
 ): State {
+  // The caption of an embed may refer to something: `![[a.png|As in [[#^fig-b]]]]`.
+  let embed = false;
+  let piped = false;
   return start;
 
   function start(code: Code): State | undefined {
     effects.enter('wikiLink');
     if (code === C.bang) {
+      embed = true;
       effects.enter('wikiLinkEmbedMarker');
       effects.consume(code);
       effects.exit('wikiLinkEmbedMarker');
@@ -98,19 +110,49 @@ function tokenizeWikiLink(
   }
 
   function content(code: Code): State | undefined {
-    if (code === null || markdownLineEnding(code) || code === C.bracketOpen) return nok(code);
+    if (code === null || markdownLineEnding(code)) return nok(code);
+    if (code === C.bracketOpen) {
+      if (!embed || !piped) return nok(code);
+      effects.consume(code);
+      return innerOpen;
+    }
     if (code === C.bracketClose) {
       effects.exit('wikiLinkContent');
       effects.enter('wikiLinkMarker');
       effects.consume(code);
       return close;
     }
+    if (code === C.pipe) piped = true;
     effects.consume(code);
     return code === C.backslash ? escaped : content;
   }
 
   function escaped(code: Code): State | undefined {
     if (code === null || markdownLineEnding(code)) return nok(code);
+    if (code === C.pipe) piped = true;
+    effects.consume(code);
+    return content;
+  }
+
+  function innerOpen(code: Code): State | undefined {
+    if (code !== C.bracketOpen) return nok(code);
+    effects.consume(code);
+    return innerStart;
+  }
+
+  function innerStart(code: Code): State | undefined {
+    if (code === C.bracketClose) return nok(code);
+    return inner(code);
+  }
+
+  function inner(code: Code): State | undefined {
+    if (code === null || markdownLineEnding(code) || code === C.bracketOpen) return nok(code);
+    effects.consume(code);
+    return code === C.bracketClose ? innerClose : inner;
+  }
+
+  function innerClose(code: Code): State | undefined {
+    if (code !== C.bracketClose) return nok(code);
     effects.consume(code);
     return content;
   }
@@ -241,6 +283,91 @@ const isTagChar = (code: Code) =>
   code !== null &&
   code > 0 &&
   ((code >= 0xd800 && code <= 0xdfff) || TAG_CHAR.test(String.fromCharCode(code)));
+
+// Labels: {#fig-loss} behind a figure, in a table's caption line, under an equation.
+
+const figureLabel: Construct = { name: 'figureLabel', tokenize: tokenizeLabel };
+
+function tokenizeLabel(
+  this: TokenizeContext,
+  effects: Parameters<Tokenizer>[0],
+  ok: State,
+  nok: State,
+): State {
+  let name = '';
+  return start;
+
+  function start(code: Code): State | undefined {
+    effects.enter('figureLabel');
+    effects.consume(code);
+    return hash;
+  }
+
+  function hash(code: Code): State | undefined {
+    if (code !== C.hash) return nok(code);
+    effects.consume(code);
+    return body;
+  }
+
+  function body(code: Code): State | undefined {
+    if (isNameChar(code) || code === 45) {
+      name += String.fromCharCode(code!);
+      effects.consume(code);
+      return body;
+    }
+    if (code !== C.braceClose || !LABEL_NAME.test(name)) return nok(code);
+    effects.consume(code);
+    effects.exit('figureLabel');
+    return ok;
+  }
+}
+
+// References: @fig-loss, @tab-runs, @eq-energy (and by number, @fig2).
+
+const reference: Construct = { name: 'reference', tokenize: tokenizeReference };
+
+const isNameChar = (code: Code) =>
+  code !== null &&
+  ((code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122));
+
+function tokenizeReference(
+  this: TokenizeContext,
+  effects: Parameters<Tokenizer>[0],
+  ok: State,
+  nok: State,
+): State {
+  const previous = this.previous;
+  let name = '';
+  return start;
+
+  function start(code: Code): State | undefined {
+    if (isNameChar(previous) || previous === C.at) return nok(code);
+    effects.enter('reference');
+    effects.consume(code);
+    return body;
+  }
+
+  function body(code: Code): State | undefined {
+    // Letters, digits and `_`, with `: . + / -` inside (a key of the bibliography may have
+    // them; what ends the name is the sentence's, and is given back as text).
+    if (
+      isNameChar(code) ||
+      code === 95 ||
+      code === 58 ||
+      code === 46 ||
+      code === 43 ||
+      code === 47 ||
+      code === 45
+    ) {
+      name += String.fromCharCode(code!);
+      effects.consume(code);
+      return body;
+    }
+    if (!citationKey(name)) return nok(code);
+    effects.exit('reference');
+    return ok(code);
+  }
+}
 
 const tag: Construct = { name: 'tag', tokenize: tokenizeTag };
 
@@ -492,6 +619,8 @@ export function obsidianSyntax(): Extension {
       [C.bang]: wikiLink,
       [C.equals]: highlight,
       [C.hash]: tag,
+      [C.at]: reference,
+      [C.braceOpen]: figureLabel,
       [C.caret]: blockId,
       [C.percent]: commentText,
       [C.dollar]: inlineMath,

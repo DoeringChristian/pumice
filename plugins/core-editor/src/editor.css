@@ -521,6 +521,83 @@
   width: 0;
 }
 
+/* The label of a figure, beside its caption while the pointer is on the figure */
+.cm-pm-caption-id {
+  margin-left: 8px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.85em;
+  color: var(--text-muted);
+  background: var(--bg-hover, rgba(127, 127, 127, 0.12));
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.cm-pm-embed:hover .cm-pm-caption-id,
+.cm-pm-caption-id:hover {
+  opacity: 1;
+}
+.cm-pm-caption-id:hover {
+  color: var(--accent);
+}
+input.cm-pm-caption-id.is-editing {
+  opacity: 1;
+  border: 1px solid var(--accent);
+  outline: none;
+  color: var(--text);
+  cursor: text;
+  box-sizing: content-box;
+}
+.pm-is-reading .cm-pm-caption-id {
+  display: none;
+}
+
+/* What a clicked reference has led to */
+@keyframes pm-flash {
+  0%,
+  35% {
+    box-shadow: 0 0 0 3px var(--accent);
+    background-color: var(--selection);
+  }
+  100% {
+    box-shadow: 0 0 0 3px transparent;
+    background-color: transparent;
+  }
+}
+.pm-flash {
+  animation: pm-flash 1.3s ease-out;
+  border-radius: 4px;
+}
+
+/* Where a dragged figure would go */
+.cm-pm-drop-mark {
+  position: fixed;
+  z-index: 50;
+  background: var(--accent);
+  border-radius: 1px;
+  pointer-events: none;
+}
+.cm-pm-embed.is-dragging {
+  opacity: 0.45;
+}
+
+/* A figure inside a selection: tinted like selected text, with a ring */
+.cm-pm-embed.is-selected {
+  position: relative;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+.cm-pm-embed.is-selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--selection);
+  pointer-events: none;
+  border-radius: 4px;
+}
+
 /* The "more" button of an embedded picture, video or frame */
 .cm-pm-has-menu {
   position: relative;
@@ -1013,6 +1090,11 @@
   width: 0;
   min-width: 100%;
 }
+/* Under something very narrow (a small drawing, an empty one) a caption keeps a width it can
+   be read at, and stands out beyond it. */
+.cm-pm-embed > .cm-pm-caption {
+  min-width: max(100%, 14em);
+}
 
 /* ---- how the note is shown: edit, read, source -------------------------------------------- */
 .pm-markdown-view {
@@ -1107,7 +1189,7 @@
 
 /* ---- reading: as it is drawn for writing, with nothing to change it ----------------------- */
 .pm-is-reading .cm-pm-resize,
-.pm-is-reading .cm-pm-embed-menu,
+.pm-is-reading .cm-pm-embed-menu:not(.cm-pm-embed-copy),
 .pm-is-reading .cm-pm-caption.is-empty,
 .pm-is-reading .cm-pm-media-caret-layer,
 .pm-is-reading .pm-table-add,

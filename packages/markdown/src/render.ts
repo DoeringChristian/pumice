@@ -9,7 +9,7 @@ import { defaultSchema, sanitize, type Schema } from 'hast-util-sanitize';
 import { toHtml } from 'hast-util-to-html';
 import type { Nodes, Parents, Root } from 'mdast';
 import { defaultHandlers, toHast, type Handler, type State } from 'mdast-util-to-hast';
-import type { Callout, Comment, Highlight, Tag, WikiLink, BlockId } from './mdast';
+import type { Callout, Citation, Comment, Highlight, Tag, WikiLink, BlockId } from './mdast';
 import { embedSizeCss, parseEmbedSize, parseImageAttributes, withAliasSize } from './links';
 
 const EXTERNAL_URL = /^[a-z][a-z0-9+.-]*:/i;
@@ -106,6 +106,12 @@ export function toHastTree(tree: Root, opts: RenderOptions = {}): HastRoot {
     tag(_state: State, node: Tag) {
       return el('a', { className: ['tag'], href: '#', dataTag: node.value }, [
         { type: 'text', value: `#${node.value}` },
+      ]);
+    },
+    citation(_state: State, node: Citation) {
+      // As written, until what shows the note says what it cites (see `core.bibliography`).
+      return el('span', { className: ['pm-cite'], dataKey: node.value }, [
+        { type: 'text', value: `@${node.value}` },
       ]);
     },
     blockId(_state: State, node: BlockId) {
@@ -240,6 +246,7 @@ function splitUrl(url: string): [string, string | undefined] {
 
 function plainText(node: Nodes): string {
   if (node.type === 'tag') return `#${node.value}`;
+  if (node.type === 'citation') return `@${node.value}`;
   if ('value' in node && typeof node.value === 'string') return node.value;
   if (node.type === 'wikiLink') return node.alias || node.target;
   if ('children' in node) return (node.children as Nodes[]).map(plainText).join('');

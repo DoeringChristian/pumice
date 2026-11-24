@@ -51,3 +51,10 @@
   max-width: 100%;
   height: auto;
 }
+.pm-excalidraw-embed.is-empty {
+  padding: 18px 22px;
+  border: 1px dashed var(--border);
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-ui);
+}

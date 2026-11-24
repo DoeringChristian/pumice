@@ -16,6 +16,7 @@ import explorer from '@pumice/core-explorer';
 import files from '@pumice/core-files';
 import frames from '@pumice/core-frames';
 import graph from '@pumice/core-graph';
+import bibliography from '@pumice/core-bibliography';
 import ids from '@pumice/core-ids';
 import index from '@pumice/core-index';
 import links from '@pumice/core-links';
@@ -51,6 +52,7 @@ export { PluginManager, EXTENSIONS_DIR, pluginSources } from './plugin-manager';
 
 /** Plugins shipped with the app. Order doesn't matter: the kernel resolves dependencies. */
 export const bundledPlugins: PluginModule[] = [
+  bibliography,
   vault,
   documents,
   markdown,

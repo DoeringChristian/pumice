@@ -4,7 +4,14 @@ import {
   figureLabel,
   figureReference,
   isFigureTarget,
+  itemByNumber,
+  labelChange,
+  newLabel,
   numberItems,
+  referableItems,
+  renameLabelChanges,
+  setEmbedCaption,
+  validLabel,
 } from '../src/figures';
 
 const NOTE = `---
@@ -137,5 +144,121 @@ describe('setting a caption', () => {
   it('keeps out what would break the embed', async () => {
     const { setEmbedCaption } = await import('../src/figures');
     expect(setEmbedCaption('pic.png', 'a | b ]] c')).toBe('pic.png|a b c');
+  });
+});
+
+describe('labels and references', () => {
+  const note = [
+    'Text.',
+    '',
+    '![[a.png|First]]',
+    '',
+    '![[b.png|As in [[#^fig-a]] again|350]] ^fig-b',
+    '',
+    '$$',
+    'x = 1',
+    '$$',
+    '',
+    '| a | b |',
+    '| - | - |',
+    '| 1 | 2 |',
+    '',
+    'See [[#^fig-b]] and [[#^fig-b|that one]], @fig-b too (not @fig-bb).',
+  ].join('\n');
+  const apply = (text: string, c: { from: number; to: number; insert: string }) =>
+    text.slice(0, c.from) + c.insert + text.slice(c.to);
+
+  it('reads a caption that refers to another figure', () => {
+    const items = numberItems(note);
+    expect(items.map((i) => [i.kind, i.number, i.caption, i.id])).toEqual([
+      ['fig', 1, 'First', undefined],
+      ['fig', 2, 'As in [[#^fig-a]] again', 'fig-b'],
+    ]);
+    expect(setEmbedCaption('b.png|x|350', 'See [[#^fig-a]] | [not] this')).toBe(
+      'b.png|See [[#^fig-a]] not this|350',
+    );
+  });
+
+  it('lists what has no number too, and labels it', () => {
+    const items = referableItems(note);
+    expect(items.map((i) => `${i.kind}${i.number}`)).toEqual(['fig1', 'fig2', 'eq0', 'tab0']);
+    const withFig = apply(note, labelChange(note, items[0]!, 'fig-new'));
+    expect(withFig).toContain('![[a.png|First]]{#fig-new}\n');
+    expect(numberItems(withFig)[0]!.id).toBe('fig-new');
+    const withEq = apply(note, labelChange(note, items[2]!, 'eq-new'));
+    expect(withEq).toContain('x = 1\n$$\n{#eq-new}\n');
+    expect(numberItems(withEq).find((i) => i.kind === 'eq')?.id).toBe('eq-new');
+    const withTab = apply(note, labelChange(note, items[3]!, 'tab-new'));
+    expect(withTab).toContain('Table: {#tab-new}\n\n| a | b |');
+    expect(numberItems(withTab).find((i) => i.kind === 'tab')?.id).toBe('tab-new');
+  });
+
+  it('gives each picture of a line its own label, whatever follows', () => {
+    const row = '![[a.png|200]] ![[b.png|200]]{width=50%} and text after.';
+    const [a, b] = referableItems(row);
+    let text = apply(row, labelChange(row, b!, 'fig-b'));
+    text = apply(text, labelChange(text, referableItems(text)[0]!, 'fig-a'));
+    expect(text).toBe('![[a.png|200]]{#fig-a} ![[b.png|200]]{#fig-b width=50%} and text after.');
+    expect(numberItems(text).map((i) => i.id)).toEqual(['fig-a', 'fig-b']);
+    expect(a!.number).toBe(0);
+    // As a block ID at the end of the line it is the first picture's that has none.
+    expect(numberItems('![[a.png]]{#fig-a} ![[b.png]] ^fig-old').map((i) => i.id)).toEqual([
+      'fig-a',
+      'fig-old',
+    ]);
+  });
+
+  it('reads the label of a table from its caption line, of a frame from its block', () => {
+    const text = [
+      'Table: Runs {#tab-runs}',
+      '',
+      '| a |',
+      '| - |',
+      '',
+      '```frame',
+      'file: [[f.html]]',
+      'label: fig-frame',
+      '```',
+      '',
+      '$$ x $$ {#eq-one}',
+    ].join('\n');
+    expect(numberItems(text).map((i) => [i.id, i.caption])).toEqual([
+      ['tab-runs', 'Runs'],
+      ['fig-frame', undefined],
+      ['eq-one', undefined],
+    ]);
+    const plain = '```frame\nfile: [[f.html]]\n```';
+    expect(apply(plain, labelChange(plain, referableItems(plain)[0]!, 'fig-x'))).toBe(
+      '```frame\nlabel: fig-x\nfile: [[f.html]]\n```',
+    );
+    let renamed = text;
+    for (const [from, to] of [
+      ['tab-runs', 'tab-r'],
+      ['fig-frame', 'fig-f'],
+      ['eq-one', 'eq-1'],
+    ] as const)
+      for (const c of renameLabelChanges(renamed, from, to).reverse()) renamed = apply(renamed, c);
+    expect(numberItems(renamed).map((i) => i.id)).toEqual(['tab-r', 'fig-f', 'eq-1']);
+  });
+
+  it('finds what a reference by number means', () => {
+    const items = numberItems(note);
+    expect(itemByNumber(items, 'fig2')?.id).toBe('fig-b');
+    expect(itemByNumber(items, 'fig-1')?.caption).toBe('First');
+    expect(itemByNumber(items, 'fig3')).toBeUndefined();
+    expect(itemByNumber(items, 'fig-b')).toBeUndefined();
+  });
+
+  it('renames a label and the links to it', () => {
+    let text = note;
+    for (const c of renameLabelChanges(note, 'fig-b', 'fig-setup').reverse()) text = apply(text, c);
+    expect(text).toContain('|350]] ^fig-setup\n');
+    expect(text).toContain(
+      '[[#^fig-setup]] and [[#^fig-setup|that one]], @fig-setup too (not @fig-bb).',
+    );
+    expect(text).toContain('[[#^fig-a]]');
+    expect(validLabel('fig', 'fig-setup')).toBe(true);
+    expect(validLabel('fig', 'setup')).toBe(false);
+    expect(newLabel('eq', note, () => 0)).toBe('eq-00000');
   });
 });

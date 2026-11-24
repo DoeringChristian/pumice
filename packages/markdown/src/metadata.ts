@@ -1,5 +1,6 @@
 import type { Nodes, Parent, Root } from 'mdast';
 import { parse as parseYaml } from 'yaml';
+import { citedKeys } from './bibtex';
 import { numberItems, type NumberedItem } from './figures';
 import { parseMarkdown, type ParseOptions } from './mdast';
 
@@ -57,6 +58,8 @@ export interface FileMetadata {
   tasks: TaskRef[];
   /** Numbered figures, tables and equations, in order (see `figures.ts`). */
   figures: FigureRef[];
+  /** What is written `@key` in the note, each once, in order: its citations, if the keys exist. */
+  citations: string[];
 }
 
 /** A numbered figure, table or equation of a note. */
@@ -79,6 +82,7 @@ export function listProperty(value: unknown): string[] {
 function textOf(node: Nodes): string {
   if (node.type === 'tag') return `#${node.value}`;
   if (node.type === 'blockId') return '';
+  if (node.type === 'citation') return `@${node.value}`;
   if ('value' in node && typeof node.value === 'string' && node.type !== 'comment') {
     return node.type === 'yaml' ? '' : node.value;
   }
@@ -109,6 +113,7 @@ export function metadataFromTree(
     headings: [],
     blocks: [],
     tasks: [],
+    citations: text === undefined ? [] : citedKeys(text),
     figures:
       text === undefined
         ? []

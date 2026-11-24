@@ -1,5 +1,5 @@
 import type { EditorView } from '@codemirror/view';
-import { TEXT_WIDTH, embedSizeCss, type EmbedSize } from '@pumice/api';
+import { TEXT_WIDTH, embedPattern, embedSizeCss, type EmbedSize } from '@pumice/api';
 import { createIcon } from '@pumice/ui';
 
 /**
@@ -20,7 +20,7 @@ export function embedSizeEdit(
   setSize: (inner: string, size: Size) => string,
 ): { from: number; to: number; insert: string } | null {
   let best: RegExpExecArray | undefined;
-  for (const m of line.matchAll(/!\[\[([^\]\n]*)\]\]/g)) {
+  for (const m of line.matchAll(embedPattern())) {
     // The widget sits at the embed's start; with several on a line, take the nearest before it.
     if (m.index <= offset && (!best || m.index > best.index)) best = m;
     if (!best) best = m;
@@ -41,7 +41,7 @@ export function embedAt(
   offset: number,
 ): { from: number; to: number; target: string } | null {
   let best: RegExpExecArray | undefined;
-  for (const m of line.matchAll(/!\[\[([^\]\n]*)\]\]/g)) {
+  for (const m of line.matchAll(embedPattern())) {
     if (m.index <= offset && (!best || m.index > best.index)) best = m;
     if (!best) best = m;
   }
@@ -191,6 +191,8 @@ export function attachResizeHandle(
 
   let start: { x: number; y: number; width: number; height: number } | undefined;
   let size: Size | undefined;
+  /** How the embed stood in its row before the drag. */
+  let before: { sized: boolean; width: string } | undefined;
   const place = () => {
     // The corner of what is sized, which may be narrower than the line.
     const box = target.getBoundingClientRect();
@@ -219,6 +221,10 @@ export function attachResizeHandle(
         target.getBoundingClientRect().width,
       height: box.height,
     };
+    before = {
+      sized: host.classList.contains('is-sized'),
+      width: host.style.getPropertyValue('--embed-w'),
+    };
     handle.setPointerCapture(e.pointerId);
     host.classList.add('is-resizing');
     handle.append(label);
@@ -233,7 +239,9 @@ export function attachResizeHandle(
     target.style.width = `${width}px`;
     target.style.maxWidth = '100%';
     // In a row the room it takes follows the drag, so it shows as it will be when let go.
-    if (host.style.getPropertyValue('--embed-w')) host.style.setProperty('--embed-w', `${width}px`);
+    // (One that had no width shared the row evenly: it gets one with the first move.)
+    host.style.setProperty('--embed-w', `${width}px`);
+    host.classList.add('is-sized');
     const frame = frameOf();
     if (frame) {
       const height = Math.round(Math.max(40, Math.min(4000, start.height + e.clientY - start.y)));
@@ -257,6 +265,13 @@ export function attachResizeHandle(
     label.remove();
     if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
     if (size && e.type === 'pointerup') commit(size);
+    else if (before) {
+      // Given up: as it was.
+      host.classList.toggle('is-sized', before.sized);
+      if (before.width) host.style.setProperty('--embed-w', before.width);
+      else host.style.removeProperty('--embed-w');
+    }
+    before = undefined;
     size = undefined;
   };
   handle.addEventListener('pointerup', end);
@@ -285,24 +300,28 @@ export function attachResizeHandle(
 export function attachMenuButton(
   host: HTMLElement,
   open: (at: { x: number; y: number }) => void,
-  /**
-   * Shows the source behind what is rendered. A click on a picture or frame does something else
-   * (enlarges it, is handled by the frame), so there is a "</>" button for getting at the text.
-   */
-  edit?: () => void,
-  /** Starts a comment on what is shown, without going to its source first. */
-  comment?: () => void,
-  /**
-   * Also when nothing in `host` is a picture, video or frame (a frame block that could not
-   * be shown, a diagram): the buttons then stand in the corner of `host` itself. Such a block
-   * shows its source only through the "</>" button, so it must always have one.
-   */
-  always = false,
+  opts: {
+    /**
+     * Shows the source behind what is rendered. A click on a picture or frame does something
+     * else (enlarges it, is handled by the frame), so there is a "</>" button for the text.
+     */
+    edit?: () => void;
+    /** Starts a comment on what is shown, without going to its source first. */
+    comment?: () => void;
+    /** The text in the note that shows this: a button copies it, for another note. */
+    copy?: () => string;
+    /**
+     * Also when nothing in `host` is a picture, video or frame (a frame block that could not
+     * be shown, a diagram): the buttons then stand in the corner of `host` itself. Such a
+     * block shows its source only through the "</>" button, so it must always have one.
+     */
+    always?: boolean;
+  } = {},
 ): void {
   for (const old of host.querySelectorAll(':scope > .cm-pm-embed-menu')) old.remove();
   const shown = host.querySelector<HTMLElement>(`${SELECTOR}, audio, iframe`);
   if (shown?.closest('.pm-embed[data-embed-type="note"]')) return;
-  const target = shown ?? (always ? host : null);
+  const target = shown ?? (opts.always ? host : null);
   if (!target) return;
   host.classList.add('cm-pm-has-menu');
   const button = document.createElement('button');
@@ -311,59 +330,50 @@ export function attachMenuButton(
   button.title = 'More';
   button.setAttribute('aria-label', 'More');
   button.append(createIcon('more-vertical', 14));
-  let source: HTMLButtonElement | undefined;
-  if (edit) {
-    source = document.createElement('button');
-    source.type = 'button';
-    source.className = 'cm-pm-embed-menu cm-pm-embed-edit';
-    source.title = 'Edit the source';
-    source.setAttribute('aria-label', 'Edit the source');
-    source.append(createIcon('code', 14));
-    source.addEventListener('mousedown', (e) => {
+  // From the corner to the left: more, copy, source, comment.
+  const buttons = [button];
+  const extra = (name: string, label: string, icon: string, run: (b: HTMLElement) => void) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `cm-pm-embed-menu cm-pm-embed-${name}`;
+    b.title = label;
+    b.setAttribute('aria-label', label);
+    b.append(createIcon(icon, 14));
+    b.addEventListener('mousedown', (e) => {
       e.preventDefault();
       e.stopPropagation();
     });
-    source.addEventListener('click', (e) => {
+    b.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      edit();
+      run(b);
     });
-    host.append(source);
-  }
-  let note: HTMLButtonElement | undefined;
-  if (comment) {
-    note = document.createElement('button');
-    note.type = 'button';
-    note.className = 'cm-pm-embed-menu cm-pm-embed-comment';
-    note.title = 'Add a comment';
-    note.setAttribute('aria-label', 'Add a comment');
-    note.append(createIcon('message-square-plus', 14));
-    note.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+    host.append(b);
+    buttons.push(b);
+  };
+  const { edit, comment, copy } = opts;
+  if (copy)
+    extra('copy', 'Copy as text for a note', 'copy', (b) => {
+      void navigator.clipboard.writeText(copy()).then(() => {
+        // Shows for a moment that it did.
+        b.replaceChildren(createIcon('check', 14));
+        setTimeout(() => b.replaceChildren(createIcon('copy', 14)), 1200);
+      });
     });
-    note.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      comment();
-    });
-    host.append(note);
-  }
+  if (edit) extra('edit', 'Edit the source', 'code', edit);
+  if (comment) extra('comment', 'Add a comment', 'message-square-plus', comment);
   const place = () => {
     // The corner of what is shown, which may be narrower than the line.
     const box = target.getBoundingClientRect();
     const outer = host.getBoundingClientRect();
-    const left = Math.max(0, box.right - outer.left - 26);
+    const right = Math.max(0, box.right - outer.left - 26);
     const top = `${Math.max(0, box.top - outer.top + 4)}px`;
-    button.style.left = `${left}px`;
-    button.style.top = top;
-    if (source) {
-      source.style.left = `${Math.max(0, left - 26)}px`;
-      source.style.top = top;
-    }
-    if (note) {
-      note.style.left = `${Math.max(0, left - (source ? 52 : 26))}px`;
-      note.style.top = top;
+    // Without a gap where a button is not shown (while reading, only copying is left).
+    let slot = 0;
+    for (const b of buttons) {
+      if (getComputedStyle(b).display === 'none') continue;
+      b.style.left = `${Math.max(0, right - 26 * slot++)}px`;
+      b.style.top = top;
     }
   };
   // The editor must not take these as clicks into the text.

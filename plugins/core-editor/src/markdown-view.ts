@@ -3,7 +3,12 @@ import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { sectionFolding } from './folding';
 import { listEditing } from './lists';
 import { texHighlighting } from './tex';
-import { commonmarkLanguage, markdown, markdownKeymap } from '@codemirror/lang-markdown';
+import {
+  commonmarkLanguage,
+  deleteMarkupBackward,
+  insertNewlineContinueMarkupCommand,
+  markdown,
+} from '@codemirror/lang-markdown';
 import { yamlFrontmatter } from '@codemirror/lang-yaml';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
@@ -37,12 +42,15 @@ import {
   type ViewInstance,
   type ViewState,
   type WorkspaceApi,
+  type LinksApi,
+  referableItems,
+  drawnFor,
 } from '@pumice/api';
 import { createIcon } from '@pumice/ui';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import * as Y from 'yjs';
 import { completionExtension } from './completion';
-import { lineField, livePreview, previewDeps, sourceModeStyling } from './live-preview';
+import { revealItem, lineField, livePreview, previewDeps, sourceModeStyling } from './live-preview';
 
 export const highlightStyle = HighlightStyle.define([
   { tag: tags.heading, fontWeight: '650' },
@@ -90,11 +98,17 @@ export interface EditorShared {
     block: { from: number; to: number },
     at: { x: number; y: number },
   ) => void;
+  /** Links between notes, where there are any (how a link reads, opening one). */
+  links: () => LinksApi | undefined;
+  /** Runs a command of the app. */
+  run: (command: string, arg?: unknown) => void;
   onActiveChange: (view: MarkdownView | undefined) => void;
   /** Toolbar actions for touch devices, sorted. */
   toolbarActions: () => EditorToolbarAction[];
   /** Extensions for the text fields inside a note (`Editor.registerFieldExtension`). */
   fieldExtensions: () => Extension[];
+  /** Extensions for the field a caption is written in (`Editor.registerCaptionExtension`). */
+  captionExtensions: (note: EditorView) => Extension[];
   /** Starts a comment on a range of the note (absent without the comments plugin). */
   comment?: (view: EditorView, range: { from: number; to: number }) => void;
   /** Switches every note between its source and the drawn text. */
@@ -383,6 +397,8 @@ export class MarkdownView implements ViewInstance {
     // The note cannot be renamed from here either.
     this.titleInput.readOnly = reading;
     this.ctx.container.classList.toggle('pm-is-reading', reading);
+    // What is drawn in the note is drawn anew: for writing, or for reading only.
+    drawnFor.epoch++;
     this.editor.dispatch({
       effects: [
         this.readCompartment.reconfigure(this.readingExtension()),
@@ -402,6 +418,15 @@ export class MarkdownView implements ViewInstance {
     const path = this.handle?.path;
     const target =
       path !== undefined ? this.shared.index()?.resolveSubpath(path, subpath) : undefined;
+    // The label of a figure, table or equation, as the note is right now.
+    const id = /^#?\^(.+)$/.exec(subpath)?.[1];
+    const item = id
+      ? referableItems(this.editor.state.doc.toString()).find((i) => i.id === id)
+      : undefined;
+    if (item) {
+      revealItem(this.editor, item);
+      return;
+    }
     if (!target) return;
     const pos = Math.min(target.from, this.editor.state.doc.length);
     this.editor.dispatch({
@@ -569,7 +594,10 @@ export class MarkdownView implements ViewInstance {
           ...yUndoManagerKeymap,
           ...closeBracketsKeymap,
           ...searchKeymap,
-          ...markdownKeymap,
+          // Enter on an empty list item ends the list at once (the library's own first makes
+          // the list a loose one, with an empty line between its items, when it is the second).
+          { key: 'Enter', run: insertNewlineContinueMarkupCommand({ nonTightLists: false }) },
+          { key: 'Backspace', run: deleteMarkupBackward },
           ...defaultKeymap,
           indentWithTab,
         ]),
@@ -593,6 +621,9 @@ export class MarkdownView implements ViewInstance {
           },
           blockMenu: (v, block, at) => shared.blockMenu(v, block, at),
           fieldExtensions: () => shared.fieldExtensions(),
+          captionExtensions: (note) => shared.captionExtensions(note),
+          links: () => shared.links(),
+          run: (command, arg) => shared.run(command, arg),
           ...(shared.comment ? { comment: (v, range) => shared.comment!(v, range) } : {}),
         }),
         syntaxHighlighting(highlightStyle),

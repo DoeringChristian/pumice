@@ -1,10 +1,12 @@
 import {
   embedCaption,
+  fillCaption,
   figureLabel,
   figureReference,
   isFigureTarget,
   numberItems,
   type NumberedItem,
+  type WikiLinkParts,
 } from '@pumice/api';
 
 /**
@@ -17,7 +19,12 @@ import {
 const own = (el: Element) => !el.parentElement?.closest('.pm-embed');
 
 /** Puts the caption (and number) under an embedded picture, video or frame. */
-export function setEmbedCaption(el: HTMLElement, item: NumberedItem | undefined): void {
+export function setEmbedCaption(
+  el: HTMLElement,
+  item: NumberedItem | undefined,
+  /** How a link in the caption reads ("Figure 2"). */
+  linkText: (link: WikiLinkParts) => string = (link) => link.subpath ?? link.target,
+): void {
   el.querySelector(':scope > .pm-caption')?.remove();
   const caption = isFigureTarget(el.dataset.target ?? '')
     ? embedCaption(el.dataset.alias)
@@ -31,7 +38,11 @@ export function setEmbedCaption(el: HTMLElement, item: NumberedItem | undefined)
     label.textContent = caption ? `${figureLabel(item)}: ` : figureLabel(item);
     out.append(label);
   }
-  if (caption) out.append(caption);
+  if (caption) {
+    const text = document.createElement('span');
+    fillCaption(text, caption, linkText);
+    out.append(text);
+  }
   el.append(out);
 }
 
@@ -41,6 +52,8 @@ const mark = (el: HTMLElement, text: string) => {
 };
 
 export interface Numbering {
+  /** How a reference to a label of this note reads ("Figure 2"), if it has that label. */
+  reference(id: string): string | undefined;
   /** The numbered item of an embed, to caption it whenever it is rendered. */
   embed(el: HTMLElement): NumberedItem | undefined;
   /** Marks what was put in place of a frame block. */
@@ -82,7 +95,7 @@ export function numberRendered(container: HTMLElement, markdown: string): Number
     text.textContent = (text.textContent ?? '').replace(/^\s*Table:/i, '');
     const label = document.createElement('span');
     label.className = 'pm-caption-label';
-    label.textContent = `${figureLabel(item)}:`;
+    label.textContent = item.caption ? `${figureLabel(item)}:` : figureLabel(item);
     above.prepend(label);
     above.classList.add('pm-caption-line');
   });
@@ -96,6 +109,10 @@ export function numberRendered(container: HTMLElement, markdown: string): Number
     });
 
   return {
+    reference: (id) => {
+      const item = items.find((i) => i.id === id);
+      return item && figureReference(item);
+    },
     embed: (el) => byElement.get(el),
     frame: (pre, host) => {
       const item = byElement.get(pre);

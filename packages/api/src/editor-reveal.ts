@@ -120,3 +120,10 @@ export function revealChanged(startState: EditorState, state: EditorState): bool
 export const previewBlockOwners = Facet.define<string, ReadonlySet<string>>({
   combine: (names) => new Set(names),
 });
+
+/**
+ * Counts the changes between reading and writing a note. What is drawn in a note for the one
+ * (a caption that can be clicked into, a table whose cells can be typed in) is not what the
+ * other needs: a widget keeps the count it was made at, and one made at another is drawn anew.
+ */
+export const drawnFor = { epoch: 0 };

@@ -149,6 +149,11 @@ export const plugin = definePlugin({
             holder.className = 'pm-excalidraw-embed';
             holder.title = `${file.title} — click to open`;
             holder.innerHTML = svg;
+            // A drawing with nothing in it yet has no size: something to see and to click on.
+            if (!holder.querySelector('svg > :not(defs):not(metadata):not(style)')) {
+              holder.classList.add('is-empty');
+              holder.textContent = `${file.title}: an empty drawing. Click to draw.`;
+            }
             const css = embedSizeCss(parseEmbedSize(embed.alias));
             const svgEl = holder.querySelector('svg');
             if (svgEl && (css.width || css.height)) {

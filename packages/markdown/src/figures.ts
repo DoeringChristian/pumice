@@ -7,7 +7,8 @@
  * `^eq-energy`). Numbers are counted in the order of the note whenever it is shown.
  */
 
-import { isEmbedSize } from './links';
+import type { TextChange } from './frontmatter';
+import { ID_ALPHABET, embedPattern, isEmbedSize, parseImageAttributes } from './links';
 
 export type FigureKind = 'fig' | 'tab' | 'eq';
 
@@ -19,6 +20,8 @@ export interface NumberedItem {
   caption?: string;
   /** Line the item starts on (0-based). */
   line: number;
+  /** The line it ends on (0-based): the line itself for an embed. */
+  endLine: number;
   /** For an embed: where it starts in its line. */
   column?: number;
   /** For a table: the line of its `Table: …` caption. */
@@ -64,11 +67,15 @@ export function setEmbedCaption(inner: string, caption: string): string {
   const parts = inner.split(/\\?\|/);
   const target = parts.shift() ?? '';
   const size = parts.length && isEmbedSize(parts[parts.length - 1]!) ? parts.pop() : undefined;
-  // What would end the embed or split the caption cannot be part of it.
-  const text = caption
-    .replace(/[|[\]\n]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  // What would end the embed or split the caption cannot be part of it; links in it stay.
+  const plain = (t: string) => t.replace(/[|[\]\n]+/g, ' ');
+  let text = '';
+  let at = 0;
+  for (const link of caption.matchAll(/\[\[[^[\]\n]+\]\]/g)) {
+    text += plain(caption.slice(at, link.index)) + link[0];
+    at = link.index + link[0].length;
+  }
+  text = (text + plain(caption.slice(at))).replace(/\s+/g, ' ').trim();
   return [target, ...(text ? [text] : []), ...(size !== undefined ? [size] : [])].join(sep);
 }
 
@@ -78,17 +85,21 @@ export function isFigureTarget(target: string): boolean {
 }
 
 const FENCE = /^\s*(`{3,}|~{3,})\s*([\w+-]*)/;
-const ID_LINE = /^\s*\^([A-Za-z0-9-]+)\s*$/;
-const ID_AT_END = /(?:^|\s)\^([A-Za-z0-9-]+)\s*$/;
 const TABLE_ROW = /^\s*\|?.*\|.*$/;
 const TABLE_RULE = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
-const TABLE_CAPTION = /^\s*Table:\s*(.+?)\s*$/i;
+/** `Table: A caption {#tab-runs}`: the caption (which may be missing) and the label. */
+const TABLE_CAPTION = /^\s*Table:\s*(.*?)\s*(?:\{#([A-Za-z0-9-]+)\})?\s*$/i;
+/** A label on a line of its own: `{#eq-energy}`, or as a block ID (`^eq-energy`). */
+const ID_LINE = /^\s*(?:\^([A-Za-z0-9-]+)|\{#([A-Za-z0-9-]+)\})\s*$/;
+/** The same at the end of a line. */
+const ID_AT_END = /(?:(?:^|\s)\^([A-Za-z0-9-]+)|\{#([A-Za-z0-9-]+)\})\s*$/;
+const idOf = (m: RegExpExecArray | null) => m?.[1] ?? m?.[2];
 
-/** The block ID on the line after a block (directly, or after one blank line). */
+/** The label on the line after a block (directly, or after one blank line). */
 function idAfter(lines: string[], last: number): string | undefined {
   const next = ID_LINE.exec(lines[last + 1] ?? '');
-  if (next) return next[1];
-  if ((lines[last + 1] ?? '').trim() === '') return ID_LINE.exec(lines[last + 2] ?? '')?.[1];
+  if (next) return idOf(next);
+  if ((lines[last + 1] ?? '').trim() === '') return idOf(ID_LINE.exec(lines[last + 2] ?? ''));
   return undefined;
 }
 
@@ -106,6 +117,18 @@ const unquote = (value: string) => {
 
 /** Every numbered figure, table and equation of a note, in order. */
 export function numberItems(text: string): NumberedItem[] {
+  return scanItems(text, false);
+}
+
+/**
+ * Every figure, table and equation of a note, also those without a number (`number` is 0):
+ * what a reference can be made to, since a label gives a number to what has none.
+ */
+export function referableItems(text: string): NumberedItem[] {
+  return scanItems(text, true);
+}
+
+function scanItems(text: string, all: boolean): NumberedItem[] {
   const lines = text.split('\n');
   const items: NumberedItem[] = [];
   const counts: Record<FigureKind, number> = { fig: 0, tab: 0, eq: 0 };
@@ -116,8 +139,8 @@ export function numberItems(text: string): NumberedItem[] {
     rest: Omit<NumberedItem, 'kind' | 'number' | 'ordinal'>,
   ) => {
     const ordinal = ordinals[kind]++;
-    if (!numbered) return;
-    items.push({ kind, number: ++counts[kind], ordinal, ...rest });
+    if (!numbered && !all) return;
+    items.push({ kind, number: numbered ? ++counts[kind] : 0, ordinal, ...rest });
   };
   const labelled = (id: string | undefined, kind: FigureKind) =>
     id !== undefined && id.toLowerCase().startsWith(`${kind}-`);
@@ -141,13 +164,18 @@ export function numberItems(text: string): NumberedItem[] {
       }
       if (fence[2] === 'frame') {
         let caption: string | undefined;
+        let own: string | undefined;
         for (let j = i + 1; j < end; j++) {
           const m = /^caption\s*:\s*(.*)$/.exec(lines[j]!);
           if (m && m[1]!.trim()) caption = unquote(m[1]!);
+          const l = /^label\s*:\s*(.*)$/.exec(lines[j]!);
+          // (A `label` that is no label of a figure is a setting of the frame.)
+          if (l && labelled(unquote(l[1]!), 'fig')) own = unquote(l[1]!);
         }
-        const id = idAfter(lines, end);
+        const id = own ?? idAfter(lines, end);
         add('fig', !!caption || labelled(id, 'fig'), {
           line: i,
+          endLine: end,
           ...(caption ? { caption } : {}),
           ...(labelled(id, 'fig') ? { id: id! } : {}),
         });
@@ -166,8 +194,12 @@ export function numberItems(text: string): NumberedItem[] {
       const same = ID_AT_END.exec(
         (lines[end] ?? '').slice((lines[end] ?? '').lastIndexOf('$$') + 2),
       );
-      const id = same?.[1] ?? idAfter(lines, end);
-      add('eq', labelled(id, 'eq'), { line: i, ...(labelled(id, 'eq') ? { id: id! } : {}) });
+      const id = idOf(same) ?? idAfter(lines, end);
+      add('eq', labelled(id, 'eq'), {
+        line: i,
+        endLine: end,
+        ...(labelled(id, 'eq') ? { id: id! } : {}),
+      });
       i = Math.min(end, lines.length - 1);
       continue;
     }
@@ -181,11 +213,14 @@ export function numberItems(text: string): NumberedItem[] {
         : (lines[i - 1] ?? '').trim() === '' && TABLE_CAPTION.exec(lines[i - 2] ?? '')
           ? i - 2
           : -1;
-      const caption = above >= 0 ? TABLE_CAPTION.exec(lines[above]!)![1] : undefined;
-      const id = idAfter(lines, end);
+      const head = above >= 0 ? TABLE_CAPTION.exec(lines[above]!)! : undefined;
+      const caption = head?.[1] || undefined;
+      const id = head?.[2] ?? idAfter(lines, end);
       add('tab', !!caption || labelled(id, 'tab'), {
         line: i,
-        ...(caption ? { caption, captionLine: above } : {}),
+        endLine: end,
+        ...(caption ? { caption } : {}),
+        ...(above >= 0 ? { captionLine: above } : {}),
         ...(labelled(id, 'tab') ? { id: id! } : {}),
       });
       i = end;
@@ -193,19 +228,25 @@ export function numberItems(text: string): NumberedItem[] {
     }
 
     if (!line.includes('![[')) continue;
-    const id = ID_AT_END.exec(line)?.[1];
+    // A label behind a picture is its own (`![[a.png]]{#fig-a}`); one at the end of the line,
+    // as a block ID, belongs to the first picture that has none.
+    const atEnd = /(?:^|\s)\^([A-Za-z0-9-]+)\s*$/.exec(line)?.[1];
     let given = false;
-    for (const m of line.matchAll(/!\[\[([^\]\n]*)\]\]/g)) {
+    for (const m of line.matchAll(embedPattern())) {
       const inner = m[1]!;
       const bar = inner.search(/\\?\|/);
       const target = (bar < 0 ? inner : inner.slice(0, bar)).split('#')[0]!;
       if (!isFigureTarget(target)) continue;
       const caption = embedCaption(bar < 0 ? undefined : inner.slice(bar).replace(/^\\?\|/, ''));
-      // The line's ID belongs to its first picture.
-      const mine = !given && labelled(id, 'fig') ? id : undefined;
-      given = true;
+      const own = parseImageAttributes(line.slice(m.index + m[0].length))?.id;
+      let mine = labelled(own, 'fig') ? own : undefined;
+      if (!mine && !given && labelled(atEnd, 'fig')) {
+        mine = atEnd;
+        given = true;
+      }
       add('fig', !!caption || !!mine, {
         line: i,
+        endLine: i,
         column: m.index,
         ...(caption ? { caption } : {}),
         ...(mine ? { id: mine } : {}),
@@ -213,4 +254,98 @@ export function numberItems(text: string): NumberedItem[] {
     }
   }
   return items;
+}
+
+/** A label for something that has none: `fig-4k9qz`. It says nothing, so it never ages. */
+export function newLabel(
+  kind: FigureKind,
+  text: string,
+  random: () => number = Math.random,
+): string {
+  for (;;) {
+    let id = `${kind}-`;
+    for (let i = 0; i < 5; i++) id += ID_ALPHABET[Math.floor(random() * ID_ALPHABET.length)];
+    if (!text.includes(id)) return id;
+  }
+}
+
+/**
+ * Gives an item of `text` (from `referableItems`) the label `id`: behind an embed
+ * (`![[a.png]]{#fig-a}`, each picture of a line its own), in a table's caption line
+ * (`Table: Runs {#tab-runs}`), on the line under a `$$` block (`{#eq-energy}`), and as the
+ * `label:` of a frame block.
+ */
+export function labelChange(text: string, item: NumberedItem, id: string): TextChange {
+  const lines = text.split('\n');
+  const startOf = (index: number) => {
+    let at = 0;
+    for (let i = 0; i < index && i < lines.length; i++) at += lines[i]!.length + 1;
+    return at;
+  };
+  const endOf = (index: number) => startOf(index) + (lines[index]?.length ?? 0);
+  const insert = (at: number, what: string): TextChange => ({ from: at, to: at, insert: what });
+  if (item.column !== undefined) {
+    const line = lines[item.line] ?? '';
+    const embed = embedPattern().exec(line.slice(item.column));
+    const end = item.column + (embed && embed.index === 0 ? embed[0].length : 0);
+    const at = startOf(item.line) + end;
+    // Into the attributes that are there (`{width=50%}`), or as attributes of its own.
+    return parseImageAttributes(line.slice(end))
+      ? insert(at + 1, `#${id} `)
+      : insert(at, `{#${id}}`);
+  }
+  if (item.kind === 'fig') return insert(endOf(item.line), `\nlabel: ${id}`);
+  if (item.kind === 'tab')
+    return item.captionLine !== undefined
+      ? insert(endOf(item.captionLine), ` {#${id}}`)
+      : insert(startOf(item.line), `Table: {#${id}}\n\n`);
+  // An equation written on one line has it behind it.
+  return insert(endOf(item.endLine), item.line === item.endLine ? ` {#${id}}` : `\n{#${id}}`);
+}
+
+/** The item a reference by number means: `fig2`, `tab-1`, `eq3` (as numbered right now). */
+export function itemByNumber(items: NumberedItem[], written: string): NumberedItem | undefined {
+  const m = /^(fig|tab|eq)-?(\d+)$/i.exec(written.trim());
+  if (!m) return undefined;
+  const kind = m[1]!.toLowerCase() as FigureKind;
+  // A label that is written just like that is itself.
+  if (items.some((i) => i.id === written.trim())) return undefined;
+  return items.find((i) => i.kind === kind && i.number > 0 && i.number === Number(m[2]));
+}
+
+/**
+ * Renames a label within a note: where it is given (`{#old}`, `label: old`, `^old`) and every link to it
+ * within it (`[[#^old]]`, `[[#^old|text]]`, `@old`, also in captions).
+ */
+export function renameLabelChanges(text: string, old: string, id: string): TextChange[] {
+  const changes: TextChange[] = [];
+  const name = old.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  for (const m of text.matchAll(new RegExp(`(^|[ \\t])\\^${name}(?=[ \\t]*$)`, 'gm'))) {
+    const from = m.index + m[1]!.length + 1;
+    changes.push({ from, to: from + old.length, insert: id });
+  }
+  for (const m of text.matchAll(new RegExp(`\\[\\[#\\^${name}(?=\\]\\]|\\\\?\\|)`, 'g'))) {
+    const from = m.index + 4;
+    changes.push({ from, to: from + old.length, insert: id });
+  }
+  // `{#old}` (also among other attributes) and the `label: old` of a frame block.
+  for (const m of text.matchAll(new RegExp(`\\{[^{}\\n]*?#${name}(?=[\\s}])`, 'g'))) {
+    const from = m.index + m[0].length - old.length;
+    changes.push({ from, to: from + old.length, insert: id });
+  }
+  for (const m of text.matchAll(
+    new RegExp(`^label[ \\t]*:[ \\t]*["']?${name}(?=["']?[ \\t]*$)`, 'gm'),
+  )) {
+    const from = m.index + m[0].length - old.length;
+    changes.push({ from, to: from + old.length, insert: id });
+  }
+  for (const m of text.matchAll(new RegExp(`(?<![A-Za-z0-9@])@${name}(?![A-Za-z0-9-])`, 'g'))) {
+    changes.push({ from: m.index + 1, to: m.index + 1 + old.length, insert: id });
+  }
+  return changes.sort((a, b) => a.from - b.from);
+}
+
+/** A name that can be a label of this kind: letters, digits and hyphens after `fig-`. */
+export function validLabel(kind: FigureKind, id: string): boolean {
+  return new RegExp(`^${kind}-[A-Za-z0-9][A-Za-z0-9-]*$`).test(id);
 }

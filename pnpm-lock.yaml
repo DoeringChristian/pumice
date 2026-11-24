@@ -283,6 +283,9 @@ importers:
       '@pumice/core-backlinks':
         specifier: workspace:*
         version: link:../../plugins/core-backlinks
+      '@pumice/core-bibliography':
+        specifier: workspace:*
+        version: link:../../plugins/core-bibliography
       '@pumice/core-collab':
         specifier: workspace:*
         version: link:../../plugins/core-collab
@@ -575,6 +578,27 @@ importers:
 
   plugins/core-backlinks:
     dependencies:
+      '@pumice/api':
+        specifier: workspace:*
+        version: link:../../packages/api
+      '@pumice/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+
+  plugins/core-bibliography:
+    dependencies:
+      '@codemirror/autocomplete':
+        specifier: ^6.18.1
+        version: 6.20.4
+      '@codemirror/language':
+        specifier: ^6.10.3
+        version: 6.13.1
+      '@codemirror/state':
+        specifier: ^6.4.1
+        version: 6.7.6
+      '@codemirror/view':
+        specifier: ^6.34.1
+        version: 6.43.15
       '@pumice/api':
         specifier: workspace:*
         version: link:../../packages/api

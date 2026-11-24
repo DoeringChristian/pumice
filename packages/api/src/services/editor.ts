@@ -56,6 +56,12 @@ export interface EditorApi {
    */
   registerFieldExtension(factory: () => Extension): Disposable;
   /**
+   * Adds a CodeMirror extension to the field a figure's caption is written in (which is then
+   * an editor of its own, as with `registerFieldExtension`). `note` is the editor of the note
+   * the figure is in: for what a caption may need of it, like the figures it can refer to.
+   */
+  registerCaptionExtension(factory: (note: EditorView) => Extension): Disposable;
+  /**
    * If a figure's caption is what lies above (-1) or below (1) the cursor of `view` (or, above
    * the first row of the note, its name), starts writing it and returns true. For key bindings that move the cursor themselves (vim mode);
    * the arrow keys do this on their own.

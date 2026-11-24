@@ -60,7 +60,7 @@ const INSTRUCTIONS = `You are the assistant inside Pumice, a note-taking app. Yo
 
 Use the tools to look things up before answering questions about the notes; do not guess their contents. Paths are relative to the vault, with forward slashes, e.g. "Projects/Plan.md".
 When you change notes, make small, exact edits with edit_note and keep the user's wording and formatting elsewhere. Link to other notes with [[Name]] wikilinks. Answer in Markdown, briefly.
-Figures, tables and equations are numbered by the app: give a figure its caption as the embed's alias (![[plot.png|Loss over time|400]]), a table a "Table: …" line above it, and label what you refer to with a block ID after it (^fig-loss, ^tab-runs, ^eq-energy; on the line after a frame block, a table or a $$ block). Refer to it with [[#^fig-loss]], which reads "Figure 2"; never write the number yourself.`;
+Figures, tables and equations are numbered by the app: give a figure its caption as the embed's alias (![[plot.png|Loss over time|400]]), a table a "Table: …" line above it, and label what you refer to: {#fig-loss} right behind an embed (![[plot.png|Loss over time|400]]{#fig-loss}), {#tab-runs} at the end of the "Table: …" line, {#eq-energy} on the line after a $$ block, and "label: fig-setup" as a line of a frame block. Refer to it with @fig-loss (or [[#^fig-loss]]), which reads "Figure 2"; never write the number yourself.`;
 
 const TOOLS: Array<{ name: string; description: string; parameters: Record<string, unknown> }> = [
   {

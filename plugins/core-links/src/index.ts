@@ -9,6 +9,9 @@ import {
   definePlugin,
   formatWikiLink,
   isNoteId,
+  labelChange,
+  newLabel,
+  validLabel,
   setProperty,
   type PluginModule,
   type VaultPath,
@@ -24,6 +27,15 @@ import {
   type LocationFormat,
 } from './location';
 import { markdownRenames, rewriteLinksAfterRename } from './rename';
+import {
+  captionReferences,
+  insertReference,
+  itemAtPos,
+  itemChoices,
+  itemsOf,
+  renameLabel,
+  type ItemChoice,
+} from './references';
 import './links.css';
 
 export { LinksImpl, editNote } from './links';
@@ -54,6 +66,9 @@ export const plugin = definePlugin({
         linkEditorExtension({ links, index, workspace }, editorCtx),
       ),
     );
+
+    // A caption can refer to other figures: the same suggestions while it is written.
+    ctx.register(editor.registerCaptionExtension((note) => captionReferences(note)));
 
     // Links follow renames made in the app, as in Obsidian.
     ctx.register(
@@ -113,6 +128,111 @@ export const plugin = definePlugin({
       await copy(link, 'link');
     };
     const hasEditor = () => !!editor.active();
+
+    // ---- References to figures, tables and equations ----------------------------------------
+
+    /** Lets the user choose one of the note's figures, tables and equations. */
+    const pickItem = async (placeholder: string, only?: (c: ItemChoice) => boolean) => {
+      const active = editor.active();
+      if (!active) return undefined;
+      const choices = itemChoices(active.view.state).filter(only ?? (() => true));
+      if (!choices.length) {
+        workspace.notify('This note has no figures, tables or equations to choose from.');
+        return undefined;
+      }
+      const picked = await workspace.showQuickPick({ placeholder, items: choices });
+      return picked && { ...active, item: picked.item };
+    };
+    /** A place in the note (`pos`), or what the user chooses. */
+    const itemFor = async (arg: unknown, placeholder: string, labelled = false) => {
+      const active = editor.active();
+      const pos = (arg as { pos?: number } | undefined)?.pos;
+      if (active && typeof pos === 'number') {
+        const item = itemAtPos(active.view.state, pos);
+        return item && { ...active, item };
+      }
+      return pickItem(placeholder, labelled ? (c) => !!c.item.id : undefined);
+    };
+    ctx.commands.register({
+      id: 'links.insert-reference',
+      title: 'Insert reference to a figure, table or equation',
+      category: 'Links',
+      when: hasEditor,
+      run: async () => {
+        const found = await pickItem('Refer to…');
+        if (!found) return;
+        const { from, to } = found.view.state.selection.main;
+        insertReference(found.view, found.item, { from, to }, 'at');
+        found.view.focus();
+      },
+    });
+    ctx.commands.register({
+      id: 'links.copy-reference',
+      title: 'Copy reference to a figure, table or equation',
+      category: 'Links',
+      when: hasEditor,
+      run: async (arg?: unknown) => {
+        const found = await itemFor(arg, 'Copy a reference to…');
+        if (!found) return;
+        const { view, item } = found;
+        let id = item.id;
+        if (!id) {
+          const text = view.state.doc.toString();
+          id = newLabel(item.kind, text);
+          view.dispatch({ changes: labelChange(text, item, id), userEvent: 'input.reference' });
+        }
+        await copy(`@${id}`, `reference @${id}`);
+      },
+    });
+    ctx.commands.register({
+      id: 'links.rename-label',
+      title: 'Rename the label of a figure, table or equation',
+      category: 'Links',
+      when: hasEditor,
+      run: async (arg?: unknown) => {
+        const found = await itemFor(arg, 'Rename the label of…', true);
+        if (!found) return;
+        const { view, path, item } = found;
+        if (!item.id) {
+          workspace.notify('It has no label yet: it gets one when it is first referred to.');
+          return;
+        }
+        const prefix = `${item.kind}-`;
+        // Written where the label stands (`name`), or asked for.
+        const given = (arg as { name?: unknown } | undefined)?.name;
+        const typed =
+          typeof given === 'string'
+            ? given
+            : await workspace.showPrompt({
+                title: `New label (references to ${item.id} follow)`,
+                value: item.id,
+                selection: [prefix.length, item.id.length],
+              });
+        if (typed === undefined) return;
+        // Words become a label: `Loss curve` is `fig-loss-curve`.
+        const slug = typed
+          .trim()
+          .replace(new RegExp(`^${prefix}`, 'i'), '')
+          .replace(/[^A-Za-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .toLowerCase();
+        const id = prefix + slug;
+        if (!slug || id === item.id) return;
+        if (!validLabel(item.kind, id)) {
+          workspace.notify(`"${typed}" cannot be a label.`, { kind: 'warning' });
+          return;
+        }
+        if (itemsOf(view.state).some((i) => i.id === id)) {
+          workspace.notify(`This note already has the label ${id}.`, { kind: 'warning' });
+          return;
+        }
+        const others = await renameLabel(view, path, item.id, id, { index, documents });
+        workspace.notify(
+          `Renamed to ${id}${others ? `, also in ${others} other note${others === 1 ? '' : 's'}` : ''}.`,
+          { timeout: 2500 },
+        );
+      },
+    });
     ctx.commands.register({
       id: 'links.copy-location',
       title: 'Copy location (path:line)',

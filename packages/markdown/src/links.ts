@@ -60,6 +60,25 @@ export function formatWikiLink(
   return `${opts.embed ? '!' : ''}[[${inner}]]`;
 }
 
+/** A label of a figure, table or equation: `fig-loss`, `tab-runs`, `eq-energy`. */
+export const LABEL_NAME = /^(?:fig|tab|eq)-[A-Za-z0-9][A-Za-z0-9-]*$/i;
+
+/**
+ * What may stand after `@` to refer to a figure, table or equation of the note: its label
+ * (`@fig-loss`, the same as `[[#^fig-loss]]`), or its number as it is right now (`@fig2`),
+ * which the editor turns into the label.
+ */
+export const REFERENCE_NAME = /^(?:fig|tab|eq)(?:-[A-Za-z0-9][A-Za-z0-9-]*|\d+)$/i;
+/** Every `@` reference of a text: the first group is what stands before it, the second its name. */
+export const referencePattern = (): RegExp =>
+  /(^|[^A-Za-z0-9@])@((?:fig|tab|eq)(?:-[A-Za-z0-9][A-Za-z0-9-]*|\d+))(?![A-Za-z0-9])/gim;
+
+/**
+ * Every embed of a line: `![[…]]`, whose caption may hold links of its own
+ * (`![[a.png|As in [[#^fig-b]]|300]]`). The first group is what is between its brackets.
+ */
+export const embedPattern = (): RegExp => /!\[\[((?:[^[\]\n]|\[\[[^[\]\n]+\]\])*)\]\]/g;
+
 /**
  * The width of the text in the app's page, in pixels: what a size without a unit is measured
  * against. `|350` is half of the line wherever the note is shown (a narrow window, a phone,
@@ -148,19 +167,23 @@ export function setEmbedSize(inner: string, size: { width: number; height?: numb
 /**
  * Attributes after an image as pandoc writes them, `{width=50% height=3cm}`, at the start of
  * `text` (what follows the image). Gives how much of `text` they are and the size they say,
- * as it is written in an alias (`50%x3cm`); undefined if there is no such block. Classes,
- * identifiers and other keys are read over.
+ * as it is written in an alias (`50%x3cm`) and the identifier (`{#fig-loss}`: the label of a
+ * figure); undefined if there is no such block. Classes and other keys are read over.
  */
-export function parseImageAttributes(text: string): { length: number; size?: string } | undefined {
+export function parseImageAttributes(
+  text: string,
+): { length: number; size?: string; id?: string } | undefined {
   const block = /^\{([^{}\n]*)\}/.exec(text);
   if (!block) return undefined;
   let width: string | undefined;
   let height: string | undefined;
   let known = false;
+  let id: string | undefined;
   for (const part of block[1]!.matchAll(
     /([.#][\w-]+)|([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))/g,
   )) {
     known = true;
+    if (part[1]?.startsWith('#')) id ??= part[1].slice(1);
     if (!part[2]) continue;
     const value = (part[3] ?? part[4] ?? part[5] ?? '').trim().replace(/inch$/i, 'in');
     if (!new RegExp(`^\\d*\\.?\\d+(${UNITS})?$`, 'i').test(value)) continue;
@@ -170,7 +193,7 @@ export function parseImageAttributes(text: string): { length: number; size?: str
   // `{}` and text in braces that is no attribute list stay text.
   if (!known) return undefined;
   const size = width || height ? `${width ?? ''}${height ? `x${height}` : ''}` : undefined;
-  return { length: block[0].length, ...(size ? { size } : {}) };
+  return { length: block[0].length, ...(size ? { size } : {}), ...(id ? { id } : {}) };
 }
 
 /**

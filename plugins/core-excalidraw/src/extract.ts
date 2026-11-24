@@ -14,13 +14,23 @@ export function drawingMetadata(
   try {
     drawing = parseDrawing(path, text);
   } catch {
-    return { aliases: [], tags: [], links: [], headings: [], blocks: [], tasks: [], figures: [] };
+    return {
+      aliases: [],
+      tags: [],
+      links: [],
+      headings: [],
+      blocks: [],
+      tasks: [],
+      figures: [],
+      citations: [],
+    };
   }
   const head = drawing.format === 'md' ? extractMarkdown(drawing.head) : undefined;
   const meta: FileMetadata = {
     ...(head ?? { aliases: [], tags: [], headings: [], tasks: [] }),
     headings: [],
     tasks: [],
+    citations: [],
     // A drawing has no numbered figures of its own.
     figures: [],
     links: [],

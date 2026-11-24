@@ -31,6 +31,13 @@ import {
   type WorkspaceApi,
 } from '@pumice/api';
 
+import {
+  followLabelEdits,
+  localReference,
+  numberedReferences,
+  referenceCompletion,
+} from './references';
+
 export interface LinkEditorDeps {
   links: LinksApi;
   index: MetadataIndexApi;
@@ -122,6 +129,24 @@ function linkDecorations(deps: LinkEditorDeps, ctx: EditorExtensionContext): Ext
         from,
         to,
         enter: (node) => {
+          if (node.name === 'Reference') {
+            // `@fig-loss` reads as what it means ("Figure 2") where it is not being written.
+            const id = view.state.doc.sliceString(node.from + 1, node.to);
+            const text = localReference(view.state, id);
+            const attributes = {
+              class: `cm-pm-wikilink${text ? '' : ' is-unresolved'}`,
+              'data-link-from': String(node.from),
+              'data-link-to': String(node.to),
+            };
+            if (live && text && !active.has(view.state.doc.lineAt(node.from).number))
+              deco.push(
+                Decoration.replace({
+                  widget: new LinkWidget(text, true, node.from, node.to),
+                }).range(node.from, node.to),
+              );
+            else deco.push(Decoration.mark({ attributes }).range(node.from, node.to));
+            return false;
+          }
           if (node.name !== 'WikiLink') return node.name === 'Embed' ? false : undefined;
           const link = readLink(view.state, node);
           const resolved = deps.index.resolve(link.target, source);
@@ -137,7 +162,11 @@ function linkDecorations(deps: LinkEditorDeps, ctx: EditorExtensionContext): Ext
               deco.push(Decoration.mark({ attributes: attrs }).range(link.aliasFrom, link.aliasTo));
               deco.push(Decoration.replace({}).range(link.aliasTo, link.to));
             } else {
-              const text = deps.links.displayText(link, source);
+              // A label of this note reads as it is numbered right now (the index may lag).
+              const text =
+                (!link.target && link.subpath?.startsWith('^')
+                  ? localReference(view.state, link.subpath.slice(1))
+                  : undefined) ?? deps.links.displayText(link, source);
               const widget = Decoration.replace({
                 widget: new LinkWidget(text, !!resolved || !link.target, link.from, link.to),
               });
@@ -214,7 +243,10 @@ function linkDecorations(deps: LinkEditorDeps, ctx: EditorExtensionContext): Ext
       const source = ctx.path();
       if (Number.isNaN(from) || source === undefined) return false;
       e.preventDefault();
-      const parts = parseWikiLinkContent(view.state.doc.sliceString(from + 2, to - 2));
+      const raw = view.state.doc.sliceString(from, to);
+      const parts = raw.startsWith('@')
+        ? { target: '', subpath: `^${raw.slice(1)}` }
+        : parseWikiLinkContent(raw.slice(2, -2));
       void deps.links.openLink(parts.target, {
         sourcePath: source,
         newTab: e.shiftKey || ((e.metaKey || e.ctrlKey) && e.altKey),
@@ -260,7 +292,13 @@ function linkCompletion(deps: LinkEditorDeps, ctx: EditorExtensionContext): Exte
 }
 
 export function linkEditorExtension(deps: LinkEditorDeps, ctx: EditorExtensionContext): Extension {
-  return [linkDecorations(deps, ctx), linkCompletion(deps, ctx)];
+  return [
+    linkDecorations(deps, ctx),
+    referenceCompletion(),
+    linkCompletion(deps, ctx),
+    numberedReferences(),
+    followLabelEdits(),
+  ];
 }
 
 export type { VaultPath };

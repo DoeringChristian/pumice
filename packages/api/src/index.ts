@@ -10,6 +10,7 @@ export * from './services/documents';
 export * from './services/workspace';
 export * from './services/editor';
 export * from './editor-reveal';
+export * from './caption';
 export * from './editor-completion';
 export * from './services/plugins';
 export type {
@@ -42,7 +43,25 @@ export {
   TEXT_WIDTH,
   type EmbedSize,
   type EmbedLength,
+  parseBibtex,
+  citationText,
+  citationKey,
+  citedKeys,
+  referenceList,
+  referenceText,
+  referenceLine,
+  shortAuthors,
+  type BibEntry,
+  type BibAuthor,
+  type CitationStyle,
   numberItems,
+  referableItems,
+  newLabel,
+  labelChange,
+  itemByNumber,
+  renameLabelChanges,
+  validLabel,
+  embedPattern,
   figureLabel,
   figureReference,
   embedCaption,
@@ -90,6 +109,7 @@ export {
   type TableData,
 } from '@pumice/markdown';
 export * from './services/links';
+export * from './services/bibliography';
 export * from './services/ids';
 export * from './services/comments';
 export * from './services/files';

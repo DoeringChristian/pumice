@@ -28,6 +28,7 @@ import {
   type MenuEntry,
   type TableData,
   type TableModel,
+  drawnFor,
 } from '@pumice/api';
 import { createIcon } from '@pumice/ui';
 import { yUndoManagerKeymap } from 'y-codemirror.next';
@@ -162,12 +163,16 @@ class TableWidget extends WidgetType {
   }
 
   override eq(other: TableWidget): boolean {
-    return other.source === this.source && other.from === this.from;
+    return other.source === this.source && other.from === this.from && other.epoch === this.epoch;
   }
+
+  /** Made for reading or for writing: its cells can be typed in, or not (see `drawnFor`). */
+  readonly epoch = drawnFor.epoch;
 
   toDOM(view: EditorView): HTMLElement {
     const root = document.createElement('div');
     root.className = 'pm-table-widget';
+    root.dataset.epoch = String(this.epoch);
     this.build(root, view);
     attachEvents(root, view, this.deps);
     // A focus request may be waiting for this table (after a structural edit).
@@ -176,6 +181,7 @@ class TableWidget extends WidgetType {
   }
 
   override updateDOM(dom: HTMLElement, view: EditorView): boolean {
+    if (dom.dataset.epoch !== String(this.epoch)) return false;
     const model = parseTable(this.source);
     if (!model) return false;
     const grid = [model.header, ...model.rows];

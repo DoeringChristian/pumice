@@ -12,6 +12,7 @@ import {
   Editor,
   MarkdownSyntax,
   MetadataIndex,
+  Links,
   Reader,
   SettingsUi,
   ShellService,
@@ -31,7 +32,7 @@ import manifestJson from '../manifest.json';
 import { embedAt } from './resize';
 import './editor.css';
 import { MarkdownView } from './markdown-view';
-import { captionStep, editCaptionAtCursor, shownCaptions } from './live-preview';
+import { captionStep, editCaptionAtCursor, embedSource, shownCaptions } from './live-preview';
 import { TextView } from './text-view';
 import { HEADING_PREFIX, linePrefixChange, TASK_PREFIX, type LinePrefix } from './toolbar';
 
@@ -80,6 +81,7 @@ export const plugin = definePlugin({
     const menuItems: EditorContextMenuItem[] = [];
     const factories: ((c: EditorExtensionContext) => Extension)[] = [];
     const fieldFactories: (() => Extension)[] = [];
+    const captionFactories: ((note: EditorView) => Extension)[] = [];
     let active: MarkdownView | undefined;
     let sourceMode = ctx.settings.get('sourceMode', false);
 
@@ -126,6 +128,7 @@ export const plugin = definePlugin({
               contributed: () =>
                 factories.map((f) => f({ path: () => view?.path, sourceMode: () => sourceMode })),
               fieldExtensions: () => fieldFactories.map((f) => f()),
+              captionExtensions: (note) => captionFactories.map((f) => f(note)),
               sourceMode: () => sourceMode,
               setSourceMode: (on) => setSourceMode(on),
               closeLeft: () => ctx.settings.get('closeLeft', true),
@@ -135,6 +138,8 @@ export const plugin = definePlugin({
                   .execute('comments.add', { ...range, media: true })
                   .catch(() => undefined),
               openExternal: (url) => void shell.openExternal(url),
+              links: () => ctx.tryUse(Links),
+              run: (command, arg) => void ctx.commands.execute(command, arg).catch(() => undefined),
               embedMenu: (v, host, path, at) => showEmbedMenu(v, host, path, at),
               blockMenu: (v, block, at) => showBlockMenu(v, block, at),
               toolbarActions: () =>
@@ -216,6 +221,12 @@ export const plugin = definePlugin({
         view.focus();
         return true;
       },
+      registerCaptionExtension(factory) {
+        captionFactories.push(factory);
+        return {
+          dispose: () => void captionFactories.splice(captionFactories.indexOf(factory) >>> 0, 1),
+        };
+      },
       registerFieldExtension(factory) {
         fieldFactories.push(factory);
         return {
@@ -273,6 +284,21 @@ export const plugin = definePlugin({
         },
       },
     ];
+    /** Referring to a figure from its menu (the links plugin does it, where it is there). */
+    const referenceEntries = (pos: () => number): MenuEntry[] => [
+      {
+        label: 'Copy reference',
+        icon: 'link',
+        run: () =>
+          ctx.commands.execute('links.copy-reference', { pos: pos() }).catch(() => undefined),
+      },
+      {
+        label: 'Rename label…',
+        icon: 'pencil',
+        run: () =>
+          ctx.commands.execute('links.rename-label', { pos: pos() }).catch(() => undefined),
+      },
+    ];
     /** Edit or remove a rendered block (a frame block). */
     const showBlockMenu = (
       view: EditorView,
@@ -289,6 +315,12 @@ export const plugin = definePlugin({
             view.focus();
           },
         },
+        {
+          label: 'Copy as text',
+          icon: 'copy',
+          run: () => navigator.clipboard.writeText(view.state.sliceDoc(block.from, block.to)),
+        },
+        ...(view.state.readOnly ? [] : referenceEntries(() => block.from)),
         ...(view.state.readOnly
           ? []
           : [
@@ -313,7 +345,7 @@ export const plugin = definePlugin({
       workspace.showContextMenu(entries, at);
     };
 
-    /** Open, remove from the note, or delete the file of an embedded picture, video or frame. */
+    /** Open, copy, or remove from the note an embedded picture, video or frame. */
     const showEmbedMenu = (
       view: EditorView,
       host: HTMLElement,
@@ -357,6 +389,13 @@ export const plugin = definePlugin({
               'separator' as const,
             ]
           : []),
+        {
+          // As it is written in the note: for another note of the vault.
+          label: 'Copy as text',
+          icon: 'copy',
+          run: () => navigator.clipboard.writeText(embedSource(view, host)),
+        },
+        ...(view.state.readOnly ? [] : referenceEntries(() => view.posAtDOM(host))),
         ...(view.state.readOnly
           ? []
           : [
@@ -371,33 +410,6 @@ export const plugin = definePlugin({
                   if (ok) removeFromNote();
                 },
               },
-              ...(file
-                ? [
-                    {
-                      label: 'Delete file…',
-                      icon: 'trash',
-                      danger: true,
-                      run: async () => {
-                        const others = new Set(
-                          (index?.backlinks(file) ?? [])
-                            .map((l) => l.source)
-                            .filter((p) => p !== notePath),
-                        ).size;
-                        const ok = await workspace.confirm(
-                          `Delete ${name} from the vault and remove it from this note?${
-                            others
-                              ? ` It is also used in ${others} other note${others === 1 ? '' : 's'}, where it will be missing.`
-                              : ''
-                          }`,
-                          { confirmLabel: 'Delete', danger: true },
-                        );
-                        if (!ok) return;
-                        removeFromNote();
-                        await vault.delete(file);
-                      },
-                    },
-                  ]
-                : []),
             ]),
       ];
       if (entries.length) workspace.showContextMenu(entries, at);

@@ -17,7 +17,8 @@ import { frontmatter } from 'micromark-extension-frontmatter';
 import { gfm } from 'micromark-extension-gfm';
 import { math } from 'micromark-extension-math';
 import type { Extension as MicromarkExtension } from 'micromark-util-types';
-import { CALLOUT_MARKER, parseWikiLinkContent } from './links';
+import { citationKey } from './bibtex';
+import { CALLOUT_MARKER, REFERENCE_NAME, parseWikiLinkContent } from './links';
 import { obsidianSyntax } from './micromark';
 
 export interface WikiLink {
@@ -40,6 +41,15 @@ export interface Highlight extends Parent {
 export interface Tag {
   type: 'tag';
   /** Without `#`. */
+  value: string;
+  position?: Root['position'];
+  data?: Record<string, unknown>;
+}
+
+/** `@doe2020`: a citation, if the note's bibliography has that key. */
+export interface Citation {
+  type: 'citation';
+  /** The key, without `@`. */
   value: string;
   position?: Root['position'];
   data?: Record<string, unknown>;
@@ -75,6 +85,7 @@ declare module 'mdast' {
     wikiLink: WikiLink;
     highlight: Highlight;
     tag: Tag;
+    citation: Citation;
     blockId: BlockId;
     comment: Comment;
   }
@@ -86,6 +97,7 @@ declare module 'mdast' {
     wikiLink: WikiLink;
     highlight: Highlight;
     tag: Tag;
+    citation: Citation;
     blockId: BlockId;
     comment: Comment;
     callout: Callout;
@@ -104,6 +116,31 @@ const dialectFromMarkdown: FromMarkdownExtension = {
     },
     highlight(token) {
       this.enter({ type: 'highlight', children: [] } as never, token);
+    },
+    figureLabel(token) {
+      // Like a block ID: not shown, and what links to it find.
+      this.enter(
+        { type: 'blockId', value: this.sliceSerialize(token).slice(2, -1) } as never,
+        token,
+      );
+    },
+    reference(token) {
+      const raw = this.sliceSerialize(token);
+      const name = citationKey(raw.slice(1));
+      if (REFERENCE_NAME.test(name))
+        // The same as a link to that label of the note: `[[#^fig-loss]]`.
+        this.enter(
+          {
+            type: 'wikiLink',
+            embed: false,
+            raw: `@${name}`,
+            target: '',
+            subpath: `^${name}`,
+          } as never,
+          token,
+        );
+      // Anything else may be a key of the bibliography.
+      else this.enter({ type: 'citation', value: name } as never, token);
     },
     tag(token) {
       this.enter({ type: 'tag', value: this.sliceSerialize(token).slice(1) } as never, token);
@@ -147,6 +184,19 @@ const dialectFromMarkdown: FromMarkdownExtension = {
       this.exit(token);
     },
     tag(token) {
+      this.exit(token);
+    },
+    reference(token) {
+      this.exit(token);
+      // The punctuation that ended the name is text again.
+      const raw = this.sliceSerialize(token);
+      const tail = raw.slice(1 + citationKey(raw.slice(1)).length);
+      if (tail) {
+        this.enter({ type: 'text', value: tail }, token);
+        this.exit(token);
+      }
+    },
+    figureLabel(token) {
       this.exit(token);
     },
     blockId(token) {

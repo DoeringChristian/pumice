@@ -73,6 +73,9 @@ export function parseFrameBlock(source: string): FrameSpec {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new Error('A frame block needs a line like "file: [[frames/name/index.html]]".');
   const { file, caption, height, width, ...settings } = value as Record<string, unknown>;
+  // `label: fig-setup` is what the note refers to the frame by, not a setting of the file
+  // (a `label` that says something else is one).
+  if (isFigureLabel(settings.label)) delete settings.label;
   if (typeof file !== 'string' || !file.trim())
     throw new Error('A frame block needs a line like "file: [[frames/name/index.html]]".');
   const h = typeof height === 'number' ? height : Number.parseFloat(String(height ?? ''));
@@ -144,6 +147,10 @@ export function frameSlug(name: string): string {
 /** Keys of a frame block that are not settings of the HTML file. */
 export const RESERVED = ['file', 'caption', 'width', 'height'];
 
+/** `fig-setup`: the label of the frame as a figure of the note. */
+const isFigureLabel = (value: unknown) =>
+  typeof value === 'string' && /^fig-[A-Za-z0-9][A-Za-z0-9-]*$/.test(value);
+
 /** References are written bare in a block (`[[a]]`, not `"[[a]]"`). */
 function unquoteRefs(yaml: string): string {
   return yaml
@@ -161,6 +168,7 @@ export function withSettings(yaml: string, settings: Record<string, unknown>): s
   const doc = parseDocument(quoteWebLinks(quoteLinks(yaml)));
   const current = doc.toJS() as Record<string, unknown> | null;
   for (const key of Object.keys(current ?? {})) {
+    if (key === 'label' && isFigureLabel(current?.[key]) && !('label' in settings)) continue;
     if (!RESERVED.includes(key) && !(key in settings)) doc.delete(key);
   }
   for (const [key, value] of Object.entries(settings)) {

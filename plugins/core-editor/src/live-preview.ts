@@ -7,8 +7,9 @@ import {
   embedSizeEdit,
   type Size,
 } from './resize';
+import { completionStatus } from '@codemirror/autocomplete';
 import { syntaxTree } from '@codemirror/language';
-import type { TreeCursor } from '@lezer/common';
+import type { SyntaxNodeRef, TreeCursor } from '@lezer/common';
 import {
   EditorState as EditorStateClass,
   Facet,
@@ -53,12 +54,17 @@ import {
   embedCaption,
   setEmbedCaption,
   figureLabel,
+  drawnFor,
   figureReference,
+  fillCaption,
+  type LinksApi,
+  type WikiLinkParts,
   isFigureTarget,
   numberItems,
   type FigureKind,
   type NumberedItem,
 } from '@pumice/api';
+import { beginEmbedDrag, embedDrag } from './drag-embed';
 import { typedInlineMathAt, withCaret } from './tex';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { calloutStyle, createIcon } from '@pumice/ui';
@@ -105,6 +111,12 @@ export interface PreviewDeps {
   comment?(view: EditorView, range: { from: number; to: number }): void;
   /** Extensions for the text fields inside a note (see `Editor.registerFieldExtension`). */
   fieldExtensions?(): Extension[];
+  /** Extensions for the field a caption is written in; `note`: the note's editor. */
+  captionExtensions?(note: EditorView): Extension[];
+  /** Links between notes: how one reads, and opening it. */
+  links?(): LinksApi | undefined;
+  /** Runs a command of the app (of another plugin, which may not be there). */
+  run?(command: string, arg?: unknown): void;
 }
 
 export const previewDeps = Facet.define<PreviewDeps, PreviewDeps | undefined>({
@@ -526,11 +538,18 @@ function editCaption(
   at?: number,
 ): void {
   const start = enterAt;
-  const extensions = view?.state.facet(previewDeps)?.fieldExtensions?.() ?? [];
+  const deps = view?.state.facet(previewDeps);
+  const extensions = [
+    ...(deps?.fieldExtensions?.() ?? []),
+    ...(view ? (deps?.captionExtensions?.(view) ?? []) : []),
+  ];
   if (view && extensions.length)
     return editCaptionInEditor(slot, current, commit, done, view, extensions, at, start);
   // An offer of a caption ("Add a caption") makes room for the caption itself.
   if (!current) slot.textContent = '';
+  // What is written, not what it reads as: a reference is `@fig-setup` while it is edited,
+  // not "Figure 2" (which would be kept as text).
+  else if (slot.querySelector('a')) slot.textContent = current;
   slot.contentEditable = 'plaintext-only';
   slot.spellcheck = true;
   slot.classList.add('is-editing');
@@ -683,6 +702,8 @@ function editCaptionInEditor(
           EditorView.domEventHandlers({
             keydown(e, v) {
               if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return false;
+              // A list of suggestions is open: the keys choose from it.
+              if (completionStatus(v.state) === 'active') return false;
               const idle = !vimOf(v) || vimIdle(v);
               let dir: -1 | 1 | undefined;
               if (e.key === 'Enter' || (e.key === 'Escape' && idle)) dir = -1;
@@ -793,6 +814,8 @@ export function lineField(
           EditorView.domEventHandlers({
             keydown(e, v) {
               if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return false;
+              // A list of suggestions is open: the keys choose from it.
+              if (completionStatus(v.state) === 'active') return false;
               const idle = !vimOf(v) || vimIdle(v);
               if (
                 e.key === 'Enter' ||
@@ -976,9 +999,106 @@ export function editCaptionAtCursor(view: EditorView): boolean {
  * can be written into the note (see `captionEdits`), a click on it edits it in place, and a
  * figure without one offers the field when the pointer is on it.
  */
+/**
+ * Shows for a moment what stands at `pos` (a figure, a table, an equation): where a reference
+ * that was clicked has led to.
+ */
+export function flashAt(view: EditorView, pos: number, tries = 3): void {
+  setTimeout(() => {
+    let el = [...view.contentDOM.querySelectorAll<HTMLElement>('.cm-pm-embed')].find(
+      (e) => view.posAtDOM(e) === pos,
+    );
+    if (!el) {
+      const { node, offset } = view.domAtPos(pos, 1);
+      const at = node.nodeType === 1 ? (node.childNodes[offset] ?? node) : node.parentElement;
+      el =
+        (at instanceof HTMLElement ? at : at?.parentElement)?.closest<HTMLElement>(
+          '.pm-table-widget, .cm-pm-block, .cm-pm-embed, .cm-line',
+        ) ?? undefined;
+    }
+    if (!el || !el.isConnected) {
+      if (tries > 1) flashAt(view, pos, tries - 1);
+      return;
+    }
+    el.classList.remove('pm-flash');
+    // (Reading a size starts the animation anew.)
+    void el.offsetWidth;
+    el.classList.add('pm-flash');
+    setTimeout(() => el.classList.remove('pm-flash'), 1400);
+  }, 120);
+}
+
+/** Goes to a figure, table or equation of the note and shows which it is. */
+export function revealItem(view: EditorView, item: NumberedItem): void {
+  const line = view.state.doc.line(Math.min(item.line + 1, view.state.doc.lines));
+  const pos = line.from + (item.column ?? 0);
+  view.dispatch({
+    // The cursor goes to a picture (it steps over it); inside a table or a formula it would
+    // open it for writing, so those are only brought into view.
+    ...(item.column !== undefined ? { selection: { anchor: pos } } : {}),
+    effects: EditorView.scrollIntoView(pos, { y: 'center' }),
+    userEvent: 'select',
+  });
+  flashAt(view, pos);
+}
+
+/** The label of a figure, shown beside its caption. */
+const labelTags = new WeakMap<
+  HTMLElement,
+  { id(): string | undefined; rename(name: string): void }
+>();
+/** For the links in the caption of a figure: how one reads, and going where it points. */
+const captionLinks = new WeakMap<
+  HTMLElement,
+  { text(link: WikiLinkParts): string; open(link: WikiLinkParts): void }
+>();
+/** The same for the figures of an editor. */
+function captionLinksOf(view: EditorView) {
+  const local = (link: WikiLinkParts) =>
+    !link.target && link.subpath?.startsWith('^')
+      ? [...itemsByLine(view.state).values()].flat().find((i) => i.id === link.subpath!.slice(1))
+      : undefined;
+  const deps = () => view.state.facet(previewDeps);
+  return {
+    text: (link: WikiLinkParts) => {
+      // A label of this note reads as it is numbered right now.
+      const item = local(link);
+      if (item) return figureReference(item);
+      const source = deps()?.sourcePath();
+      const text = source !== undefined ? deps()?.links?.()?.displayText(link, source) : undefined;
+      return text ?? link.subpath ?? link.target;
+    },
+    open: (link: WikiLinkParts) => {
+      const item = local(link);
+      if (item) {
+        revealItem(view, item);
+        view.focus();
+        return;
+      }
+      const source = deps()?.sourcePath();
+      if (source !== undefined)
+        void deps()
+          ?.links?.()
+          ?.openLink(link.target, {
+            sourcePath: source,
+            ...(link.subpath ? { subpath: link.subpath } : {}),
+          });
+    },
+  };
+}
+
 function setCaption(host: HTMLElement, label: string | undefined, caption: string | undefined) {
-  host.querySelector(':scope > .cm-pm-caption')?.remove();
-  const edit = captionEdits.get(host);
+  const shown = host.querySelector(':scope > .cm-pm-caption');
+  // It is being written (and the note changed under it, the figure's number perhaps): only
+  // the number follows, the text stays the writer's.
+  if (shown?.querySelector('.is-editing')) {
+    const number = shown.querySelector('.cm-pm-caption-label');
+    if (number && label) number.textContent = `${label}: `;
+    return;
+  }
+  shown?.remove();
+  // (Written only where the note is: not while it is read.)
+  const edit = captionViews.has(host) ? captionEdits.get(host) : undefined;
   if (!label && !caption && !edit) return;
   const el = document.createElement('span');
   el.className = 'cm-pm-caption';
@@ -990,8 +1110,71 @@ function setCaption(host: HTMLElement, label: string | undefined, caption: strin
   }
   const text = document.createElement('span');
   text.className = 'cm-pm-caption-text';
-  if (caption) text.textContent = caption;
+  if (caption) {
+    const links = captionLinks.get(host);
+    if (links) {
+      // A reference in it reads as what it means ("Figure 2"), and goes there on a click.
+      fillCaption(text, caption, links.text);
+      for (const a of text.querySelectorAll<HTMLElement>('a.pm-caption-ref')) {
+        a.addEventListener('mousedown', (e) => {
+          if (text.isContentEditable || e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          links.open({
+            target: a.dataset.target ?? '',
+            ...(a.dataset.subpath ? { subpath: a.dataset.subpath } : {}),
+          });
+        });
+      }
+    } else text.textContent = caption;
+  }
   el.append(text);
+  // Its label, to see what it is referred to by and to rename it where it stands.
+  const tag = labelTags.get(host);
+  const id = tag?.id();
+  if (tag && id) {
+    const chip = document.createElement('span');
+    chip.className = 'cm-pm-caption-id';
+    chip.textContent = `@${id}`;
+    chip.title = 'Its label: click to rename it (references follow)';
+    chip.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const input = document.createElement('input');
+      input.className = 'cm-pm-caption-id is-editing';
+      input.value = id;
+      input.spellcheck = false;
+      input.setAttribute('aria-label', 'Label');
+      const fit = () => (input.style.width = `${Math.max(6, input.value.length + 1)}ch`);
+      fit();
+      let done = false;
+      const finish = (keep: boolean) => {
+        if (done) return;
+        done = true;
+        const name = input.value.trim();
+        // Unchanged or given up: as it was. Renamed: the note changes, and it is drawn anew.
+        if (input.isConnected) input.replaceWith(chip);
+        if (keep && name && name !== id) tag.rename(name);
+      };
+      input.addEventListener('input', fit);
+      input.addEventListener('blur', () => finish(true));
+      // The keys are the field's, not the editor's.
+      for (const type of ['keydown', 'keyup', 'keypress', 'mousedown', 'click'] as const)
+        input.addEventListener(type, (ev) => {
+          ev.stopPropagation();
+          if (type !== 'keydown') return;
+          const key = (ev as KeyboardEvent).key;
+          if (key !== 'Enter' && key !== 'Escape') return;
+          ev.preventDefault();
+          finish(key === 'Enter');
+        });
+      chip.replaceWith(input);
+      input.focus();
+      // The name behind `fig-` is what is usually changed.
+      input.setSelectionRange(id.indexOf('-') + 1, id.length);
+    });
+    el.append(chip);
+  }
   if (edit) {
     el.classList.add('is-editable');
     if (!caption) {
@@ -1037,6 +1220,9 @@ const embedOf = new WeakMap<HTMLElement, EmbedWidget>();
 
 /** What draws an embed and keeps it current, to be released with its element. */
 const embedRenders = new WeakMap<HTMLElement, { dispose(): void }>();
+/** How high each embed was drawn (by note, target and what is written behind it). */
+const embedHeights = new Map<string, number>();
+const embedMeasures = new WeakMap<HTMLElement, ResizeObserver>();
 
 class EmbedWidget extends WidgetType {
   constructor(
@@ -1046,9 +1232,14 @@ class EmbedWidget extends WidgetType {
     readonly sourcePath: string,
     /** "Figure 2", if it is a numbered figure. */
     readonly label?: string,
+    /** What it is referred to by (`fig-setup`), if it has a label. */
+    readonly id?: string,
   ) {
     super();
   }
+
+  /** Made for reading or for writing (see `drawnFor`). */
+  readonly epoch = drawnFor.epoch;
 
   private same(other: EmbedWidget): boolean {
     return (
@@ -1060,7 +1251,21 @@ class EmbedWidget extends WidgetType {
   }
 
   override eq(other: EmbedWidget): boolean {
-    return this.same(other) && other.label === this.label;
+    return (
+      this.same(other) &&
+      other.label === this.label &&
+      other.id === this.id &&
+      other.epoch === this.epoch
+    );
+  }
+
+  private get key(): string {
+    return [this.sourcePath, this.target, this.subpath ?? '', this.alias ?? ''].join('\n');
+  }
+
+  /** As high as it was when it was last on screen, so that the note keeps its length. */
+  override get estimatedHeight(): number {
+    return embedHeights.get(this.key) ?? -1;
   }
 
   private get caption(): string | undefined {
@@ -1074,7 +1279,7 @@ class EmbedWidget extends WidgetType {
    */
   override updateDOM(dom: HTMLElement, view: EditorView): boolean {
     const shown = embedOf.get(dom);
-    if (!shown) return false;
+    if (!shown || shown.epoch !== this.epoch) return false;
     if (!this.same(shown)) {
       const sameFigure =
         shown.target === this.target &&
@@ -1105,11 +1310,41 @@ class EmbedWidget extends WidgetType {
     // Beside others on a line it may give a little, so that halves and thirds fit (see CSS).
     if (width) el.style.setProperty('--embed-w', width);
     embedOf.set(el, this);
+    // Until what it shows has loaded again it keeps the room it had: the text under it
+    // stays where it is, and so does the scroll bar.
+    const known = embedHeights.get(this.key);
+    if (known) {
+      el.style.minHeight = `${known}px`;
+      const release = () => el.style.removeProperty('min-height');
+      el.addEventListener('load', release, { capture: true, once: true });
+      el.addEventListener('loadedmetadata', release, { capture: true, once: true });
+      setTimeout(release, 2000);
+    }
+    const measured = new ResizeObserver(() => {
+      const now = embedOf.get(el);
+      if (now && el.isConnected && el.offsetHeight > 0) embedHeights.set(now.key, el.offsetHeight);
+    });
+    measured.observe(el);
+    embedMeasures.set(el, measured);
     // The number may change while the embed stays (see `updateDOM`).
     const caption = () => {
       const now = embedOf.get(el) ?? this;
       setCaption(el, now.label, now.caption);
     };
+    captionLinks.set(el, captionLinksOf(view));
+    if (!view.state.readOnly)
+      labelTags.set(el, {
+        id: () => embedOf.get(el)?.id,
+        rename: (name) =>
+          view.state
+            .facet(previewDeps)
+            ?.run?.('links.rename-label', { pos: view.posAtDOM(el), name }),
+      });
+    // It can be dragged to another place of the note.
+    if (!view.state.readOnly) {
+      el.draggable = true;
+      el.addEventListener('dragstart', (e) => beginEmbedDrag(view, el, e));
+    }
     // Only figures have captions (the alias of an embedded note is its title).
     if (isFigureTarget(this.target) && !view.state.readOnly) captionViews.set(el, view);
     captionEdits.set(el, (text) => {
@@ -1150,6 +1385,8 @@ class EmbedWidget extends WidgetType {
       });
       view.focus();
     };
+    /** The embed as it is written in the note, with attributes behind it. */
+    const sourceText = () => embedSource(view, el);
     /** A comment on the embed, started from the picture itself. */
     const commentOn = view.state.facet(previewDeps)?.comment;
     const comment = commentOn
@@ -1200,7 +1437,7 @@ class EmbedWidget extends WidgetType {
             view.requestMeasure();
             caption();
             attachResizeHandle(view, el, resize);
-            attachMenuButton(el, menuAt, editSource, comment);
+            attachMenuButton(el, menuAt, { edit: editSource, comment, copy: sourceText });
           },
         })
         .then((d) => {
@@ -1208,7 +1445,7 @@ class EmbedWidget extends WidgetType {
           view.requestMeasure();
           caption();
           attachResizeHandle(view, el, resize);
-          attachMenuButton(el, menuAt, editSource, comment);
+          attachMenuButton(el, menuAt, { edit: editSource, comment, copy: sourceText });
         });
     }
     return el;
@@ -1218,11 +1455,32 @@ class EmbedWidget extends WidgetType {
   override destroy(dom: HTMLElement): void {
     embedRenders.get(dom)?.dispose();
     embedRenders.delete(dom);
+    embedMeasures.get(dom)?.disconnect();
+    embedMeasures.delete(dom);
   }
 
   override ignoreEvent(): boolean {
     return true;
   }
+}
+
+/**
+ * Where an embed that is drawn at `el` is written in the note: `![[…]]` with the attributes
+ * behind it (`{width=50%}`), which are part of it.
+ */
+export function embedRange(view: EditorView, el: HTMLElement): { from: number; to: number } {
+  const start = view.posAtDOM(el);
+  let node = syntaxTree(view.state).resolveInner(start, 1);
+  while (node.name !== 'Embed' && node.parent) node = node.parent;
+  const line = view.state.doc.lineAt(start);
+  if (node.name !== 'Embed') return { from: start, to: line.to };
+  const behind = view.state.doc.sliceString(node.to, Math.min(line.to, node.to + 200));
+  return { from: node.from, to: node.to + (parseImageAttributes(behind)?.length ?? 0) };
+}
+/** The text of the embed that is drawn at `el`, to be written into another note. */
+export function embedSource(view: EditorView, el: HTMLElement): string {
+  const { from, to } = embedRange(view, el);
+  return view.state.doc.sliceString(from, to);
 }
 
 /** A table, math block or frontmatter rendered as a block; clicking it reveals the source. */
@@ -1245,9 +1503,13 @@ class BlockWidget extends WidgetType {
       other.kind === this.kind &&
       other.source === this.source &&
       other.from === this.from &&
-      other.label === this.label
+      other.label === this.label &&
+      other.epoch === this.epoch
     );
   }
+
+  /** Made for reading or for writing (see `drawnFor`). */
+  readonly epoch = drawnFor.epoch;
 
   /** The number is drawn by the style sheet from this (it can change while the block stays). */
   private applyLabel(dom: HTMLElement): void {
@@ -1264,6 +1526,7 @@ class BlockWidget extends WidgetType {
   override updateDOM(dom: HTMLElement): boolean {
     const known = blockOf.get(dom);
     if (!known || !dom.classList.contains(`cm-pm-block-${this.kind}`)) return false;
+    if (dom.dataset.epoch !== String(this.epoch)) return false;
     if (known.source !== this.source) {
       if (this.kind !== 'code') return false;
       const content = dom.querySelector('.pm-code-render');
@@ -1284,6 +1547,7 @@ class BlockWidget extends WidgetType {
     const el = document.createElement('div');
     el.className = `cm-pm-block cm-pm-block-${this.kind}`;
     blockOf.set(el, { source: this.source, from: this.from });
+    el.dataset.epoch = String(this.epoch);
     this.applyLabel(el);
     const { kind } = this;
     if (this.kind === 'math') {
@@ -1323,25 +1587,30 @@ class BlockWidget extends WidgetType {
               const { source, from } = blockOf.get(el)!;
               deps.blockMenu?.(view, { from, to: from + source.length }, at);
             },
-            () => {
-              // The cursor inside the block shows its source.
-              const { source, from } = blockOf.get(el)!;
-              view.dispatch({
-                selection: { anchor: Math.min(from + 4, from + source.length) },
-                effects: showSource.of({ from, to: from + source.length }),
-                scrollIntoView: true,
-              });
-              view.focus();
+            {
+              copy: () => blockOf.get(el)!.source,
+              edit: () => {
+                // The cursor inside the block shows its source.
+                const { source, from } = blockOf.get(el)!;
+                view.dispatch({
+                  selection: { anchor: Math.min(from + 4, from + source.length) },
+                  effects: showSource.of({ from, to: from + source.length }),
+                  scrollIntoView: true,
+                });
+                view.focus();
+              },
+              ...(deps.comment
+                ? {
+                    comment: () => {
+                      const { source, from } = blockOf.get(el)!;
+                      deps.comment!(view, { from, to: from + source.length });
+                    },
+                  }
+                : {}),
+              // Also over a block that could not be shown (a frame block with a mistake in
+              // it): its source is reached through this button only.
+              always: true,
             },
-            deps.comment
-              ? () => {
-                  const { source, from } = blockOf.get(el)!;
-                  deps.comment!(view, { from, to: from + source.length });
-                }
-              : undefined,
-            // Also over a block that could not be shown (a frame block with a mistake in it):
-            // its source is reached through this button only.
-            true,
           );
         attach();
         menu();
@@ -1506,6 +1775,71 @@ function buildDecorations(view: EditorView): DecorationSet {
       lineClass(state.doc.line(n).from, cls(n, n === first, n === last));
   };
 
+  /** An embed is drawn as one element in place of its text. */
+  const drawEmbed = (node: SyntaxNodeRef) => {
+    const source = deps?.sourcePath();
+    if (!sourceShownAt(state, node.from, node.to) && deps?.reader && source !== undefined) {
+      const target = node.node.getChild('WikiLinkTarget');
+      const sub = node.node.getChild('WikiLinkSubpath');
+      const alias = node.node.getChild('WikiLinkAlias');
+      const pipe = node.node.getChild('WikiLinkPipe');
+      // Attributes behind it as pandoc writes them (`{width=50%}`) are part of it.
+      const attributes = parseImageAttributes(
+        state.doc.sliceString(node.to, Math.min(state.doc.lineAt(node.to).to, node.to + 200)),
+      );
+      const end = node.to + (attributes?.length ?? 0);
+      const written = alias
+        ? state.doc.sliceString(alias.from, alias.to).trim()
+        : pipe
+          ? ''
+          : undefined;
+      decorations.push(
+        Decoration.replace({
+          // One element for the cursor (see `embedAtoms`).
+          atom: true,
+          widget: new EmbedWidget(
+            target ? state.doc.sliceString(target.from, target.to).trim() : '',
+            sub ? state.doc.sliceString(sub.from + 1, sub.to).trim() || undefined : undefined,
+            attributes?.size ? withAliasSize(written, attributes.size) : written,
+            source,
+            ((item) => (item ? figureLabel(item) : undefined))(
+              itemAt(state, node.from, 'fig', true),
+            ),
+            itemAt(state, node.from, 'fig', true)?.id,
+          ),
+        }).range(node.from, end),
+      );
+      // The space between two embeds of a row is not drawn: text between the elements
+      // of a row has no place on screen, and the cursor could not be kept there.
+      const gap = /^[ \t]+(?=!\[\[)/.exec(state.doc.sliceString(end, state.doc.lineAt(end).to));
+      if (gap && !sourceShownAt(state, end, end + gap[0].length + 3))
+        hide(end, end + gap[0].length);
+    }
+  };
+
+  // Embeds are drawn in the whole note, not only where it is on screen: the height of a
+  // line that has been seen is kept only as long as what is drawn in it stays, and a note
+  // whose pictures were forgotten as they left the screen changed its height with every
+  // scroll (the scroll bar jumped).
+  let covered = 0;
+  const outside: { from: number; to: number }[] = [];
+  for (const { from, to } of view.visibleRanges) {
+    if (from > covered) outside.push({ from: covered, to: from });
+    covered = Math.max(covered, to);
+  }
+  if (covered < state.doc.length) outside.push({ from: covered, to: state.doc.length });
+  for (const { from, to } of outside)
+    syntaxTree(state).iterate({
+      from,
+      to,
+      enter: (node) => {
+        if (node.name !== 'Embed') return;
+        // One that reaches into what is on screen is drawn there.
+        if (node.from >= from && node.to <= to) drawEmbed(node);
+        return false;
+      },
+    });
+
   for (const { from, to } of view.visibleRanges) {
     syntaxTree(state).iterate({
       from,
@@ -1576,45 +1910,7 @@ function buildDecorations(view: EditorView): DecorationSet {
           return false;
         }
         if (name === 'Embed') {
-          const source = deps?.sourcePath();
-          if (!sourceShownAt(state, node.from, node.to) && deps?.reader && source !== undefined) {
-            const target = node.node.getChild('WikiLinkTarget');
-            const sub = node.node.getChild('WikiLinkSubpath');
-            const alias = node.node.getChild('WikiLinkAlias');
-            const pipe = node.node.getChild('WikiLinkPipe');
-            // Attributes behind it as pandoc writes them (`{width=50%}`) are part of it.
-            const attributes = parseImageAttributes(
-              state.doc.sliceString(node.to, Math.min(state.doc.lineAt(node.to).to, node.to + 200)),
-            );
-            const end = node.to + (attributes?.length ?? 0);
-            const written = alias
-              ? state.doc.sliceString(alias.from, alias.to).trim()
-              : pipe
-                ? ''
-                : undefined;
-            decorations.push(
-              Decoration.replace({
-                // One element for the cursor (see `embedAtoms`).
-                atom: true,
-                widget: new EmbedWidget(
-                  target ? state.doc.sliceString(target.from, target.to).trim() : '',
-                  sub ? state.doc.sliceString(sub.from + 1, sub.to).trim() || undefined : undefined,
-                  attributes?.size ? withAliasSize(written, attributes.size) : written,
-                  source,
-                  ((item) => (item ? figureLabel(item) : undefined))(
-                    itemAt(state, node.from, 'fig', true),
-                  ),
-                ),
-              }).range(node.from, end),
-            );
-            // The space between two embeds of a row is not drawn: text between the elements
-            // of a row has no place on screen, and the cursor could not be kept there.
-            const gap = /^[ \t]+(?=!\[\[)/.exec(
-              state.doc.sliceString(end, state.doc.lineAt(end).to),
-            );
-            if (gap && !sourceShownAt(state, end, end + gap[0].length + 3))
-              hide(end, end + gap[0].length);
-          }
+          drawEmbed(node);
           return false;
         }
         if (name === 'CommentBlock') {
@@ -1846,10 +2142,9 @@ function buildDecorations(view: EditorView): DecorationSet {
       decorations.push(Decoration.line({ class: 'cm-pm-caption-line' }).range(line.from));
       if (!near(line.from + at, line.from + at + 'Table:'.length)) {
         decorations.push(
-          Decoration.replace({ widget: new LabelWidget(`${figureLabel(item)}:`) }).range(
-            line.from + at,
-            line.from + at + 'Table:'.length,
-          ),
+          Decoration.replace({
+            widget: new LabelWidget(item.caption ? `${figureLabel(item)}:` : figureLabel(item)),
+          }).range(line.from + at, line.from + at + 'Table:'.length),
         );
       }
     }
@@ -1883,6 +2178,7 @@ const inlinePreview = ViewPlugin.fromClass(
       if (
         update.docChanged ||
         update.viewportChanged ||
+        update.startState.readOnly !== update.state.readOnly ||
         update.startState.field(sourceShown, false) !== update.state.field(sourceShown, false) ||
         revealChanged(update.startState, update.state) ||
         syntaxTree(update.startState) !== syntaxTree(update.state) ||
@@ -1911,6 +2207,34 @@ function atomsOf(decorations: DecorationSet): DecorationSet {
 }
 const embedAtoms = EditorView.atomicRanges.of(
   (view) => view.plugin(inlinePreview)?.atoms ?? Decoration.none,
+);
+
+/**
+ * A figure inside a selection shows that it is selected, as text does (the selection is drawn
+ * behind the text, where a picture covers it). Copying the selection copies its text.
+ */
+const embedSelection = ViewPlugin.fromClass(
+  class {
+    constructor(view: EditorView) {
+      this.mark(view);
+    }
+    update(update: ViewUpdate) {
+      if (update.selectionSet || update.docChanged || update.viewportChanged)
+        // After the editor has drawn what changed.
+        update.view.requestMeasure({ key: this, read: () => this.mark(update.view) });
+    }
+    mark(view: EditorView) {
+      const ranges = view.state.selection.ranges.filter((r) => !r.empty);
+      for (const el of view.contentDOM.querySelectorAll<HTMLElement>('.cm-pm-embed')) {
+        let selected = false;
+        if (ranges.length && embedOf.has(el)) {
+          const { from, to } = embedRange(view, el);
+          selected = ranges.some((r) => r.from <= from && r.to >= to);
+        }
+        el.classList.toggle('is-selected', selected);
+      }
+    }
+  },
 );
 
 /** Tables, math blocks and frontmatter become block widgets (needs a state field: they span lines). */
@@ -2379,6 +2703,8 @@ export const livePreview: Extension = [
   formulaArrows,
   Prec.high(typeAtMedia),
   embedAtoms,
+  embedSelection,
+  embedDrag(embedRange),
   mediaCaret,
 ];
 
