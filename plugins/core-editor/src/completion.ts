@@ -386,9 +386,10 @@ export function completionExtension(opts: { closeLeft?: () => boolean } = {}): E
     editorCompletions.of(mathSource),
     closeBlockOnEnter,
     dollarTyping,
-    // `$` closes like a quote: `$|$`, and typing the second one steps over it.
+    // `$` closes like a quote: `$|$`, and typing the second one steps over it. A bracket
+    // also closes right in front of the `$` that ends a formula (`$\frac{|$`).
     EditorState.languageData.of(() => [
-      { closeBrackets: { brackets: ['(', '[', '{', "'", '"', '`', '$'] } },
+      { closeBrackets: { brackets: ['(', '[', '{', "'", '"', '`', '$'], before: ')]}:;>$' } },
     ]),
   ];
 }

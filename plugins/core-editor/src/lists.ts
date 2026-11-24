@@ -138,6 +138,124 @@ const selectMarker = EditorState.transactionFilter.of((tr) => {
   return [tr, { selection: EditorSelection.create(ranges, tr.selection.mainIndex) }];
 });
 
+const NUMBERED = /^([ \t]*)(\d{1,9})([.)])(?=[ \t]|$)/;
+
+/**
+ * The changes that put the numbers of the numbered lists around the given lines in order
+ * (`lines` are the note's lines, `first`..`last` indices into them): each list counts on from
+ * the number of its first item. A list whose items all carry the same number (`1.` for each,
+ * as some write them) is left as it is. Each change is within its line.
+ */
+export function renumberLists(
+  lines: readonly string[],
+  first: number,
+  last: number,
+  /** Lines that were just set in or out: a list that now begins with one of them begins at 1. */
+  restart: ReadonlySet<number> = new Set(),
+): Array<{ line: number; from: number; to: number; insert: string }> {
+  const out: Array<{ line: number; from: number; to: number; insert: string }> = [];
+  const done = new Set<string>();
+  const indentOf = (text: string) => /^[ \t]*/.exec(text)![0].length;
+  const blank = (i: number) => !lines[i]!.trim();
+  for (let at = Math.max(0, first); at <= Math.min(lines.length - 1, last); at++) {
+    const item = NUMBERED.exec(lines[at]!);
+    if (!item) continue;
+    const indent = item[1]!.length;
+    const mark = item[3]!;
+    // Whether line `i` belongs to the list: one of its items, or something set in under one.
+    const kind = (i: number): 'item' | 'inside' | 'outside' => {
+      const m = NUMBERED.exec(lines[i]!);
+      if (m && m[1]!.length === indent && m[3] === mark) return 'item';
+      return indentOf(lines[i]!) > indent ? 'inside' : 'outside';
+    };
+    // Up and down from the item, over empty lines that the list goes on behind.
+    const walk = (from: number, step: 1 | -1): number[] => {
+      const items: number[] = [];
+      for (let i = from + step; i >= 0 && i < lines.length; i += step) {
+        if (blank(i)) {
+          let next = i;
+          while (next >= 0 && next < lines.length && blank(next)) next += step;
+          if (next < 0 || next >= lines.length || kind(next) === 'outside') break;
+          i = next - step;
+          continue;
+        }
+        const k = kind(i);
+        if (k === 'outside') break;
+        if (k === 'item') items.push(i);
+      }
+      return items;
+    };
+    const items = [...walk(at, -1).reverse(), at, ...walk(at, 1)];
+    const key = `${items[0]}:${indent}`;
+    if (done.has(key)) continue;
+    done.add(key);
+    const numbers = items.map((i) => Number(NUMBERED.exec(lines[i]!)![2]));
+    const base = restart.has(items[0]!) ? 1 : numbers[0]!;
+    if (base === numbers[0] && (items.length < 2 || numbers.every((n) => n === base))) continue;
+    items.forEach((line, i) => {
+      const want = String(base + i);
+      const have = NUMBERED.exec(lines[line]!)![2]!;
+      if (have !== want) out.push({ line, from: indent, to: indent + have.length, insert: want });
+    });
+  }
+  return out;
+}
+
+/**
+ * A numbered list stays in order while it is written: an item put in, taken out, moved or
+ * set in gives the items behind it their new numbers, in the same step (one undo takes both
+ * back).
+ */
+const renumber = EditorState.transactionFilter.of((tr) => {
+  if (!tr.docChanged) return tr;
+  if (!tr.isUserEvent('input') && !tr.isUserEvent('delete') && !tr.isUserEvent('move')) return tr;
+  const doc = tr.newDoc;
+  let first = Infinity;
+  let last = -1;
+  const moved = new Set<number>();
+  const indenting = tr.isUserEvent('input.indent') || tr.isUserEvent('delete.dedent');
+  tr.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+    const a = doc.lineAt(fromB);
+    const b = doc.lineAt(toB);
+    // A number that is being written is the writer's: `2` on its way to `27` stays.
+    const m = a.number === b.number ? NUMBERED.exec(a.text) : null;
+    const digits = /^\d*$/;
+    if (
+      m &&
+      fromB >= a.from + m[1]!.length &&
+      toB <= a.from + m[1]!.length + m[2]!.length &&
+      digits.test(inserted.toString()) &&
+      digits.test(tr.startState.sliceDoc(fromA, toA))
+    )
+      return;
+    first = Math.min(first, a.number - 1);
+    last = Math.max(last, b.number + 1);
+    if (indenting) for (let n = a.number; n <= b.number; n++) moved.add(n - 1);
+  });
+  if (last < 0) return tr;
+  if (doc.lines > 20000) return tr;
+  // Not in code, where a number is just a number (as it was read before this change).
+  const before = tr.changes.invertedDesc;
+  const tree = syntaxTree(tr.startState);
+  const inCode = (pos: number): boolean => {
+    for (let n = tree.resolveInner(Math.min(before.mapPos(pos), tr.startState.doc.length), 1); ;) {
+      if (/Code|Frontmatter|Math|Comment/.test(n.name)) return true;
+      if (!n.parent) return false;
+      n = n.parent;
+    }
+  };
+  const lines: string[] = [];
+  for (const line of doc.iterLines()) lines.push(line);
+  const changes = renumberLists(lines, first - 1, last - 1, moved)
+    .map((c) => {
+      const line = doc.line(c.line + 1);
+      return { from: line.from + c.from, to: line.from + c.to, insert: c.insert };
+    })
+    .filter((c) => !inCode(c.from));
+  if (!changes.length) return tr;
+  return [tr, { changes, sequential: true }];
+});
+
 /**
  * How wide a space is in the note's font, for the steps of nested lists (a step is as wide as
  * a marker and the space behind it; see `.cm-pm-indent`).
@@ -180,6 +298,7 @@ export function listEditing(): Extension {
       ]),
     ),
     selectMarker,
+    renumber,
     spaceWidth,
   ];
 }

@@ -2115,17 +2115,35 @@ function buildDecorations(view: EditorView): DecorationSet {
           decorations.push(
             Decoration.mark({ class: 'cm-pm-indent' }).range(line.from + i, line.from + i + length),
           );
-        } else spare++;
+        } else {
+          // Half a step: three spaces under `1. ` reach as far as the number does.
+          spare++;
+          decorations.push(
+            Decoration.mark({ class: 'cm-pm-indent-half' }).range(line.from + i, line.from + i + 1),
+          );
+        }
         i += length;
       }
       // A long item wraps under its own text, not back at the edge of the page: the line hangs
       // by the width of everything in front of the text (the steps, and the marker).
-      const numbered = marker && /^\d/.test(marker) ? marker.trimEnd().length : 0;
+      // A number takes half a step for each of its characters (`1. ` is three), whatever the
+      // width of its digits: the text behind it, the rows it wraps to and a line set in by
+      // hand under it (by as many spaces) all start at the same place.
+      const numbered = marker && /^\d/.test(marker) ? marker.length : 0;
+      if (numbered) {
+        const at = line.from + indent.length;
+        decorations.push(
+          Decoration.mark({
+            class: 'cm-pm-number',
+            attributes: { style: `--pm-chars:${numbered}` },
+          }).range(at, at + numbered),
+        );
+      }
       decorations.push(
         Decoration.line({
           class: 'cm-pm-hang',
           attributes: {
-            style: `--pm-hang-steps:${steps + (marker && !numbered ? 1 : 0)};--pm-hang-chars:${spare + (numbered ? numbered + 1 : 0)}`,
+            style: `--pm-hang-steps:${steps + (marker && !numbered ? 1 : 0)};--pm-hang-chars:${spare + numbered}`,
           },
         }).range(line.from),
       );

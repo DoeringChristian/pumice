@@ -20,6 +20,7 @@ import {
   moveRow,
   parseTable,
   previewBlockOwners,
+  revealUnfocused,
   setAlign,
   sortRows,
   tableData,
@@ -768,6 +769,12 @@ const sourceTables = StateField.define<readonly number[]>({
   update(value, tr) {
     let next = tr.docChanged ? value.map((p) => tr.changes.mapPos(p)) : value;
     for (const e of tr.effects) if (e.is(showSource)) next = [...next, e.value];
+    // A match of find and replace in a table: the table shows as the markdown it was found in.
+    const sel = tr.state.selection.main;
+    if (tr.selection && !sel.empty && tr.state.facet(revealUnfocused).some((f) => f(tr.state))) {
+      const t = tablesIn(tr.state).find((x) => sel.from >= x.from && sel.to <= x.to);
+      if (t && !next.includes(t.from)) next = [...next, t.from];
+    }
     if (next.length && (tr.selection || tr.docChanged)) {
       // Drop tables the cursor has left.
       const tables = tablesIn(tr.state);

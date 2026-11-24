@@ -12,7 +12,8 @@ import {
 import { yamlFrontmatter } from '@codemirror/lang-yaml';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
-import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
+import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
+import { findAndReplace } from './search-panel';
 import { Compartment, EditorState, Prec, type Extension } from '@codemirror/state';
 import {
   EditorView,
@@ -240,11 +241,37 @@ export class MarkdownView implements ViewInstance {
     // A click beside or below the text puts the cursor on that line, or at the end of the note
     // (the text cursor is shown there, so it has to mean something).
     const beside = (e: MouseEvent) => {
-      if (this.reading || e.button !== 0) return;
+      if (e.button !== 0) return;
       const target = e.target as HTMLElement;
       if (target !== this.page && target !== this.page.parentElement) return;
       const content = this.editor.contentDOM.getBoundingClientRect();
       if (e.clientY < content.top) return;
+      if (e.clientY < content.bottom) {
+        // Beside a line: as if the press were at that line's nearest end. The editor takes it
+        // from there, so a selection can be drawn from the margin (a drag from the first letter
+        // of a line starts a little to its left as often as not), with all that a press in
+        // the text itself does: a word on a double click, more with Shift.
+        e.preventDefault();
+        if (!this.reading) this.editor.focus();
+        this.editor.contentDOM.dispatchEvent(
+          new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            button: 0,
+            buttons: e.buttons,
+            detail: e.detail,
+            clientX: Math.max(content.left + 1, Math.min(e.clientX, content.right - 1)),
+            clientY: e.clientY,
+            shiftKey: e.shiftKey,
+            altKey: e.altKey,
+            metaKey: e.metaKey,
+            ctrlKey: e.ctrlKey,
+          }),
+        );
+        return;
+      }
+      if (this.reading) return;
       e.preventDefault();
       const { doc } = this.editor.state;
       const x = Math.max(content.left + 1, Math.min(e.clientX, content.right - 1));
@@ -639,7 +666,7 @@ export class MarkdownView implements ViewInstance {
         sectionFolding(),
         listEditing(),
         texHighlighting,
-        search({ top: true }),
+        findAndReplace(),
         highlightSelectionMatches(),
         placeholder('Start writing…'),
         EditorView.contentAttributes.of({

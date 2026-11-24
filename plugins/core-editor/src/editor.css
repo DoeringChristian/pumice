@@ -198,10 +198,6 @@
   color: var(--text);
   border-color: var(--border);
 }
-.pm-markdown-view .cm-panels input,
-.pm-markdown-view .cm-panels button {
-  font: inherit;
-}
 .pm-markdown-view .cm-searchMatch {
   background: var(--highlight);
 }
@@ -956,6 +952,19 @@ input.cm-pm-caption-id.is-editing {
   bottom: 0;
   border-left: 1px solid var(--border);
 }
+/* A single space of indentation, and each character of a number with its dot and space: half
+   a step. Everything in front of the text of a list item is counted in these, so the text, the
+   rows it wraps to and the lines set in under it by hand start at the same place. */
+.cm-pm-indent-half,
+.cm-pm-number {
+  display: inline-block;
+  width: calc((1.1em + var(--pm-space, 0.28em)) / 2);
+  white-space: pre;
+  vertical-align: top;
+}
+.cm-pm-number {
+  width: calc(var(--pm-chars, 3) * (1.1em + var(--pm-space, 0.28em)) / 2);
+}
 
 /* ---- the space around embedded media ------------------------------------------------------ */
 /* Every embed is one box within its line, whatever it shows. Laid out as a block it would stand
@@ -1261,7 +1270,7 @@ input.cm-pm-caption-id.is-editing {
    the line is set in by what stands in front of the text, and its first row set back out. */
 .pm-markdown-page .cm-line.cm-pm-hang {
   --pm-hang: calc(
-    var(--pm-hang-steps, 0) * (1.1em + var(--pm-space, 0.28em)) + var(--pm-hang-chars, 0) * 0.6em
+    (var(--pm-hang-steps, 0) + var(--pm-hang-chars, 0) / 2) * (1.1em + var(--pm-space, 0.28em))
   );
   padding-left: var(--pm-hang);
   text-indent: calc(-1 * var(--pm-hang));
@@ -1313,4 +1322,148 @@ input.cm-pm-caption-id.is-editing {
 .pm-markdown-page .cm-content:focus-visible,
 .pm-text-view .cm-scroller:focus-visible {
   outline: none;
+}
+
+/* ---- find and replace: a card at the top right of the note --------------------------------- */
+/* The bar that holds it takes no room: the note does not move when the card opens. */
+.cm-editor .cm-panels.cm-panels-top {
+  height: 0;
+  overflow: visible;
+  border: 0;
+  background: none;
+}
+.pm-find {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(420px, calc(100% - 32px));
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background: var(--bg-elevated);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-ui);
+  line-height: 1.4;
+}
+.pm-find-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.pm-find-replace {
+  display: none;
+  /* Under the field above, not under the arrow that opens it. */
+  padding-left: 26px;
+  gap: 4px;
+}
+.pm-find.is-replacing .pm-find-replace {
+  display: flex;
+}
+.pm-find-box {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  height: 28px;
+  padding: 0 3px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg);
+}
+.pm-find-box:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.pm-find-box.is-missing {
+  border-color: var(--danger);
+  box-shadow: none;
+}
+.pm-find-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+.pm-find-input::placeholder {
+  color: var(--text-faint);
+}
+.pm-find-toggle,
+.pm-find-button,
+.pm-find-action {
+  flex: none;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.pm-find-toggle {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.pm-find-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+.pm-find-button[hidden] {
+  display: none;
+}
+.pm-find-action {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  color: var(--text);
+}
+.pm-find-toggle:hover,
+.pm-find-button:hover,
+.pm-find-action:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.pm-find-toggle[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.pm-find-expand svg {
+  transition: transform 0.12s;
+}
+.pm-find-expand.is-open svg {
+  transform: rotate(90deg);
+}
+.pm-find-count {
+  flex: none;
+  min-width: 62px;
+  padding: 0 6px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+}
+.cm-editor .cm-searchMatch {
+  border-radius: 2px;
+  background: var(--highlight);
+}
+.cm-editor .cm-searchMatch-selected {
+  background: var(--accent-soft);
+  outline: 1.5px solid var(--accent);
 }

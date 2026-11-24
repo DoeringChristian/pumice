@@ -41,27 +41,88 @@ export { MarkdownView } from './markdown-view';
 export const manifest = manifestJson;
 
 /** Wraps the selection in `marker` or removes it if already wrapped. */
+/** What stands in front of the text of a line: its indentation, `>`, a list marker, a box, `#`. */
+const LINE_PREFIX =
+  /^[ \t]*(?:>[ \t]*)*(?:(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)?(?:#{1,6}[ \t]+)?/;
+
+/**
+ * The parts of a selection that a mark (`**`, `==`) goes around: the text of each line by
+ * itself, without what stands in front of it and without the spaces at its ends. A mark
+ * around a list marker or across the end of a line would not be one (and `==` alone on a
+ * line makes a heading of the line above).
+ */
+export function wrapParts(
+  doc: { lineAt(pos: number): { from: number; to: number; text: string; number: number } },
+  from: number,
+  to: number,
+): Array<{ from: number; to: number }> {
+  const parts: Array<{ from: number; to: number }> = [];
+  for (let pos = from; pos <= to;) {
+    const line = doc.lineAt(pos);
+    let a = Math.max(from, line.from + LINE_PREFIX.exec(line.text)![0].length);
+    let b = Math.min(to, line.to);
+    while (a < b && /\s/.test(line.text[a - line.from]!)) a++;
+    while (b > a && /\s/.test(line.text[b - 1 - line.from]!)) b--;
+    if (a < b) parts.push({ from: a, to: b });
+    pos = line.to + 1;
+  }
+  return parts;
+}
+
 function toggleWrap(view: EditorView, marker: string): boolean {
   const { state } = view;
+  const n = marker.length;
   view.dispatch(
     state.changeByRange((range) => {
-      const before = state.sliceDoc(range.from - marker.length, range.from);
-      const after = state.sliceDoc(range.to, range.to + marker.length);
-      if (before === marker && after === marker) {
+      if (range.empty) {
+        // Nothing selected: the marks, with the cursor between them (or out of them again).
+        const before = state.sliceDoc(range.from - n, range.from);
+        const after = state.sliceDoc(range.to, range.to + n);
+        if (before === marker && after === marker)
+          return {
+            changes: { from: range.from - n, to: range.to + n },
+            range: EditorSelection.cursor(range.from - n),
+          };
         return {
-          changes: [
-            { from: range.from - marker.length, to: range.from },
-            { from: range.to, to: range.to + marker.length },
-          ],
-          range: EditorSelection.range(range.from - marker.length, range.to - marker.length),
+          changes: { from: range.from, insert: marker + marker },
+          range: EditorSelection.cursor(range.from + n),
         };
       }
+      const parts = wrapParts(state.doc, range.from, range.to);
+      if (!parts.length) return { range };
+      // Marked already, with the marks around the part or as its ends.
+      const outside = (p: { from: number; to: number }) =>
+        state.sliceDoc(p.from - n, p.from) === marker && state.sliceDoc(p.to, p.to + n) === marker;
+      const inside = (p: { from: number; to: number }) =>
+        p.to - p.from >= 2 * n &&
+        state.sliceDoc(p.from, p.from + n) === marker &&
+        state.sliceDoc(p.to - n, p.to) === marker;
+      const marked = parts.every((p) => outside(p) || inside(p));
+      const changes = parts.flatMap((p): Array<{ from: number; to?: number; insert?: string }> =>
+        marked
+          ? outside(p)
+            ? [
+                { from: p.from - n, to: p.from },
+                { from: p.to, to: p.to + n },
+              ]
+            : [
+                { from: p.from, to: p.from + n },
+                { from: p.to - n, to: p.to },
+              ]
+          : outside(p) || inside(p)
+            ? []
+            : [
+                { from: p.from, insert: marker },
+                { from: p.to, insert: marker },
+              ],
+      );
+      const mapped = state.changes(changes);
       return {
-        changes: [
-          { from: range.from, insert: marker },
-          { from: range.to, insert: marker },
-        ],
-        range: EditorSelection.range(range.from + marker.length, range.to + marker.length),
+        changes,
+        range: EditorSelection.range(
+          mapped.mapPos(parts[0]!.from, 1),
+          mapped.mapPos(parts[parts.length - 1]!.to, -1),
+        ),
       };
     }),
   );

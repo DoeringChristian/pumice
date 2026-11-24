@@ -5,7 +5,7 @@ import {
   type EditorState,
   type Extension,
 } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
+import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 
 /**
  * Which lines live preview shows as raw markdown: the lines the selection touches while the
@@ -20,6 +20,23 @@ interface RevealState {
   focused: boolean;
   /** Ranges frozen at mousedown, or null when the pointer isn't held. */
   held: ReadonlyArray<{ from: number; to: number }> | null;
+}
+
+/**
+ * Says that the selection shows as source also while the editor does not have the focus:
+ * while a match of find and replace is selected from its panel, which has the focus then.
+ */
+export const revealUnfocused = Facet.define<(state: EditorState) => boolean>();
+
+/** What shows as source right now: the selection, or what it was when the pointer went down. */
+function revealRanges(
+  state: EditorState,
+  reveal: RevealState,
+): ReadonlyArray<{ from: number; to: number }> {
+  if (reveal.held) return reveal.held;
+  if (reveal.focused || state.facet(revealUnfocused).some((f) => f(state)))
+    return state.selection.ranges;
+  return [];
 }
 
 const setFocused = StateEffect.define<boolean>();
@@ -52,7 +69,9 @@ const revealField = StateField.define<RevealState>({
 const pointer = EditorView.domEventHandlers({
   mousedown(event, view) {
     if (event.button !== 0 || event.defaultPrevented) return false;
-    if (view.state.field(revealField).held) return false;
+    // A press whose release was never seen (it ended in a frame, or on what was taken out of
+    // the page while it was dragged) must not keep the lines as they were for good.
+    if (view.state.field(revealField).held) view.dispatch({ effects: setHeld.of(false) });
     view.dispatch({ effects: setHeld.of(true) });
     const win = view.dom.ownerDocument.defaultView ?? window;
     const release = () => {
@@ -70,12 +89,52 @@ const pointer = EditorView.domEventHandlers({
     win.addEventListener('blur', release);
     return false;
   },
+  // No button is down any more, or something is typed: the press is over, seen or not.
+  mousemove(event, view) {
+    if (!event.buttons && view.state.field(revealField, false)?.held)
+      view.dispatch({ effects: setHeld.of(false) });
+    return false;
+  },
+  keydown(_event, view) {
+    if (view.state.field(revealField, false)?.held) view.dispatch({ effects: setHeld.of(false) });
+    return false;
+  },
 });
+
+/**
+ * Keeps what is known about the focus true. The editor only tells of a change of focus, and
+ * the field starts out unfocused: one made while the editor has the focus (another note is
+ * opened in it, the way notes are shown is switched) would never hear of it, and nothing
+ * would show as source until the editor is left and entered again.
+ */
+const focusSync = ViewPlugin.fromClass(
+  class {
+    private pending = false;
+    constructor(readonly view: EditorView) {
+      this.check();
+    }
+    update(_update: ViewUpdate) {
+      this.check();
+    }
+    private check() {
+      if (this.pending) return;
+      this.pending = true;
+      queueMicrotask(() => {
+        this.pending = false;
+        const view = this.view;
+        const known = view.state.field(revealField, false);
+        if (known && known.focused !== view.hasFocus)
+          view.dispatch({ effects: setFocused.of(view.hasFocus) });
+      });
+    }
+  },
+);
 
 /** Tracks focus and pointer state for {@link revealedLines}; the markdown editor installs it. */
 export const revealTracking: Extension = [
   revealField,
   pointer,
+  focusSync,
   EditorView.focusChangeEffect.of((_state, focusing) => setFocused.of(focusing)),
 ];
 
@@ -84,7 +143,7 @@ export function revealedLines(state: EditorState): Set<number> {
   const lines = new Set<number>();
   const reveal = state.field(revealField, false);
   if (!reveal) return lines;
-  const ranges = reveal.held ?? (reveal.focused ? state.selection.ranges : []);
+  const ranges = revealRanges(state, reveal);
   for (const r of ranges) {
     const first = state.doc.lineAt(Math.min(r.from, state.doc.length)).number;
     const last = state.doc.lineAt(Math.min(r.to, state.doc.length)).number;
@@ -101,7 +160,7 @@ export function revealedLines(state: EditorState): Set<number> {
 export function revealedAt(state: EditorState, from: number, to: number): boolean {
   const reveal = state.field(revealField, false);
   if (!reveal) return false;
-  const ranges = reveal.held ?? (reveal.focused ? state.selection.ranges : []);
+  const ranges = revealRanges(state, reveal);
   return ranges.some((r) => r.from <= to && r.to >= from);
 }
 
@@ -110,6 +169,8 @@ export function revealChanged(startState: EditorState, state: EditorState): bool
   const a = startState.field(revealField, false);
   const b = state.field(revealField, false);
   if (a !== b) return true;
+  const unfocused = (s: EditorState) => s.facet(revealUnfocused).some((f) => f(s));
+  if (unfocused(startState) !== unfocused(state)) return true;
   return !b?.held && startState.selection !== state.selection;
 }
 

@@ -6,13 +6,15 @@ import {
   SettingsUi,
   ShellService,
   Vault,
+  Workspace,
   citedKeys,
+  parseBibtex,
   definePlugin,
   type BibliographyApi,
   type CitationStyle,
   type PluginModule,
 } from '@pumice/api';
-import { h, select, settingItem, textInput } from '@pumice/ui';
+import { button, h, select, settingItem } from '@pumice/ui';
 import manifestJson from '../manifest.json';
 import { bibliographyExtension } from './editor-ext';
 import { citeText, citedOf, inBrackets, referenceLine, referencesElement } from './render';
@@ -27,6 +29,7 @@ export const plugin = definePlugin({
     const vault = ctx.use(Vault);
     const index = ctx.use(MetadataIndex);
     const editor = ctx.use(Editor);
+    const workspace = ctx.use(Workspace);
     const shell = ctx.tryUse(ShellService);
     const style = (): CitationStyle =>
       ctx.settings.get<string>('style', 'numeric') === 'author-year' ? 'author-year' : 'numeric';
@@ -113,20 +116,125 @@ export const plugin = definePlugin({
           title: 'Bibliography',
           group: 'plugins',
           render(container) {
-            container.replaceChildren(
-              h('h2', {}, 'Bibliography'),
-              settingItem(
-                'Bibliography file',
-                'The BibTeX file notes cite from, as a path in the vault (references.bib). A note can name its own with a "bibliography" property. Empty: the .bib files at the top of the vault.',
-                textInput(
-                  ctx.settings.get('file', ''),
-                  (v) => {
-                    void ctx.settings.set('file', v.trim());
-                    store.touch();
-                  },
-                  { placeholder: 'references.bib' },
+            const isBib = (path: string) => /\.bib(tex)?$/i.test(path);
+            const choose = (path: string) => {
+              void ctx.settings.set('file', path);
+              store.touch();
+            };
+            // What a new file starts with: an entry to write the next one after.
+            const example = [
+              '% References for the notes of this vault, as BibTeX. Cite one with @key.',
+              '',
+              '@article{doe2020,',
+              '  author  = {Doe, Jane and Roe, Richard},',
+              '  title   = {An example entry},',
+              '  journal = {Journal of Examples},',
+              '  year    = {2020},',
+              '}',
+              '',
+            ].join('\n');
+            const create = async () => {
+              if (!vault.get('references.bib')) await vault.create('references.bib', example);
+              choose('references.bib');
+              draw();
+              void workspace.openFile('references.bib', { newTab: true });
+            };
+            // A file from the computer is copied into the vault (never over one that is there).
+            const picker = h('input', { type: 'file', accept: '.bib,.bibtex', hidden: true });
+            picker.addEventListener('change', async () => {
+              const file = picker.files?.[0];
+              picker.value = '';
+              if (!file) return;
+              const text = await file.text();
+              const name = file.name.replace(/\.bib(tex)?$/i, '') || 'references';
+              const path = vault.availablePath('', name, 'bib');
+              await vault.create(path, text);
+              choose(path);
+              draw();
+            });
+            const draw = () => {
+              const files = vault
+                .files()
+                .map((f) => f.path)
+                .filter(isBib)
+                .sort();
+              const chosen = ctx.settings.get('file', '').trim();
+              const missing = !!chosen && !files.includes(chosen);
+              const options: Array<[string, string]> = [
+                ['', 'All .bib files at the top of the vault'],
+                ...files.map((f): [string, string] => [f, f]),
+                ...(missing ? [[chosen, `${chosen} (not found)`] as [string, string]] : []),
+              ];
+              const used =
+                chosen && !missing ? [chosen] : chosen ? [] : files.filter((f) => !f.includes('/'));
+              const status = h('div', { class: 'pm-bib-status' });
+              const show = async () => {
+                const rows: HTMLElement[] = [];
+                for (const path of used) {
+                  const count = parseBibtex(await vault.read(path).catch(() => '')).length;
+                  rows.push(
+                    h(
+                      'div',
+                      { class: 'pm-bib-file' },
+                      h('span', { class: 'pm-bib-file-name' }, path),
+                      h(
+                        'span',
+                        { class: 'pm-bib-file-count' },
+                        `${count} ${count === 1 ? 'entry' : 'entries'}`,
+                      ),
+                      button('Open', () => void workspace.openFile(path, { newTab: true })),
+                    ),
+                  );
+                }
+                status.replaceChildren(
+                  ...(rows.length
+                    ? rows
+                    : [
+                        h(
+                          'div',
+                          { class: 'pm-bib-none' },
+                          missing
+                            ? `${chosen} is not in the vault.`
+                            : 'No bibliography file yet: create one, or add one from your computer.',
+                        ),
+                      ]),
+                );
+              };
+              void show();
+              container.replaceChildren(
+                h('h2', {}, 'Bibliography'),
+                settingItem(
+                  'Bibliography file',
+                  'The BibTeX file notes cite from. A note can name its own with a "bibliography" property.',
+                  select<string>(
+                    chosen,
+                    options,
+                    (v) => {
+                      choose(v);
+                      draw();
+                    },
+                    'Bibliography file',
+                  ),
                 ),
-              ),
+                status,
+                settingItem(
+                  'Add a bibliography',
+                  'Start an empty references.bib in the vault, or copy a .bib file from your computer into it.',
+                  h(
+                    'div',
+                    { class: 'pm-bib-actions' },
+                    button(
+                      vault.get('references.bib') ? 'Use references.bib' : 'Create references.bib',
+                      () => void create(),
+                    ),
+                    button('Add a file…', () => picker.click()),
+                    picker,
+                  ),
+                ),
+                styleSetting(),
+              );
+            };
+            const styleSetting = () =>
               settingItem(
                 'Citation style',
                 'How @key reads in a note.',
@@ -142,8 +250,19 @@ export const plugin = definePlugin({
                   },
                   'Citation style',
                 ),
-              ),
-            );
+              );
+            draw();
+            // A file was added, taken away or written in while the settings are open.
+            return vault.onDidChange((changes) => {
+              if (
+                changes.some(
+                  (c) =>
+                    isBib(c.type === 'delete' ? c.path : c.entry.path) ||
+                    (c.type === 'rename' && isBib(c.oldPath)),
+                )
+              )
+                draw();
+            });
           },
         }),
       );

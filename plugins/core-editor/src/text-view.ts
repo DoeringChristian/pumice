@@ -8,7 +8,8 @@ import {
   syntaxHighlighting,
 } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
-import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
+import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
+import { findAndReplace } from './search-panel';
 import { Compartment, EditorState } from '@codemirror/state';
 import {
   EditorView,
@@ -106,7 +107,7 @@ export class TextView implements ViewInstance {
           indentOnInput(),
           bracketMatching(),
           closeBrackets(),
-          search({ top: true }),
+          findAndReplace(),
           highlightSelectionMatches(),
           EditorView.lineWrapping,
           this.language.of([]),
