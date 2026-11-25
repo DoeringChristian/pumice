@@ -1,30 +1,31 @@
 # 03 — Markdown dialect
 
-Target: **Obsidian Flavored Markdown**, plus one deliberate extension in how links are written
-(ID links). Files written by Pumice stay valid for Obsidian, except that ID links point at notes
-Obsidian cannot resolve (it still shows the display text).
+Notes written for Obsidian read correctly in Pumice (**Obsidian Flavored Markdown**). The reverse is
+not a goal: where one concise form can serve for several, Pumice writes that one, whether or not
+Obsidian shows it, and goes on reading the others.
 
 ## Supported syntax
 
-| Feature                                      | Syntax                                                       | Origin          |
-| -------------------------------------------- | ------------------------------------------------------------ | --------------- |
-| CommonMark                                   | everything                                                   | CommonMark 0.31 |
-| Tables, task lists, strikethrough, autolinks | GFM                                                          | GFM             |
-| YAML frontmatter / properties                | `---` block at file start                                    | Obsidian        |
-| Wikilinks                                    | `[[Target]]`, `[[Target\|Alias]]`                            | Obsidian        |
-| Heading / block links                        | `[[Target#Heading]]`, `[[Target#^block-id]]`, `[[#Heading]]` | Obsidian        |
-| Embeds                                       | `![[Target]]`, `![[img.png\|300]]`, `![[Note#Heading]]`      | Obsidian        |
-| Block IDs                                    | `^block-id` at end of block                                  | Obsidian        |
-| Tags                                         | `#tag`, `#nested/tag`, `tags:` property                      | Obsidian        |
-| Callouts                                     | `> [!note] Title`, foldable `[!tip]-` / `[!tip]+`            | Obsidian        |
-| Highlights                                   | `==text==`                                                   | Obsidian        |
-| Comments                                     | `%% hidden %%` (inline and block)                            | Obsidian        |
-| Math                                         | `$inline$`, `$$block$$` (KaTeX)                              | Obsidian        |
-| Footnotes                                    | `[^1]`, inline `^[note]`                                     | GFM / Obsidian  |
-| Mermaid                                      | ` ```mermaid `                                               | Obsidian        |
-| Markdown links to notes                      | `[text](Note%20name.md)`                                     | CommonMark      |
-| HTML                                         | inline/block HTML (sanitized when rendered)                  | CommonMark      |
-| **ID links**                                 | `[[id\|Name]]`, `[[id#Heading\|Name]]`, `![[id\|Name]]`      | **Pumice**      |
+| Feature                                      | Syntax                                                                                   | Origin           |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------- |
+| CommonMark                                   | everything                                                                               | CommonMark 0.31  |
+| Tables, task lists, strikethrough, autolinks | GFM                                                                                      | GFM              |
+| YAML frontmatter / properties                | `---` block at file start                                                                | Obsidian         |
+| Wikilinks                                    | `[[Target]]`, `[[Target\|Alias]]`                                                        | Obsidian         |
+| Links to a heading or a named place          | `[[Target#Heading]]`, `[[Target#name]]`, `[[#Heading]]`; read: `[[Target#^name]]`        | Pumice, Obsidian |
+| Media                                        | `![[a.png\|Caption]]{#fig-a width=50%}`, `![Caption](a.png){…}`; read: `![[a.png\|300]]` | Pumice, Obsidian |
+| Embedded notes                               | `![[Target]]`, `![[Note#Heading]]`                                                       | Obsidian         |
+| Names of paragraphs, list items, headings    | `{#name}` at the end of the line; read: `^name`                                          | Pumice, Obsidian |
+| Tags                                         | `#tag`, `#nested/tag`, `tags:` property                                                  | Obsidian         |
+| Callouts                                     | `> [!note] Title`, foldable `[!tip]-` / `[!tip]+`                                        | Obsidian         |
+| Highlights                                   | `==text==`                                                                               | Obsidian         |
+| Comments                                     | `%% hidden %%` (inline and block)                                                        | Obsidian         |
+| Math                                         | `$inline$`, `$$block$$` (KaTeX)                                                          | Obsidian         |
+| Footnotes                                    | `[^1]`, inline `^[note]`                                                                 | GFM / Obsidian   |
+| Mermaid                                      | ` ```mermaid `                                                                           | Obsidian         |
+| Markdown links to notes                      | `[text](Note%20name.md)`                                                                 | CommonMark       |
+| HTML                                         | inline/block HTML (sanitized when rendered)                                              | CommonMark       |
+| **ID links**                                 | `[[id\|Name]]`, `[[id#Heading\|Name]]`, `![[id\|Name]]`                                  | **Pumice**       |
 
 ## ID links
 

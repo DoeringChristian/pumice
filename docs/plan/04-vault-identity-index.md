@@ -73,8 +73,8 @@ Input: link target string `T` (before `#` and `|`), source note `S`.
 5. Otherwise **unresolved**: rendered as a ghost link; clicking creates the note (with an ID) in the
    configured folder and upgrades the link to `[[id|Name]]`.
 
-Subpath: `#Heading` resolved against the target's headings (slug-insensitive match), `#^block`
-against block IDs. When linking to a heading, the suggester offers "link to a stable block ID
+Subpath: `#Heading` resolved against the target's headings (slug-insensitive match), else (and `#^name`)
+against the names of places. When linking to a heading, the suggester offers "link to a stable block ID
 instead", because heading renames still break heading links.
 
 ## Renames and moves

@@ -255,7 +255,8 @@ export class LinksImpl implements LinksApi {
               : this.format(file, { subpath: `^${b.id}`, embed, inTable }),
         }));
     }
-    return file.meta.headings
+    // Headings, then the places with a name of their own.
+    const headings = file.meta.headings
       .map((h) => ({ h, m: sub ? fuzzyMatch(sub, h.text) : { score: 0 } }))
       .filter((x) => x.m)
       .sort((a, b) => (sub ? b.m!.score - a.m!.score : a.h.from - b.h.from))
@@ -263,10 +264,21 @@ export class LinksImpl implements LinksApi {
       .map(({ h }) => ({
         label: `${'#'.repeat(h.level)} ${h.text}`,
         detail: same ? 'This note' : file.title,
-        insert: ({ embed, inTable }) =>
+        insert: ({ embed, inTable }: { embed: boolean; inTable: boolean }) =>
           same
             ? formatWikiLink({ target: '', subpath: h.text }, { embed, inTable })
             : this.format(file, { subpath: h.text, embed, inTable }),
       }));
+    const names = file.meta.blocks
+      .filter((b) => sub && b.id.toLowerCase().includes(sub.toLowerCase()))
+      .map((b) => ({
+        label: `{#${b.id}}`,
+        detail: same ? 'This note' : file.title,
+        insert: ({ embed, inTable }: { embed: boolean; inTable: boolean }) =>
+          same
+            ? formatWikiLink({ target: '', subpath: b.id }, { embed, inTable })
+            : this.format(file, { subpath: b.id, embed, inTable }),
+      }));
+    return [...headings, ...names].slice(0, MAX_SUGGESTIONS);
   }
 }

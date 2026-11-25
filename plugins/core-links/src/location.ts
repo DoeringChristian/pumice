@@ -83,7 +83,8 @@ export function formatLocationQuote(path: string, text: string, from: number, to
   return selected ? `${place} "${selected}"` : place;
 }
 
-const BLOCK_ID_AT_END = /\s\^([A-Za-z0-9-]+)\s*$/;
+/** The name at the end of a line: `{#decisions}`, or `^decisions` in older notes. */
+const ANCHOR_AT_END = /(?:^|\s)(?:\{#([A-Za-z0-9][A-Za-z0-9-]*)\}|\^([A-Za-z0-9-]+))\s*$/;
 const HEADING = /^#{1,6}\s+(.*?)\s*#*\s*$/;
 
 export type BlockTarget =
@@ -93,7 +94,7 @@ export type BlockTarget =
 /**
  * What a link to the selection should point to: the heading if the selection starts on a heading
  * line, otherwise the block (paragraph, list item) containing the selection end, reusing its
- * `^block-id` or describing where to add a new one.
+ * name (`{#id}`, `^id`) or describing where to add a new one.
  */
 export function blockTarget(text: string, pos: number, newId: () => string): BlockTarget {
   const lineStart = text.lastIndexOf('\n', pos - 1) + 1;
@@ -101,6 +102,8 @@ export function blockTarget(text: string, pos: number, newId: () => string): Blo
   const lineEnd = lineEndRaw < 0 ? text.length : lineEndRaw;
   const line = text.slice(lineStart, lineEnd);
   const heading = HEADING.exec(line);
+  const name = heading && ANCHOR_AT_END.exec(heading[1]!);
+  if (name) return { kind: 'block', id: (name[1] ?? name[2])! };
   if (heading) return { kind: 'heading', heading: heading[1]! };
   // List items are their own blocks; paragraphs run until a blank line.
   let end = lineEnd;
@@ -119,11 +122,11 @@ export function blockTarget(text: string, pos: number, newId: () => string): Blo
   }
   const lastLineStart = text.lastIndexOf('\n', end - 1) + 1;
   const last = text.slice(lastLineStart, end);
-  const existing = BLOCK_ID_AT_END.exec(last);
-  if (existing) return { kind: 'block', id: existing[1]! };
+  const existing = ANCHOR_AT_END.exec(last);
+  if (existing) return { kind: 'block', id: (existing[1] ?? existing[2])! };
   const id = newId();
   const trimmedEnd = lastLineStart + last.replace(/\s+$/, '').length;
-  return { kind: 'block', id, insert: { at: trimmedEnd, text: ` ^${id}` } };
+  return { kind: 'block', id, insert: { at: trimmedEnd, text: ` {#${id}}` } };
 }
 
 /** A short random block ID (Obsidian uses 6 lowercase alphanumerics). */

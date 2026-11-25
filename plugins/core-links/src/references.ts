@@ -398,21 +398,28 @@ export async function renameLabel(
   id: string,
   deps: { index: MetadataIndexApi; documents: DocumentsApi },
 ): Promise<number> {
-  const changes = renameLabelChanges(view.state.doc.toString(), old, id);
+  const note = view.state.doc.toString();
+  const changes = renameLabelChanges(note, old, id);
+  // Links that name the note itself, `[[Note#fig-a]]` (the index may be behind what is typed).
+  for (const m of note.matchAll(/\[\[([^[\]|#\n]+)#\^?([^[\]|#\n\\]+)(?=\]\]|\\?\|)/g)) {
+    if (m[2] !== old || deps.index.resolve(m[1]!, path)?.file.path !== path) continue;
+    const to = m.index + m[0].length;
+    changes.push({ from: to - old.length, to, insert: id });
+  }
   if (changes.length) view.dispatch({ changes, userEvent: 'input.rename' });
   let others = 0;
   for (const file of deps.index.files()) {
     if (file.path === path) continue;
     const links = deps.index
       .outgoing(file.path)
-      .filter((r) => r.target === path && r.link.subpath === `^${old}`);
+      .filter((r) => r.target === path && r.link.subpath?.replace(/^\^/, '') === old);
     if (!links.length) continue;
     const ok = await editNote(deps.documents, file.path, (text) =>
       links.flatMap(({ link }) => {
-        const at = text.slice(link.from, link.to).indexOf(`#^${old}`);
-        return at < 0
-          ? []
-          : [{ from: link.from + at + 2, to: link.from + at + 2 + old.length, insert: id }];
+        const at = text.slice(link.from, link.to).indexOf(`#${link.subpath!}`);
+        if (at < 0) return [];
+        const to = link.from + at + 1 + link.subpath!.length;
+        return [{ from: to - old.length, to, insert: id }];
       }),
     );
     if (ok) others++;

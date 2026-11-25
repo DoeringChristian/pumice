@@ -173,11 +173,11 @@ examples/             example community plugins (word-goal, kbd-syntax)
 - **Moving figures**: drag a picture, video or drawing to another place in the note; dropped
   on the left or right third of another figure it goes beside it. In a row, resizing one
   figure gives the others the rest of the width, and snaps where two are equally high.
-- **Web resources in frames**: a setting written `[label](https://…)` or `<https://…>` refers to
-  a file on the web the same way `[[file]]` refers to one in the vault.
+- **Web resources in frames**: a setting written `"[label](https://…)"` or `<https://…>` refers
+  to a file on the web the same way `"[label](file)"` refers to one in the vault.
 - **Sizing embeds**: an embedded picture, video or frame has a handle in its bottom-right corner;
-  dragging it writes the size into the note as in Obsidian (`![[pic.png|300]]`,
-  `![[frames/bars/index.html|600x400]]`, or `width:`/`height:` in a frame block).
+  dragging it writes the size into the note (`![[pic.png]]{width=50%}`, or `width:`/`height:` in a frame
+  block; Obsidian's `![[pic.png|300]]` is still read).
 - **Completion while typing**: after ``` the language (choosing one closes the block; `frame`
   starts a frame block); inside a frame block the frames of the vault, the settings a frame
   documents in its `frame.json` with their values, and the files it takes; in math, LaTeX
@@ -185,7 +185,7 @@ examples/             example community plugins (word-goal, kbd-syntax)
   closes the block, and `$` closes like a quote. Plugins add their own suggestions through
   `editorCompletions`.
 - **Captions, numbering and references**: a figure's caption is the alias of its embed
-  (`![[loss.png|Loss over time|400]]`) or the `caption:` of a frame block; a table's is a
+  (`![[loss.png|Loss over time]]{#fig-loss width=50%}`, or `![Loss over time](loss.png){…}`) or the `caption:` of a frame block; a table's is a
   `Table: …` line above it. A label is written as pandoc does: `{#fig-loss}` right behind an
   embed, `{#tab-runs}` at the end of the `Table: …` line, `{#eq-energy}` on the line after a
   `$$` block, `label: fig-setup` in a frame block (Obsidian's `^fig-loss` is still read).
@@ -240,21 +240,22 @@ examples/             example community plugins (word-goal, kbd-syntax)
 
   ````markdown
   ```frame
-  file: [[frames/field/index.html]]
+  file: frames/field/index.html
   caption: Pressure field, run 12
-  data: [[runs/field-12.json]]
+  data: "[run 12](runs/field-12.json)"
   colormap: viridis
   ```
   ````
 
   `file`, `caption` and `height` are reserved; every other key is the file's own setting, and a
-  value that is one `[[link]]` arrives as a URL the page can fetch. The page gets the app's theme
+  value that is one quoted Markdown link arrives as a URL the page can fetch. The page gets the app's theme
   (CSS variables, base styles, light/dark) and `window.pumice.settings`; the settings are also
   the JSON in the URL fragment, so a frame runs without Pumice too. Frames are sandboxed: they
   see their own folder and the files passed to them, not the vault, the app or (unless allowed
   in Settings → Frames) the network. They reload when their files change. The assistant is told
   how frames work and to follow `frames/README.md`, the style guide written by "Frames: write
-  the style guide". In Obsidian a frame block shows as a code block.
+  the style guide".
+
 - **Adding to a frame**: drag a file from the file list onto a frame and it is added to what the
   frame shows (its `frame.json` says which types it takes, and whether several); the block in
   the note is rewritten, an embed becomes a block. A frame can change its own settings with
@@ -312,7 +313,7 @@ how, is listed per milestone. Known gaps are at the end.
   backlinks with unlinked mentions, outline, tags, properties, full-text search with filters,
   reading view, embeds (notes, sections, blocks, images, audio, video, PDF), callouts, KaTeX
   math, Mermaid. Decision D13: in-memory index instead of SQLite-WASM.
-- **M3 Excalidraw** — `.excalidraw.md` (Obsidian) and `.excalidraw` files, element-level CRDT
+- **M3 Excalidraw** — `.excalidraw` (new drawings) and `.excalidraw.md` (Obsidian) files, element-level CRDT
   codec with byte-identical saves of untouched drawings, embeds as SVG, links and search,
   external-edit merging, export, offline fonts.
 - **M4 Ecosystem** — community plugins (install from files/URL, enable/disable, hot reload),

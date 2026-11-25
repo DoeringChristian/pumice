@@ -66,7 +66,7 @@ For pasting a precise reference into an agent or a chat:
 - **Copy location** (`Mod+Alt+C`, context menu): `Notes/Meeting.md:12-14` (vault-relative path,
   1-based lines; `:12:5-12:20` with columns for a sub-line selection).
 - **Copy location with text**: the location plus the selected text in a fenced block.
-- **Copy link to selection**: an Obsidian-compatible `[[id#^block|Title]]`, adding a `^block-id` if
+- **Copy link to selection**: `[[id#name|Title]]`, adding a `{#name}` if
   needed (or a heading link when the selection is a heading).
 - Setting: absolute vs vault-relative paths, and the format (`path:line`, `@path#L12-14`).
 

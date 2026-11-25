@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Chat with an assistant about your notes: built in on your ChatGPT plan, or Claude Code, Codex and Gemini CLI through the Agent Client Protocol. Desktop only.",
   "api": "^0.1.0",
-  "permissions": ["platform"],
+  "permissions": ["platform", "shell"],
   "dependencies": {
     "core.vault": "^0.1.0",
     "core.documents": "^0.1.0",

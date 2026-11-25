@@ -124,7 +124,7 @@ export const plugin = definePlugin({
       const title = index.getFile(path)?.title;
       const link = await links.linkTo(
         path,
-        target.kind === 'heading' ? { subpath: target.heading } : { subpath: `^${target.id}` },
+        target.kind === 'heading' ? { subpath: target.heading } : { subpath: target.id },
       );
       await copy(link, 'link');
     };

@@ -1,10 +1,9 @@
 /**
  * Captions, numbers and labels of figures, tables and equations.
  *
- * Nothing is written into the note but what Obsidian understands too: the caption is the
- * alias of an embed (`![[plot.png|Loss over time|400]]`), the `caption:` of a frame block, or a
- * `Table: …` line above a table; the label is a block ID after it (`^fig-loss`, `^tab-runs`,
- * `^eq-energy`). Numbers are counted in the order of the note whenever it is shown.
+ * The caption is the alias of an embed (`![[plot.png|Loss over time]]{#fig-loss}`) or the text of
+ * an image, the `caption:` of a frame block, or a `Table: …` line above a table; the label is
+ * `{#fig-loss}`, `{#tab-runs}`, `{#eq-energy}` behind it (`^fig-loss` is still read). Numbers are counted in the order of the note whenever it is shown.
  */
 
 import type { TextChange } from './frontmatter';
@@ -269,7 +268,7 @@ export function itemByNumber(items: NumberedItem[], written: string): NumberedIt
 
 /**
  * Renames a label within a note: where it is given (`{#old}`, `label: old`, `^old`) and every link to it
- * within it (`[[#^old]]`, `[[#^old|text]]`, `@old`, also in captions).
+ * within it (`[[#old]]`, `[[#^old|text]]`, `@old`, also in captions).
  */
 export function renameLabelChanges(text: string, old: string, id: string): TextChange[] {
   const changes: TextChange[] = [];
@@ -278,8 +277,8 @@ export function renameLabelChanges(text: string, old: string, id: string): TextC
     const from = m.index + m[1]!.length + 1;
     changes.push({ from, to: from + old.length, insert: id });
   }
-  for (const m of text.matchAll(new RegExp(`\\[\\[#\\^${name}(?=\\]\\]|\\\\?\\|)`, 'g'))) {
-    const from = m.index + 4;
+  for (const m of text.matchAll(new RegExp(`\\[\\[#\\^?${name}(?=\\]\\]|\\\\?\\|)`, 'g'))) {
+    const from = m.index + m[0].length - old.length;
     changes.push({ from, to: from + old.length, insert: id });
   }
   // `{#old}` (also among other attributes) and the `label: old` of a frame block.

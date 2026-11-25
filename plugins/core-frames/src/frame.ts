@@ -9,7 +9,7 @@ import {
 } from '@pumice/api';
 import { h } from '@pumice/ui';
 import { FRAME_KIT, HOST_KEY, SERIES, THEME_VARS, withKit, type FrameTheme } from './kit';
-import { RESERVED, entryCandidates, hasRef, mapRefs, type FrameSpec } from './spec';
+import { RESERVED, entryCandidates, fileRef, hasRef, mapRefs, type FrameSpec } from './spec';
 import { opens, type FrameViewer } from './viewers';
 
 export interface FrameDeps {
@@ -469,7 +469,7 @@ export async function mountFrame(
       );
       return;
     }
-    const ref = `[[${path}]]`;
+    const ref = fileRef(path);
     const current = spec.settings[viewer.setting];
     const list = current === undefined ? [] : Array.isArray(current) ? current : [current];
     // The same file may be added again: comparing something with itself is a valid start.

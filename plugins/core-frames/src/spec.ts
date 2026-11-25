@@ -22,10 +22,38 @@ export interface FrameSpec {
 
 const WHOLE_LINK = /^!?\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]$/;
 
-/** The target of a string that is exactly one `[[link]]`, else undefined. */
+/** `[run](runs/12.json)`: a Markdown link to something that is not on the web. */
+const WHOLE_FILE_LINK = /^!?\[[^\]\n]*\]\((?![a-z][a-z0-9+.-]*:|#)([^)\s#]+)(?:#[^)\s]*)?\)$/i;
+
+/** The target of a string that is exactly one link to a file, else undefined. */
 export function linkTarget(value: string): string | undefined {
-  return WHOLE_LINK.exec(value.trim())?.[1]?.trim();
+  const v = value.trim();
+  const wiki = WHOLE_LINK.exec(v)?.[1]?.trim();
+  if (wiki !== undefined) return wiki;
+  const path = WHOLE_FILE_LINK.exec(v)?.[1];
+  if (path === undefined) return undefined;
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
 }
+
+/** How a setting refers to a file of the vault: `[12.json](runs/12.json)`. */
+export function fileRef(path: string): string {
+  const name = (path.split('/').pop() ?? path).replace(/[[\]]/g, ' ').trim();
+  const url = path.replace(/[%\s()<>#[\]"\\]/g, (c) =>
+    // (Those `encodeURIComponent` leaves alone.)
+    c === '(' ? '%28' : c === ')' ? '%29' : encodeURIComponent(c),
+  );
+  return `[${name}](${url})`;
+}
+
+/** A path as a value of the block: as it is, unless YAML would read it as something else. */
+export const plainPath = (path: string): string =>
+  /^[\p{L}\p{N}_./][\p{L}\p{N} _./()-]*$/u.test(path) && !path.endsWith(' ')
+    ? path
+    : JSON.stringify(path);
 
 /**
  * In YAML `[[a]]` is a list in a list; quote links so they stay text (and may contain commas
@@ -52,10 +80,10 @@ const plainCaption = (yaml: string): string =>
     (_, key: string, quoted: string) => key + String(JSON.parse(quoted)),
   );
 
-/** A Markdown link to a web resource, `[Lucy](https://…)`, would be a YAML list too: quote it. */
-export function quoteWebLinks(yaml: string): string {
+/** A Markdown link, `[Lucy](https://…)`, would be a YAML list too: also read without quotes. */
+export function quoteMarkdownLinks(yaml: string): string {
   return yaml.replace(
-    /(^|[\s:[,-])(\[[^[\]\n]*\]\(https?:\/\/[^)\s]+\))(?=\s*(?:[,\]}#]|$))/gm,
+    /(^|[\s:[,-])(\[[^[\]\n]*\]\([^)\s]+\))(?=\s*(?:[,\]}#]|$))/gm,
     (_, before, link) => `${before}${JSON.stringify(link)}`,
   );
 }
@@ -87,18 +115,18 @@ export interface FileRef {
 export function parseFrameBlock(source: string): FrameSpec {
   let value: unknown;
   try {
-    value = parse(quoteWebLinks(quoteLinks(quoteCaption(source))));
+    value = parse(quoteMarkdownLinks(quoteLinks(quoteCaption(source))));
   } catch (e) {
     throw new Error(`This frame block is not valid YAML: ${e instanceof Error ? e.message : e}`);
   }
   if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('A frame block needs a line like "file: [[frames/name/index.html]]".');
+    throw new Error('A frame block needs a line like "file: frames/name/index.html".');
   const { file, caption, height, width, ...settings } = value as Record<string, unknown>;
   // `label: fig-setup` is what the note refers to the frame by, not a setting of the file
   // (a `label` that says something else is one).
   if (isFigureLabel(settings.label)) delete settings.label;
   if (typeof file !== 'string' || !file.trim())
-    throw new Error('A frame block needs a line like "file: [[frames/name/index.html]]".');
+    throw new Error('A frame block needs a line like "file: frames/name/index.html".');
   const h = typeof height === 'number' ? height : Number.parseFloat(String(height ?? ''));
   const w = frameWidth(parseEmbedSize(String(width ?? '')).w);
   return {
@@ -133,8 +161,8 @@ export function entryCandidates(file: string, framesFolder: string): string[] {
 }
 
 /**
- * Replaces every string that is exactly one reference to a file (a `[[link]]`, or a Markdown
- * link to a web resource), at any depth, through `resolve`.
+ * Replaces every string that is exactly one reference to a file (a Markdown link, `[[link]]`, or
+ * a web resource), at any depth, through `resolve`.
  */
 export async function mapRefs(
   value: unknown,
@@ -172,12 +200,11 @@ export const RESERVED = ['file', 'caption', 'width', 'height'];
 const isFigureLabel = (value: unknown) =>
   typeof value === 'string' && /^fig-[A-Za-z0-9][A-Za-z0-9-]*$/.test(value);
 
-/** References are written bare in a block (`[[a]]`, not `"[[a]]"`). */
+/** `[[a]]`, as older blocks refer to files, stays without quotes; so does `<https://…>`. */
 function unquoteRefs(yaml: string): string {
   return yaml
     .replace(/"(\[\[[^\]"\n]+\]\])"/g, '$1')
     .replace(/'(\[\[[^\]'\n]+\]\])'/g, '$1')
-    .replace(/"(\[[^\]"\n]*\]\(https?:\/\/[^)"\s]+\))"/g, '$1')
     .replace(/"(<https?:\/\/[^>"\s]+>)"/g, '$1');
 }
 
@@ -186,7 +213,7 @@ function unquoteRefs(yaml: string): string {
  * `height` stay as written, every other key becomes what `settings` says.
  */
 export function withSettings(yaml: string, settings: Record<string, unknown>): string {
-  const doc = parseDocument(quoteWebLinks(quoteLinks(quoteCaption(yaml))));
+  const doc = parseDocument(quoteMarkdownLinks(quoteLinks(quoteCaption(yaml))));
   const current = doc.toJS() as Record<string, unknown> | null;
   for (const key of Object.keys(current ?? {})) {
     if (key === 'label' && isFigureLabel(current?.[key]) && !('label' in settings)) continue;
@@ -203,7 +230,7 @@ export function withSettings(yaml: string, settings: Record<string, unknown>): s
 /** A whole frame block, written from a spec (used when an embed needs more than it can say). */
 export function blockText(spec: FrameSpec): string {
   const head = [
-    `file: [[${spec.file}]]`,
+    `file: ${plainPath(spec.file)}`,
     ...(spec.caption ? [`caption: ${JSON.stringify(spec.caption)}`] : []),
     ...(spec.width ? [`width: ${Math.round(spec.width)}`] : []),
     ...(spec.height ? [`height: ${Math.round(spec.height)}`] : []),

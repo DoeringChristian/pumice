@@ -225,6 +225,12 @@ describe('labels and references', () => {
     expect(itemByNumber(items, 'fig-b')).toBeUndefined();
   });
 
+  it('renames links of either form', () => {
+    let text = 'See [[#fig-b]], [[#^fig-b|it]], [[#fig-bc]].\n\n![[a.png]]{#fig-b}\n';
+    for (const c of renameLabelChanges(text, 'fig-b', 'fig-x').reverse()) text = apply(text, c);
+    expect(text).toBe('See [[#fig-x]], [[#^fig-x|it]], [[#fig-bc]].\n\n![[a.png]]{#fig-x}\n');
+  });
+
   it('renames a label and the links to it', () => {
     let text = note;
     for (const c of renameLabelChanges(note, 'fig-b', 'fig-setup').reverse()) text = apply(text, c);

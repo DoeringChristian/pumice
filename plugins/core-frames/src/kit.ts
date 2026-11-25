@@ -151,7 +151,7 @@ export const TEMPLATE = `<!doctype html>
   A Pumice frame. Shown in a note with  ![[NAME.html]]  or a frame block:
 
       \`\`\`frame
-      file: [[FOLDER/NAME/index.html]]
+      file: FOLDER/NAME/index.html
       caption: What this shows
       title: Hello
       \`\`\`
@@ -229,9 +229,9 @@ So "show X" is three steps:
 3. Put a \`frame\` block in the note that names the frame, the data and a caption.
 
     \`\`\`frame
-    file: [[${at}mesh-viewer/index.html]]
+    file: ${at}mesh-viewer/index.html
     caption: Lucy, 250k triangles
-    mesh: [[data/lucy-250k.ply]]
+    mesh: "[Lucy](data/lucy-250k.ply)"
     up: z
     \`\`\`
 
@@ -303,22 +303,22 @@ Without settings:
     ![[${at}<name>/index.html]]
 
 With settings, a \`frame\` block (YAML). \`file\`, \`caption\`, \`width\` and \`height\` are reserved; every
-other key is the frame's own setting. A value that is exactly one \`[[link]]\` to a vault file
+other key is the frame's own setting. A value that is exactly one quoted Markdown link to a vault file
 arrives as a URL the frame can \`fetch\` or use as \`src\`:
 
     \`\`\`frame
-    file: [[${at}field/index.html]]
+    file: ${at}field/index.html
     caption: Pressure field, run 12
-    data: [[runs/field-12.json]]
+    data: "[run 12](runs/field-12.json)"
     colormap: viridis
     \`\`\`
 
-A file on the web is referred to the same way, as a Markdown link or in angle brackets; it
+A file on the web is referred to the same way, as a quoted Markdown link or in angle brackets; it
 arrives as an address the frame can load although frames have no network access:
 
-    mesh: [Lucy](https://example.org/models/lucy.ply)
+    mesh: "[Lucy](https://example.org/models/lucy.ply)"
     more:
-      - [[data/local.ply]]
+      - "[local](data/local.ply)"
       - <https://example.org/models/bunny.ply>
 
 A bare address (\`link: https://example.org\`) stays ordinary text.
@@ -390,9 +390,9 @@ A frame is a reusable tool for a KIND of data, never a page about one dataset. A
 Steps for "show X": (1) find or write the general frame, as ${at}<name>/index.html with its libraries beside it (frames have no network access: download libraries and data into the vault, never link a CDN); (2) put the data in its own file; (3) reference both from the note. Never put HTML, scripts or data in the note itself:
 
 \`\`\`frame
-file: [[${at}mesh-viewer/index.html]]
+file: ${at}mesh-viewer/index.html
 caption: Lucy, 250k triangles
-mesh: [[data/lucy-250k.ply]]
+mesh: "[Lucy](data/lucy-250k.ply)"
 \`\`\`
 
 A frame whose main input is one file of some type should also offer itself as the viewer for that type: put frame.json beside index.html, {"name": "Mesh viewer", "opens": {"extensions": ["ply", "obj"], "setting": "mesh"}} (add "multiple": true if it compares several files; the setting is then always a list). Such files then open in a tab through the frame, which gets the file as that setting and fills the tab. The reader adds files by dragging them onto the frame: the app writes them into the block (appended to that setting's list) and the frame gets the new settings, reloaded by default or through pumice.onSettings(fn) if it registered one; never write a drop handler or a file picker. pumice.update({key: value}) lets the frame change its own settings in the note (remove or reorder items, options the reader picks).\n\nfile, caption, width and height are reserved; every other key is a setting. Inside the file, read window.pumice.settings (a value that is one [[link]], or a web resource written [label](https://…) or <https://…>, arrives as a fetchable URL) and style only with the theme's CSS variables. With no settings, ![[${at}<name>/index.html]] also works.

@@ -21,7 +21,7 @@ export interface FileLocationsApi {
   drawingFolder(source?: VaultPath): VaultPath;
   /** A free path `folder/name.ext` in the attachment folder. */
   attachmentPath(source: VaultPath | undefined, name: string, extension: string): VaultPath;
-  /** A free path for a new drawing (`name.excalidraw.md`). */
+  /** A free path for a new drawing (`name.excalidraw`). */
   drawingPath(source: VaultPath | undefined, name: string): VaultPath;
 }
 

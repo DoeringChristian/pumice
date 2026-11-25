@@ -63,6 +63,9 @@ export function formatWikiLink(
 /** A label of a figure, table or equation: `fig-loss`, `tab-runs`, `eq-energy`. */
 export const LABEL_NAME = /^(?:fig|tab|eq)-[A-Za-z0-9][A-Za-z0-9-]*$/i;
 
+/** The name of any place of a note: `{#decisions}` at the end of a paragraph or a heading. */
+export const ANCHOR_NAME = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
+
 /**
  * What may stand after `@` to refer to a figure, table or equation of the note: its label
  * (`@fig-loss`, the same as `[[#^fig-loss]]`), or its number as it is right now (`@fig2`),

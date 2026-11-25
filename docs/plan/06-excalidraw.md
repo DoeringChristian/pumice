@@ -15,8 +15,8 @@ can contain links, show up in backlinks and graph, and can be edited collaborati
 
 | Format                                                | Read      | Write                        | Notes                              |
 | ----------------------------------------------------- | --------- | ---------------------------- | ---------------------------------- |
-| `*.excalidraw.md` (Obsidian Excalidraw plugin format) | ✓         | ✓ (default for new drawings) | compatibility with existing vaults |
-| `*.excalidraw` (plain Excalidraw JSON)                | ✓         | ✓                            | interop with excalidraw.com        |
+| `*.excalidraw.md` (Obsidian Excalidraw plugin format) | ✓         | ✓                            | compatibility with existing vaults |
+| `*.excalidraw` (plain Excalidraw JSON)                | ✓         | ✓ (default for new drawings) | vault pictures in `embeddedFiles`  |
 | `.excalidraw.svg` / `.png` with embedded scene        | ✓ (later) | export only                  |                                    |
 
 `.excalidraw.md` structure (to be confirmed against real files from current plugin versions,

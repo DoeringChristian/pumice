@@ -6,7 +6,7 @@ import {
 } from '@codemirror/autocomplete';
 import type { EditorView } from '@codemirror/view';
 import type { VaultPath } from '@pumice/api';
-import { RESERVED, linkTarget } from './spec';
+import { RESERVED, fileRef, linkTarget, plainPath } from './spec';
 import { opens, type FrameViewer } from './viewers';
 
 /** Where the cursor is in a frame block, as far as suggestions go. */
@@ -23,6 +23,12 @@ export interface FrameBlockInfo {
   /** What `file:` says (a link target or a path), if anything. */
   file?: string;
   place?: FramePlace;
+}
+
+/** What a `file:` line says. */
+function fileOf(value: string): string {
+  const v = value.trim().replace(/^(["'])(.*)\1$/, '$2');
+  return linkTarget(v) ?? v;
 }
 
 const OPEN = /^\s*(`{3,}|~{3,})\s*frame\s*$/;
@@ -52,13 +58,13 @@ export function frameBlockAt(
     const key = /^([\w-]+)\s*:(.*)$/.exec(lines[i]!);
     if (!key) continue;
     keys.push(key[1]!);
-    if (key[1] === 'file' && i !== index) file = linkTarget(key[2]!) ?? key[2]!.trim();
+    if (key[1] === 'file' && i !== index) file = fileOf(key[2]!);
   }
   const before = (lines[index] ?? '').slice(0, column);
   let place: FramePlace | undefined;
   const fileValue = /^file\s*:\s*/.exec(before);
-  const keyValue = /^([\w-]+)\s*:\s*(\[\[)?([^[\]]*)$/.exec(before);
-  const item = /^\s+-\s*(\[\[)?([^[\]]*)$/.exec(before);
+  const keyValue = /^([\w-]+)\s*:\s*(\[\[|"\[?|\[)?([^[\]"]*)$/.exec(before);
+  const item = /^\s+-\s*(\[\[|"\[?|\[)?([^[\]"]*)$/.exec(before);
   if (fileValue) place = { kind: 'file', from: fileValue[0].length };
   // Also after the indentation a list above leaves behind: a setting starts a line.
   else if (/^\s*[\w-]*$/.test(before))
@@ -139,7 +145,7 @@ export function frameCompletionSource(deps: FrameCompletionDeps) {
       const options = deps.frames().map((f) => ({
         label: f.name,
         detail: f.viewer ? `shows ${f.viewer.extensions.map((e) => `.${e}`).join(', ')}` : f.entry,
-        apply: replaceLine(`[[${f.entry}]]`, (view, end) => {
+        apply: replaceLine(plainPath(f.entry), (view, end) => {
           // Go on with what the frame shows.
           const v = f.viewer;
           if (!v || info.keys.includes(v.setting)) return;
@@ -185,7 +191,8 @@ export function frameCompletionSource(deps: FrameCompletionDeps) {
     }
 
     const doc = viewer?.settings[place.key];
-    const start = from - (place.bracketed ? 2 : 0);
+    // (What was begun, `[[` or `"[`, is replaced too.)
+    const start = from - /(?:\[\[|"\[?|\[)?$/.exec(state.sliceDoc(line.from, from))![0].length;
     if (viewer?.setting === place.key || doc?.type === 'file') {
       const takes = (p: VaultPath) => (viewer?.setting === place.key ? opens(viewer, p) : true);
       const options = deps
@@ -197,7 +204,7 @@ export function frameCompletionSource(deps: FrameCompletionDeps) {
           label: path,
           apply: (view: EditorView) => {
             const l = view.state.doc.lineAt(start);
-            const text = `[[${path}]]`;
+            const text = JSON.stringify(fileRef(path));
             view.dispatch({
               changes: { from: start, to: l.to, insert: text },
               selection: { anchor: start + text.length },

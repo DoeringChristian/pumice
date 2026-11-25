@@ -18,7 +18,7 @@ import type {
   Tokenizer,
 } from 'micromark-util-types';
 import { citationKey } from './bibtex';
-import { LABEL_NAME } from './links';
+import { ANCHOR_NAME, LABEL_NAME } from './links';
 
 declare module 'micromark-util-types' {
   interface TokenTypeMap {
@@ -284,7 +284,29 @@ const isTagChar = (code: Code) =>
   code > 0 &&
   ((code >= 0xd800 && code <= 0xdfff) || TAG_CHAR.test(String.fromCharCode(code)));
 
-// Labels: {#fig-loss} behind a figure, in a table's caption line, under an equation.
+// Labels: {#fig-loss} behind a figure, in a table's caption line, under an equation; any other
+// name at the end of a paragraph or heading.
+
+const restIsBlank: Construct = {
+  partial: true,
+  tokenize(effects, ok, nok) {
+    return start;
+    function start(code: Code): State | undefined {
+      if (code === null || markdownLineEnding(code)) return ok(code);
+      if (!markdownLineEndingOrSpace(code)) return nok(code);
+      effects.enter('whitespace');
+      return spaces(code);
+    }
+    function spaces(code: Code): State | undefined {
+      if (code !== null && !markdownLineEnding(code) && markdownLineEndingOrSpace(code)) {
+        effects.consume(code);
+        return spaces;
+      }
+      effects.exit('whitespace');
+      return code === null || markdownLineEnding(code) ? ok(code) : nok(code);
+    }
+  },
+};
 
 const figureLabel: Construct = { name: 'figureLabel', tokenize: tokenizeLabel };
 
@@ -294,6 +316,7 @@ function tokenizeLabel(
   ok: State,
   nok: State,
 ): State {
+  const previous = this.previous;
   let name = '';
   return start;
 
@@ -315,10 +338,17 @@ function tokenizeLabel(
       effects.consume(code);
       return body;
     }
-    if (code !== C.braceClose || !LABEL_NAME.test(name)) return nok(code);
+    if (code !== C.braceClose) return nok(code);
+    const label = LABEL_NAME.test(name);
+    if (!label && !(ANCHOR_NAME.test(name) && isWhitespaceOrStart(previous))) return nok(code);
     effects.consume(code);
     effects.exit('figureLabel');
-    return ok;
+    return label ? ok : lineEnd;
+  }
+
+  // (Spaces may follow: they are looked past, not taken.)
+  function lineEnd(code: Code): State | undefined {
+    return effects.check(restIsBlank, ok, nok)(code);
   }
 }
 

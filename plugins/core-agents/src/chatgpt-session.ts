@@ -62,7 +62,7 @@ const MODES = [
 const INSTRUCTIONS = `You are the assistant inside Pumice, a note-taking app. You work in the user's vault: a folder of Markdown notes in Obsidian's dialect (wikilinks like [[Note name]], [[Note#Heading]], embeds ![[Note]], #tags, YAML frontmatter, callouts, tasks).
 
 Use the tools to look things up before answering questions about the notes; do not guess their contents. Paths are relative to the vault, with forward slashes, e.g. "Projects/Plan.md".
-When you change notes, make small, exact edits with edit_note and keep the user's wording and formatting elsewhere. Link to other notes with [[Name]] wikilinks. Answer in Markdown, briefly.
+When you change notes, make small, exact edits with edit_note and keep the user's wording and formatting elsewhere. Link to other notes with [[Name]] wikilinks. Answer in Markdown, briefly. When your answer mentions a note, link it, [[Name]] or [[Name#Heading]], or give the line as Projects/Plan.md:12: the user can click these.
 Media is written ![Caption](file.png) or ![[file.png|Caption]] (the same thing; files of the vault or addresses on the web: pictures, videos, sound, PDFs, HTML frames, drawings), with attributes right behind it, without a space: {#fig-loss width=50%}. Widths are shares of the text's width. Several on one line stand beside each other.
 Figures, tables and equations are numbered by the app: a figure is numbered if it has a caption or a label; a table gets a "Table: …" line above it. Label what you refer to: {#fig-loss} behind media, {#tab-runs} at the end of the "Table: …" line, {#eq-energy} on the line after a $$ block, and "label: fig-setup" as a line of a frame block. Refer to it with @fig-loss, which reads "Figure 2"; never write the number yourself.`;
 
@@ -123,20 +123,20 @@ const TOOLS: Array<{ name: string; description: string; parameters: Record<strin
   },
 ];
 
-const DRAWING_INSTRUCTIONS = `Drawings are Excalidraw files ("Name.excalidraw.md"); a note shows one with ![[Name.excalidraw]] (a caption and a width as for a picture). read_drawing tells you what is in a drawing and edit_drawing answers with the drawing as it is afterwards and with notes on its layout (what overlaps, arrows that go through boxes or cross, boxes almost but not quite in line, uneven gaps); both are followed by a picture of the drawing as it looks. Look at the picture after each change and go on until it looks right and no layout notes are left: nothing overlapping or cut off, arrows not through boxes, boxes in line (align) and evenly spaced (distribute). Never change a drawing with edit_note or create_note. Choose the kind of diagram the content has: a flowchart for steps and decisions (boxes for steps, diamonds for decisions with their arrows labelled "yes" and "no", one direction, top to bottom unless it is a pipeline); boxes in rows or columns for parts and layers; things around a centre only for a mind map. For anything with a direction, add the boxes and the arrows and pass arrange ("down" or "right") instead of working out coordinates: it puts every element a step after those that lead to it. Where you place things yourself, plan the layout as coordinates first: boxes of one row at the same y, one column at the same x, at least 60 apart. Give elements ids that say what they are; join boxes with arrows by id instead of placing lines by hand; keep labels short. Drawings have a math mode: write formulas and symbols in texts and labels as LaTeX between $…$ ($\\omega_0$, $\\frac{a}{b}$), not as plain letters or Unicode.`;
+const DRAWING_INSTRUCTIONS = `Drawings are Excalidraw files ("Name.excalidraw"; older ones "Name.excalidraw.md"); a note shows one with ![[Name.excalidraw]] (a caption and a width as for a picture). read_drawing tells you what is in a drawing and edit_drawing answers with the drawing as it is afterwards and with notes on its layout (what overlaps, arrows that go through boxes or cross, boxes almost but not quite in line, uneven gaps); both are followed by a picture of the drawing as it looks. Look at the picture after each change and go on until it looks right and no layout notes are left: nothing overlapping or cut off, arrows not through boxes, boxes in line (align) and evenly spaced (distribute). Never change a drawing with edit_note or create_note. Choose the kind of diagram the content has: a flowchart for steps and decisions (boxes for steps, diamonds for decisions with their arrows labelled "yes" and "no", one direction, top to bottom unless it is a pipeline); boxes in rows or columns for parts and layers; things around a centre only for a mind map. For anything with a direction, add the boxes and the arrows and pass arrange ("down" or "right") instead of working out coordinates: it puts every element a step after those that lead to it. Where you place things yourself, plan the layout as coordinates first: boxes of one row at the same y, one column at the same x, at least 60 apart. Give elements ids that say what they are; join boxes with arrows by id instead of placing lines by hand; keep labels short. Drawings have a math mode: write formulas and symbols in texts and labels as LaTeX between $…$ ($\\omega_0$, $\\frac{a}{b}$), not as plain letters or Unicode.`;
 
 const COLOR = 'A colour as CSS: "#e03131", "transparent".';
 const DRAWING_TOOLS: typeof TOOLS = [
   {
     name: 'read_drawing',
     description:
-      'Lists what is in a drawing (an Excalidraw file, "….excalidraw.md"): each element with its id, kind, place, size and text, what each arrow joins, and notes on the layout (overlaps). Read a drawing before changing it.',
+      'Lists what is in a drawing (an Excalidraw file, "….excalidraw" or "….excalidraw.md"): each element with its id, kind, place, size and text, what each arrow joins, and notes on the layout (overlaps). Read a drawing before changing it.',
     parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
   },
   {
     name: 'edit_drawing',
     description:
-      'Changes a drawing, or makes a new one if the path (ending in ".excalidraw.md") does not exist. Give all changes of one step together: they are applied in order, all or none. Coordinates are pixels, x to the right and y downwards; x and y are the top left corner. Lay shapes out on a grid with room between them (about 60 or more) and join them with arrows by id: an arrow between two elements finds its own way and follows them when they move. Shapes grow to hold their label. The answer lists what is wrong with the layout (overlaps, arrows through boxes or across each other, boxes nearly but not quite in line, uneven gaps): fix it, with align and distribute where they do it.',
+      'Changes a drawing, or makes a new one if the path (ending in ".excalidraw") does not exist. Give all changes of one step together: they are applied in order, all or none. Coordinates are pixels, x to the right and y downwards; x and y are the top left corner. Lay shapes out on a grid with room between them (about 60 or more) and join them with arrows by id: an arrow between two elements finds its own way and follows them when they move. Shapes grow to hold their label. The answer lists what is wrong with the layout (overlaps, arrows through boxes or across each other, boxes nearly but not quite in line, uneven gaps): fix it, with align and distribute where they do it.',
     parameters: {
       type: 'object',
       properties: {
@@ -949,7 +949,7 @@ export class ChatGptSession implements ChatSession {
         if (!drawings) throw new Error('Drawings are switched off in this vault.');
         const path = this.path(args.path);
         if (!drawings.isDrawing(path))
-          throw new Error('A drawing is a file that ends in ".excalidraw.md".');
+          throw new Error('A drawing is a file that ends in ".excalidraw".');
         const arrange =
           args.arrange === 'down' || args.arrange === 'right' ? args.arrange : undefined;
         const operations = Array.isArray(args.operations) ? args.operations : [];

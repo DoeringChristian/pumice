@@ -242,15 +242,18 @@ export async function buildPage(opts: BuildOptions): Promise<Built> {
         );
       }
     }
-    // Links to other notes lead nowhere outside the app; those to a heading of this note (a
-    // table of contents, `[[#Heading]]`) lead to it.
+    // Links to other notes lead nowhere outside the app; those to a heading or a named place of
+    // this note (a table of contents, `[[#Heading]]`, `[[#name]]`) lead to it.
     let anchors = 0;
     for (const link of root.querySelectorAll<HTMLElement>('a.internal-link')) {
       const heading = !link.dataset.target && link.dataset.subpath;
       const target = heading
-        ? [...root.querySelectorAll<HTMLElement>('[data-heading]')].find(
+        ? ([...root.querySelectorAll<HTMLElement>('[data-heading]')].find(
             (el) => el.dataset.heading === heading,
-          )
+          ) ??
+          [...root.querySelectorAll<HTMLElement>('[data-block-id]')].find(
+            (el) => el.dataset.blockId === heading.replace(/^\^/, ''),
+          ))
         : undefined;
       if (target) {
         target.id ||= `heading-${++anchors}`;

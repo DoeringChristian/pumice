@@ -38,13 +38,16 @@ describe('copy location', () => {
     expect(blockTarget(doc, 12, () => 'new1')).toEqual({
       kind: 'block',
       id: 'new1',
-      insert: { at: doc.indexOf('here') + 4, text: ' ^new1' },
+      insert: { at: doc.indexOf('here') + 4, text: ' {#new1}' },
     });
+    const named = '## Part {#part}\n\nSome text. {#here}\n';
+    expect(blockTarget(named, 2, () => 'x')).toEqual({ kind: 'block', id: 'part' });
+    expect(blockTarget(named, 20, () => 'x')).toEqual({ kind: 'block', id: 'here' });
     expect(blockTarget(doc, doc.indexOf('item'), () => 'x')).toEqual({ kind: 'block', id: 'abc' });
     expect(blockTarget(doc, doc.indexOf('other'), () => 'n')).toEqual({
       kind: 'block',
       id: 'n',
-      insert: { at: doc.indexOf('other') + 5, text: ' ^n' },
+      insert: { at: doc.indexOf('other') + 5, text: ' {#n}' },
     });
   });
 });

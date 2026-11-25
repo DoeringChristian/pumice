@@ -25,13 +25,15 @@ import { exportFrameHtml, mountFrame, resolveEntry, type FrameDeps } from './fra
 import { GUIDE_VERSION, SERIES, TEMPLATE, THEME_VARS, agentGuidance, styleGuide } from './kit';
 import {
   blockText,
+  fileRef,
   frameFence,
-  frameWidth,
   frameSlug,
+  frameWidth,
   parseFrameBlock,
   parseFrameQuery,
-  withSettings,
+  plainPath,
   type FrameSpec,
+  withSettings,
 } from './spec';
 import {
   frameBlock,
@@ -175,7 +177,7 @@ export const plugin = definePlugin({
             settings: Object.fromEntries(
               Object.entries(parseFrameQuery(ectx.subpath)).map(([key, value]) => [
                 key,
-                vault.get(value)?.kind === 'file' ? `[[${value}]]` : value,
+                vault.get(value)?.kind === 'file' ? fileRef(value) : value,
               ]),
             ),
           };
@@ -283,7 +285,7 @@ export const plugin = definePlugin({
                   file: frame,
                   settings: {
                     [typeof next.setting === 'string' ? next.setting : 'data']:
-                      next.multiple === true ? [`[[${path}]]`] : `[[${path}]]`,
+                      next.multiple === true ? [fileRef(path)] : fileRef(path),
                   },
                 },
                 sourcePath: path,
@@ -552,7 +554,7 @@ export const plugin = definePlugin({
         if (files === undefined) return;
         const text = viewer
           ? frameBlock(viewer, files)
-          : `\`\`\`frame\nfile: [[${picked.entry}]]\n\`\`\``;
+          : `\`\`\`frame\nfile: ${plainPath(picked.entry)}\n\`\`\``;
         const { state } = active.view;
         const line = state.doc.lineAt(state.selection.main.head);
         // On lines of its own, so it renders as a block.
@@ -617,7 +619,7 @@ export const plugin = definePlugin({
             .replace(/FOLDER\/README\.md/g, guidePath())
             .replace(/NAME/g, slug),
         );
-        const block = `\`\`\`frame\nfile: [[${path}]]\ntitle: Hello\n\`\`\`\n`;
+        const block = `\`\`\`frame\nfile: ${plainPath(path)}\ntitle: Hello\n\`\`\`\n`;
         await navigator.clipboard.writeText(block).catch(() => undefined);
         await workspace.openFile(path);
         workspace.notify(

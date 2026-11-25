@@ -67,14 +67,19 @@ export function sectionOf(
       ? text.slice(meta.frontmatterRange.to).replace(/^\r?\n/, '')
       : text;
   }
-  if (subpath.startsWith('^')) {
-    const block = meta.blocks.find((b) => b.id === subpath.slice(1));
-    return block ? text.slice(block.from, block.to) : '';
-  }
   const key = subpath.split('#').filter(Boolean).pop()?.toLowerCase().trim();
-  const index = meta.headings.findIndex((h) => h.text.toLowerCase().trim() === key);
-  const heading = meta.headings[index];
-  if (!heading) return '';
+  let index = subpath.startsWith('^')
+    ? -1
+    : meta.headings.findIndex((h) => h.text.toLowerCase().trim() === key);
+  if (index < 0) {
+    // A place with that name (`{#decisions}`); of a heading, its section.
+    const id = subpath.replace(/^#?\^?/, '');
+    const block = meta.blocks.find((b) => b.id === id);
+    if (!block) return '';
+    index = meta.headings.findIndex((h) => h.from === block.from && h.to === block.to);
+    if (index < 0) return text.slice(block.from, block.to);
+  }
+  const heading = meta.headings[index]!;
   const next = meta.headings.slice(index + 1).find((h) => h.level <= heading.level);
   return text.slice(heading.from, next ? next.from : text.length);
 }
@@ -737,10 +742,15 @@ export class ReaderImpl implements ReaderApi {
         video.loop = this.loopVideos();
         // Its room, until it is known how large it is.
         const { size } = ctx;
-        // (As its still picture, which gives it its size as the video will.)
-        if (size) video.poster = placeholder(size);
+        // (Not as its `poster`: that would stay in place of the first frame.)
+        if (size) {
+          video.width = size.width;
+          // (Not its height: until it is loaded a video counts as twice as wide as high.)
+          video.style.aspectRatio = `${size.width} / ${size.height}`;
+        }
         video.addEventListener('loadedmetadata', () => {
-          if (size) video.removeAttribute('poster');
+          video.removeAttribute('width');
+          video.style.removeProperty('aspect-ratio');
           this.learn(path, {
             width: video.videoWidth,
             height: video.videoHeight,

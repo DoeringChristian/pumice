@@ -1,9 +1,12 @@
+import { EditorState, type TransactionSpec } from '@codemirror/state';
+import type { EditorView } from '@codemirror/view';
 import { DocumentsImpl, markdownCodec } from '@pumice/core-documents';
 import { MetadataIndexImpl, inlineParser } from '@pumice/core-index';
 import { MarkdownSyntaxImpl } from '@pumice/core-markdown';
 import { VaultImpl } from '@pumice/core-vault';
 import { createMemoryPlatform } from '@pumice/platform-memory';
 import { describe, expect, it } from 'vitest';
+import { renameLabel } from '../src/references';
 import { LinksImpl, pointedAt, rewriteLinksAfterRename } from '../src';
 
 const sleep = (ms = 0) => new Promise((r) => setTimeout(r, ms));
@@ -139,5 +142,33 @@ describe('links', () => {
     expect(pointedAt('x/note', 'x/Note.md', 'a.md')).toBe(true);
     expect(pointedAt('../x/Note', 'x/Note.md', 'y/a.md')).toBe(true);
     expect(pointedAt('Other', 'x/Note.md', 'a.md')).toBe(false);
+  });
+});
+
+describe('renaming a label', () => {
+  it('changes every link to it, of either form, in the note and in others', async () => {
+    const note =
+      '![[a.png]]{#fig-a}\n\n@fig-a [[#fig-a]] [[Note#fig-a]] [[Note#^fig-a|it]] [[Other#fig-a]]\n';
+    const { index, docs, settle, read } = await setup({
+      'Note.md': note,
+      'Other.md': 'x {#fig-a}\n\n[[Note#fig-a]] [[Note#^fig-a|b]] [[#fig-a]]\n',
+    });
+    let state = EditorState.create({ doc: note });
+    const view = {
+      get state() {
+        return state;
+      },
+      dispatch: (spec: TransactionSpec) => (state = state.update(spec).state),
+    } as unknown as EditorView;
+    expect(await renameLabel(view, 'Note.md', 'fig-a', 'fig-x', { index, documents: docs })).toBe(
+      1,
+    );
+    await settle();
+    expect(state.doc.toString()).toBe(
+      '![[a.png]]{#fig-x}\n\n@fig-x [[#fig-x]] [[Note#fig-x]] [[Note#^fig-x|it]] [[Other#fig-a]]\n',
+    );
+    expect(await read('Other.md')).toBe(
+      'x {#fig-a}\n\n[[Note#fig-x]] [[Note#^fig-x|b]] [[#fig-a]]\n',
+    );
   });
 });

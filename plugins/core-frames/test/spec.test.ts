@@ -3,17 +3,18 @@ import { describe, expect, it } from 'vitest';
 import { FRAME_KIT, withKit } from '../src/kit';
 import { frameBlock, isFrameManifest, opens, parseFrameManifest, viewerAt } from '../src/viewers';
 import {
-  entryCandidates,
-  frameSlug,
-  linkTarget,
   blockText,
+  entryCandidates,
+  fileRef,
   frameFence,
+  frameSlug,
   hasRef,
+  linkTarget,
   mapRefs,
-  webTarget,
-  withSettings,
   parseFrameBlock,
   parseFrameQuery,
+  webTarget,
+  withSettings,
 } from '../src/spec';
 
 describe('parseFrameBlock', () => {
@@ -204,7 +205,7 @@ describe('frame manifests', () => {
       'frames/mesh-viewer/frame.json',
     )!;
     expect(frameBlock(one, ['data/lucy.ply'])).toBe(
-      '```frame\nfile: [[frames/mesh-viewer/index.html]]\nmesh: [[data/lucy.ply]]\n```',
+      '```frame\nfile: frames/mesh-viewer/index.html\nmesh: "[lucy.ply](data/lucy.ply)"\n```',
     );
     const many = parseFrameManifest(
       '{"opens":{"extensions":["png","jpg"],"setting":"images","multiple":true}}',
@@ -212,20 +213,55 @@ describe('frame manifests', () => {
     )!;
     expect(many.multiple).toBe(true);
     expect(frameBlock(many, ['a.png', 'b.png'])).toBe(
-      '```frame\nfile: [[frames/image-compare/index.html]]\nimages:\n  - [[a.png]]\n  - [[b.png]]\n```',
+      '```frame\nfile: frames/image-compare/index.html\nimages:\n  - "[a.png](a.png)"\n  - "[b.png](b.png)"\n```',
     );
     // The block parses back to links, which the frame gets as addresses.
     expect(
       parseFrameBlock(frameBlock(many, ['a.png', 'b.png']).split('\n').slice(1, -1).join('\n')),
     ).toEqual({
       file: 'frames/image-compare/index.html',
-      settings: { images: ['[[a.png]]', '[[b.png]]'] },
+      settings: { images: ['[a.png](a.png)', '[b.png](b.png)'] },
     });
     expect(opens(many, 'x/Photo.PNG')).toBe(true);
     expect(opens(many, 'x/photo.gif')).toBe(false);
     expect(viewerAt([one, many], 'frames/mesh-viewer')).toBe(one);
     expect(viewerAt([one, many], 'frames/image-compare/index.html')).toBe(many);
     expect(viewerAt([one, many], 'frames/other/index.html')).toBeUndefined();
+  });
+});
+
+describe('references to files', () => {
+  it('reads Markdown links, quoted or not, and writes them quoted', () => {
+    for (const q of ['"', '']) {
+      const spec = parseFrameBlock(
+        `file: frames/f/index.html\ndata: ${q}[run](runs/my%20run.json)${q}\nmore:\n  - ${q}[b](b.json)${q}`,
+      );
+      expect(spec.settings).toEqual({ data: '[run](runs/my%20run.json)', more: ['[b](b.json)'] });
+    }
+    expect(linkTarget('[run](runs/my%20run.json)')).toBe('runs/my run.json');
+    expect(linkTarget('[x](https://example.org/a.json)')).toBeUndefined();
+    expect(linkTarget('[x](#part)')).toBeUndefined();
+    expect(linkTarget('see [x](a.json)')).toBeUndefined();
+    const same = 'file: f.html\ndata: "[run](run.json)"\nn: 1';
+    expect(withSettings(same, { data: '[run](run.json)', n: 2 })).toBe(
+      same.replace('n: 1', 'n: 2'),
+    );
+  });
+
+  it('finds any file again by the reference written for it', () => {
+    for (const path of [
+      'a.json',
+      'a b/c (1) [x] #2 100%.json',
+      'é/"q".ply',
+      'x, y: z.csv',
+      'a\u00a0b\u2003c.json',
+    ]) {
+      const ref = fileRef(path);
+      expect(linkTarget(ref)).toBe(path);
+      const block = blockText({ file: path, settings: { data: ref } });
+      const back = parseFrameBlock(block.split('\n').slice(1, -1).join('\n'));
+      expect([back.file, back.settings.data]).toEqual([path, ref]);
+    }
   });
 });
 
@@ -254,7 +290,7 @@ describe('changing a block', () => {
         'meshes:',
         '  - [[a.ply]]',
         '  - [[data/b.ply]]',
-        '  - [B](https://example.org/b.ply)',
+        '  - "[B](https://example.org/b.ply)"',
         'colormap: viridis',
       ].join('\n'),
     );
@@ -274,7 +310,7 @@ describe('changing a block', () => {
         settings: { files: ['[[a.dat]]', '[[b.dat]]'] },
       }),
     ).toBe(
-      '```frame\nfile: [[frames/compare/index.html]]\nwidth: 600\nheight: 400\nfiles:\n  - [[a.dat]]\n  - [[b.dat]]\n```',
+      '```frame\nfile: frames/compare/index.html\nwidth: 600\nheight: 400\nfiles:\n  - [[a.dat]]\n  - [[b.dat]]\n```',
     );
   });
 

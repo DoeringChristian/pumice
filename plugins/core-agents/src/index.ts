@@ -7,6 +7,7 @@ import {
   MetadataIndex,
   MarkdownSyntax,
   PlatformService,
+  ShellService,
   SettingsUi,
   Vault,
   Workspace,
@@ -23,8 +24,10 @@ import { ChatStore, newChatId, storableItems, type SavedChat } from './chats';
 import { Ledger, revertChange, trackedFiles, minimalChange, type AgentChange } from './ledger';
 import { ChatManager, chatName, mentionOf, type OpenChat } from './manager';
 import { AgentPanelState, renderAgentPanel, type Attachment } from './panel';
+import { offsetOf, type WrittenPlace } from './references';
 import { ChatGptSession } from './chatgpt-session';
 import {
+  vaultPathOf,
   AgentSession,
   DEFAULT_AGENTS,
   type AgentConfig,
@@ -95,6 +98,22 @@ export const plugin = definePlugin({
     const drawingsNow = () => ctx.tryUse(Drawings);
     const host = platform.process;
     const root = platform.vaultRoot ?? '';
+
+    // What an answer refers to: a file by its path, also as the system has it, or by its name.
+    const placeOf = (place: WrittenPlace): VaultPath | undefined => {
+      let path = place.path;
+      if (root && path.startsWith('/')) path = vaultPathOf(root, path);
+      if (!path || path.startsWith('/')) return undefined;
+      if (vault.get(path)?.kind === 'file') return path as VaultPath;
+      return ctx.tryUse(MetadataIndex)?.resolve(path, '' as VaultPath)?.file.path;
+    };
+    const openPlace = async (path: string, place: WrittenPlace, newTab: boolean) => {
+      const state: Record<string, unknown> = {};
+      if (place.subpath) state.subpath = place.subpath;
+      if (place.line && /\.md$/i.test(path))
+        state.offset = offsetOf(await documents.read(path as VaultPath), place.line, place.column);
+      await workspace.openFile(path as VaultPath, { newTab, state });
+    };
 
     const agents = (): AgentConfig[] => {
       const overrides = ctx.settings.get<Record<string, string>>('commands', {});
@@ -300,6 +319,11 @@ export const plugin = definePlugin({
             {
               workspace,
               syntax,
+              places: {
+                resolve: placeOf,
+                open: (path, place, newTab) => void openPlace(path, place, newTab),
+                openExternal: (url) => void ctx.tryUse(ShellService)?.openExternal(url),
+              },
               agents,
               available: (!!host || !!platform.chatgpt) && !!root,
               root,

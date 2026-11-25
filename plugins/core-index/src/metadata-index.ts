@@ -231,16 +231,17 @@ export class MetadataIndexImpl implements MetadataIndexApi, Disposable {
     const meta = this.files_.get(path)?.meta;
     if (!meta) return undefined;
     const sub = subpath.replace(/^#/, '');
+    const named = (id: string) => meta.blocks.find((b) => b.id === id);
     if (sub.startsWith('^')) {
-      const id = sub.slice(1);
-      return meta.blocks.find((b) => b.id === id);
+      return named(sub.slice(1));
     }
     // `A#B`: heading B below heading A.
     let found: HeadingRef | undefined;
     let from = 0;
     for (const part of sub.split('#').map(headingKey).filter(Boolean)) {
       found = meta.headings.find((h) => h.from >= from && headingKey(h.text) === part);
-      if (!found) return undefined;
+      // No heading: a place with that name (`{#decisions}`).
+      if (!found) return named(sub);
       from = found.to;
     }
     return found;

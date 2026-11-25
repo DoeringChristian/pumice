@@ -1,4 +1,5 @@
 import type { VaultPath } from '@pumice/api';
+import { fileRef, plainPath } from './spec';
 
 /**
  * A frame can offer itself as a viewer for whole files: a `frame.json` beside its `index.html`
@@ -89,11 +90,11 @@ export function isFrameManifest(path: VaultPath, framesFolder: string): boolean 
 
 /** The block that shows files through a frame, as it is written into a note. */
 export function frameBlock(viewer: FrameViewer, files: VaultPath[]): string {
-  const lines = ['```frame', `file: [[${viewer.entry}]]`];
+  const lines = ['```frame', `file: ${plainPath(viewer.entry)}`];
   if (viewer.multiple) {
-    lines.push(`${viewer.setting}:`, ...files.map((f) => `  - [[${f}]]`));
+    lines.push(`${viewer.setting}:`, ...files.map((f) => `  - ${JSON.stringify(fileRef(f))}`));
     if (!files.length) lines[lines.length - 1] = `${viewer.setting}: []`;
-  } else if (files[0]) lines.push(`${viewer.setting}: [[${files[0]}]]`);
+  } else if (files[0]) lines.push(`${viewer.setting}: ${JSON.stringify(fileRef(files[0]))}`);
   lines.push('```');
   return lines.join('\n');
 }

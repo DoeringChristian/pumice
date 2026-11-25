@@ -89,8 +89,8 @@ export const plugin = definePlugin({
       },
       edit(path, text, operations, options) {
         if (!isDrawingPath(path))
-          throw new Error('A drawing is a file that ends in ".excalidraw.md".');
-        const drawing = parseDrawing(path, text ?? (path.endsWith('.md') ? newDrawing() : ''));
+          throw new Error('A drawing is a file that ends in ".excalidraw".');
+        const drawing = parseDrawing(path, text ?? newDrawing(path));
         const summary = applyDrawingOps(
           drawing.scene,
           operations as DrawingOp[],
@@ -106,7 +106,10 @@ export const plugin = definePlugin({
         const blob = await exportToPng({
           elements: drawing.scene.elements.filter((e) => !e.isDeleted) as never,
           appState: drawing.scene.appState as never,
-          files: Object.fromEntries(files.map((f) => [f.id, f])) as never,
+          files: {
+            ...drawing.scene.files,
+            ...Object.fromEntries(files.map((f) => [f.id, f])),
+          } as never,
           dark: false,
           background: '#ffffff',
         });
@@ -201,7 +204,7 @@ export const plugin = definePlugin({
               document.documentElement.dataset.theme === 'dark' ||
               (document.documentElement.dataset.theme !== 'light' &&
                 matchMedia('(prefers-color-scheme: dark)').matches);
-            const key = `svg2:${await hash(`${dark ? 'd' : 'l'}${text}`)}`;
+            const key = `svg3:${await hash(`${dark ? 'd' : 'l'}${text}`)}`;
             let svg = await ctx.storage.get(key);
             if (!svg) {
               const { exportToSvg, loadEmbeddedFiles, isDefaultBackground } = await loadView();
@@ -210,7 +213,10 @@ export const plugin = definePlugin({
               const el = await exportToSvg({
                 elements: drawing.scene.elements.filter((e) => !e.isDeleted) as never,
                 appState: drawing.scene.appState as never,
-                files: Object.fromEntries(files.map((f) => [f.id, f])) as never,
+                files: {
+                  ...drawing.scene.files,
+                  ...Object.fromEntries(files.map((f) => [f.id, f])),
+                } as never,
                 dark,
                 ...(isDefaultBackground(drawing.scene.appState.viewBackgroundColor)
                   ? { background: false as const }
@@ -264,8 +270,8 @@ export const plugin = definePlugin({
         const source = active && vault.get(active) ? active : undefined;
         const path =
           ctx.tryUse(FileLocations)?.drawingPath(source, 'drawing') ??
-          vault.availablePath(source ? dirname(source) : '', 'drawing', 'excalidraw.md');
-        await vault.create(path, newDrawing());
+          vault.availablePath(source ? dirname(source) : '', 'drawing', 'excalidraw');
+        await vault.create(path, newDrawing(path));
         await workspace.openFile(path);
       },
     });
@@ -277,9 +283,8 @@ export const plugin = definePlugin({
       const noteName = (active.path.split('/').pop() ?? 'Note').replace(/\.[^.]+$/, '');
       const path =
         ctx.tryUse(FileLocations)?.drawingPath(active.path, `${noteName} drawing`) ??
-        vault.availablePath(dirname(active.path), `${noteName} drawing`, 'excalidraw.md');
-      await vault.create(path, newDrawing());
-      // As Obsidian writes it: `![[Name.excalidraw]]`.
+        vault.availablePath(dirname(active.path), `${noteName} drawing`, 'excalidraw');
+      await vault.create(path, newDrawing(path));
       const embed = `![[${(path.split('/').pop() ?? '').replace(/\.md$/i, '')}]]`;
       const { state } = active.view;
       const line = state.doc.lineAt(state.selection.main.head);

@@ -95,10 +95,26 @@ function normalizeScene(raw: unknown): Scene {
   };
 }
 
+/** The pictures of the vault in a plain drawing: `"embeddedFiles": { fileId: "[[a.png]]" }`. */
+function embeddedOf(raw: unknown): Record<string, string> {
+  const files = (raw as { embeddedFiles?: unknown } | undefined)?.embeddedFiles;
+  if (!files || typeof files !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(files).filter((e): e is [string, string] => typeof e[1] === 'string'),
+  );
+}
+
 export function parseDrawing(path: string, text: string): ParsedDrawing {
   if (!path.toLowerCase().endsWith('.md')) {
-    const scene = text.trim() ? normalizeScene(JSON.parse(text)) : emptyScene();
-    return { format: 'json', head: '', scene, embedded: {}, extraSections: [], compressed: false };
+    const raw: unknown = text.trim() ? JSON.parse(text) : undefined;
+    return {
+      format: 'json',
+      head: '',
+      scene: raw ? normalizeScene(raw) : emptyScene(),
+      embedded: embeddedOf(raw),
+      extraSections: [],
+      compressed: false,
+    };
   }
   const dataAt = text.search(DATA_HEADING);
   // Older plugin versions had no "# Excalidraw Data" heading: the head ends at "# Text Elements".
@@ -147,7 +163,13 @@ export function orderElements(elements: DrawingElement[]): DrawingElement[] {
 
 export function serializeDrawing(drawing: ParsedDrawing): string {
   const scene: Scene = { ...drawing.scene, elements: orderElements(drawing.scene.elements) };
-  if (drawing.format === 'json') return `${JSON.stringify(scene, null, 2)}\n`;
+  if (drawing.format === 'json') {
+    // Pictures of the vault are referred to, not copied (other programs ignore the entry).
+    const embeddedFiles = Object.keys(drawing.embedded).length
+      ? { embeddedFiles: drawing.embedded }
+      : {};
+    return `${JSON.stringify({ ...scene, ...embeddedFiles }, null, 2)}\n`;
+  }
   const live = scene.elements.filter((e) => !e.isDeleted);
   const texts = live.filter((e) => e.type === 'text');
   const links = live.filter((e) => e.link && e.type !== 'text');
@@ -183,14 +205,15 @@ export function drawingText(scene: Scene): string {
     .join('\n');
 }
 
-/** A new `.excalidraw.md` drawing with an ID in its frontmatter. */
-export function newDrawing(): string {
+/** The text of a new drawing: plain, unless its name asks for Obsidian's format. */
+export function newDrawing(path = 'drawing.excalidraw'): string {
+  const md = path.toLowerCase().endsWith('.md');
   return serializeDrawing({
-    format: 'md',
-    head: DEFAULT_HEAD,
+    format: md ? 'md' : 'json',
+    head: md ? DEFAULT_HEAD : '',
     scene: emptyScene(),
     embedded: {},
     extraSections: [],
-    compressed: true,
+    compressed: md,
   });
 }

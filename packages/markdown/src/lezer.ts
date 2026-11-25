@@ -12,7 +12,7 @@ import {
 } from '@lezer/markdown';
 import { Tag, tags } from '@lezer/highlight';
 import { citationKey } from './bibtex';
-import { LABEL_NAME, REFERENCE_NAME } from './links';
+import { ANCHOR_NAME, LABEL_NAME, REFERENCE_NAME } from './links';
 
 /** Highlight tags for dialect nodes (use them in CodeMirror highlight styles). */
 export const dialectTags = {
@@ -190,14 +190,22 @@ const BlockIdParser = {
   },
 };
 
-/** `{#fig-loss}`: the label of what stands before it (a figure, a table's caption, an equation). */
+/**
+ * `{#fig-loss}`: the label of what stands before it (a figure, a table's caption, an equation).
+ * Any other name labels the paragraph or heading it ends.
+ */
 const LabelParser = {
   name: 'Label',
   parse(cx: InlineContext, next: number, pos: number): number {
     if (next !== 123 || cx.char(pos + 1) !== 35) return -1;
     let i = pos + 2;
     while (i < cx.end && (isNameChar(cx.char(i)) || cx.char(i) === 45)) i++;
-    if (cx.char(i) !== 125 || !LABEL_NAME.test(cx.slice(pos + 2, i))) return -1;
+    if (cx.char(i) !== 125) return -1;
+    const name = cx.slice(pos + 2, i);
+    if (!LABEL_NAME.test(name)) {
+      const rest = /^[^\n\r]*/.exec(cx.slice(i + 1, cx.end))![0];
+      if (!ANCHOR_NAME.test(name) || !atWordStart(cx, pos) || rest.trim()) return -1;
+    }
     return cx.addElement(cx.elt('BlockId', pos, i + 1));
   },
 };

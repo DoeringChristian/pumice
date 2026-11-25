@@ -204,7 +204,7 @@ export function toHastTree(tree: Root, opts: RenderOptions = {}): HastRoot {
     heading(state: State, node: Extract<Nodes, { type: 'heading' }>) {
       return el(
         `h${node.depth}`,
-        { dataHeading: plainText(node) },
+        { dataHeading: plainText(node).trim() },
         state.all(node) as ElementContent[],
       );
     },
@@ -252,6 +252,8 @@ function splitUrl(url: string): [string, string | undefined] {
 function plainText(node: Nodes): string {
   if (node.type === 'tag') return `#${node.value}`;
   if (node.type === 'citation') return `@${node.value}`;
+  // (A name is for linking, not for reading.)
+  if (node.type === 'blockId') return '';
   if ('value' in node && typeof node.value === 'string') return node.value;
   if (node.type === 'wikiLink') return node.alias || node.target;
   if ('children' in node) return (node.children as Nodes[]).map(plainText).join('');

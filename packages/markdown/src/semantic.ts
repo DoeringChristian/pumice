@@ -100,7 +100,12 @@ export function semanticFromLezer(tree: Tree, text: string): SemanticNode[] {
       if (heading) out.push({ kind: 'heading', from, to, level: Number(heading[1]) });
       else if (name === 'Tag') out.push({ kind: 'tag', from, to, value: text.slice(from + 1, to) });
       else if (name === 'BlockId')
-        out.push({ kind: 'blockId', from, to, value: text.slice(from + 1, to) });
+        out.push({
+          kind: 'blockId',
+          from,
+          to,
+          value: text.slice(from, to).replace(/^\{#|^\^|\}$/g, ''),
+        });
       else if (name === 'Frontmatter') out.push({ kind: 'frontmatter', from, to });
       else if (name === 'Comment' || name === 'CommentBlock')
         out.push({ kind: 'comment', from, to });

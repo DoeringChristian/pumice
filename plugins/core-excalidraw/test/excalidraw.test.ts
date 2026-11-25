@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import { elementsMap, excalidrawCodec } from '../src/codec';
+import { drawingMetadata } from '../src/extract';
 import {
   compress,
   drawingText,
@@ -97,8 +98,21 @@ describe('format', () => {
     expect(parseDrawing('a.excalidraw.md', plain).scene.elements).toHaveLength(2);
   });
 
+  it('a plain drawing keeps its pictures of the vault', () => {
+    const d = { ...parseDrawing('n.excalidraw', newDrawing()), embedded: { abc: '[[pic.png]]' } };
+    const again = parseDrawing('n.excalidraw', serializeDrawing(d));
+    expect(again.embedded).toEqual({ abc: '[[pic.png]]' });
+    expect(drawingMetadata('n.excalidraw', serializeDrawing(d), () => ({}) as never).links).toEqual(
+      [expect.objectContaining({ kind: 'embed', target: 'pic.png' })],
+    );
+    expect(parseDrawing('o.excalidraw', '{"embeddedFiles":[1]}').embedded).toEqual({});
+  });
+
   it('new drawings are empty and parse back', () => {
-    const d = parseDrawing('n.excalidraw.md', newDrawing());
+    const plain = parseDrawing('n.excalidraw', newDrawing());
+    expect(plain.format).toBe('json');
+    expect(plain.scene.elements).toEqual([]);
+    const d = parseDrawing('n.excalidraw.md', newDrawing('n.excalidraw.md'));
     expect(d.head).toContain('excalidraw-plugin: parsed');
     expect(d.scene.elements).toEqual([]);
   });

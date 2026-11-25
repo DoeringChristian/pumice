@@ -53,7 +53,7 @@ export class FileLocationsImpl implements FileLocationsApi {
   }
 
   drawingPath(source: VaultPath | undefined, name: string): VaultPath {
-    return this.vault.availablePath(this.drawingFolder(source), name, 'excalidraw.md');
+    return this.vault.availablePath(this.drawingFolder(source), name, 'excalidraw');
   }
 }
 

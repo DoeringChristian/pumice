@@ -1,5 +1,6 @@
 import type { ContentBlock, ToolCallContent } from '@agentclientprotocol/sdk';
 import type { MarkdownSyntaxApi, MenuEntry, VaultPath, WorkspaceApi } from '@pumice/api';
+import { linkReferences, localLinks, type PlaceOpener } from './references';
 import { button, createIcon, h } from '@pumice/ui';
 import { age, type ChatSummary } from './chats';
 import type { AgentChange } from './ledger';
@@ -22,6 +23,8 @@ export interface Attachment {
 export interface AgentPanelDeps {
   workspace: WorkspaceApi;
   syntax: MarkdownSyntaxApi;
+  /** Opens what answers refer to. */
+  places: PlaceOpener;
   agents(): AgentConfig[];
   /** Whether any agent can run here (desktop). */
   available: boolean;
@@ -942,7 +945,10 @@ export function renderAgentPanel(
         );
       case 'agent': {
         const el = h('div', { class: 'pm-agent-msg is-agent pm-rendered' });
-        el.innerHTML = deps.syntax.renderHtml(deps.syntax.parse(it.text));
+        const tree = deps.syntax.parse(it.text);
+        localLinks(tree);
+        el.innerHTML = deps.syntax.renderHtml(tree);
+        linkReferences(el, deps.places);
         return el;
       }
       case 'thought':
