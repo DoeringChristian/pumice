@@ -1,11 +1,18 @@
+import { embedShare, parseEmbedSize, type EmbedLength } from '@pumice/api';
 import { parse, parseDocument } from 'yaml';
+
+/** The width of a frame in the note's measure (see `embedShare`); one in pixels is taken for it. */
+export function frameWidth(width: EmbedLength | undefined): number | undefined {
+  const share = embedShare(width) ?? (width?.unit === 'px' ? width.value : undefined);
+  return share ? Math.max(40, share) : undefined;
+}
 
 /** What a `frame` block asks for. */
 export interface FrameSpec {
   /** The HTML file: a link target, a path, or a frame's name (see `entryCandidates`). */
   file: string;
   caption?: string;
-  /** Width in pixels; without it the frame is as wide as the text. */
+  /** Width in the note's measure (350 is half of the text); without it the frame is as wide as the text. */
   width?: number;
   /** Fixed height in pixels; without it the frame takes the height of its content. */
   height?: number;
@@ -30,6 +37,20 @@ export function quoteLinks(yaml: string): string {
     (_, before, link) => `${before}${JSON.stringify(link)}`,
   );
 }
+
+/** A caption is written as it reads: whatever is in it (`Loss: run 3`), it needs no quotes. */
+export function quoteCaption(yaml: string): string {
+  return yaml.replace(
+    /^(caption[ \t]*:[ \t]+)(?!["'|>])(.*?\S)[ \t]*(?=$|\s#)/m,
+    (_, key: string, text: string) => key + JSON.stringify(text),
+  );
+}
+/** The reverse, for what is written into a note. */
+const plainCaption = (yaml: string): string =>
+  yaml.replace(
+    /^(caption: )("(?:[^"\\]|\\.)*")/m,
+    (_, key: string, quoted: string) => key + String(JSON.parse(quoted)),
+  );
 
 /** A Markdown link to a web resource, `[Lucy](https://…)`, would be a YAML list too: quote it. */
 export function quoteWebLinks(yaml: string): string {
@@ -66,7 +87,7 @@ export interface FileRef {
 export function parseFrameBlock(source: string): FrameSpec {
   let value: unknown;
   try {
-    value = parse(quoteWebLinks(quoteLinks(source)));
+    value = parse(quoteWebLinks(quoteLinks(quoteCaption(source))));
   } catch (e) {
     throw new Error(`This frame block is not valid YAML: ${e instanceof Error ? e.message : e}`);
   }
@@ -79,11 +100,11 @@ export function parseFrameBlock(source: string): FrameSpec {
   if (typeof file !== 'string' || !file.trim())
     throw new Error('A frame block needs a line like "file: [[frames/name/index.html]]".');
   const h = typeof height === 'number' ? height : Number.parseFloat(String(height ?? ''));
-  const w = typeof width === 'number' ? width : Number.parseFloat(String(width ?? ''));
+  const w = frameWidth(parseEmbedSize(String(width ?? '')).w);
   return {
     file: linkTarget(file) ?? file.trim(),
     ...(typeof caption === 'string' && caption ? { caption } : {}),
-    ...(Number.isFinite(w) && w > 0 ? { width: Math.max(40, w) } : {}),
+    ...(w ? { width: w } : {}),
     ...(Number.isFinite(h) && h > 0 ? { height: Math.min(4000, Math.max(40, h)) } : {}),
     settings,
   };
@@ -165,7 +186,7 @@ function unquoteRefs(yaml: string): string {
  * `height` stay as written, every other key becomes what `settings` says.
  */
 export function withSettings(yaml: string, settings: Record<string, unknown>): string {
-  const doc = parseDocument(quoteWebLinks(quoteLinks(yaml)));
+  const doc = parseDocument(quoteWebLinks(quoteLinks(quoteCaption(yaml))));
   const current = doc.toJS() as Record<string, unknown> | null;
   for (const key of Object.keys(current ?? {})) {
     if (key === 'label' && isFigureLabel(current?.[key]) && !('label' in settings)) continue;
@@ -174,7 +195,9 @@ export function withSettings(yaml: string, settings: Record<string, unknown>): s
   for (const [key, value] of Object.entries(settings)) {
     if (!RESERVED.includes(key)) doc.set(key, value);
   }
-  return unquoteRefs(doc.toString({ lineWidth: 0 })).replace(/\n+$/, '');
+  const text = unquoteRefs(doc.toString({ lineWidth: 0 })).replace(/\n+$/, '');
+  // (A caption that had no quotes gets none.)
+  return quoteCaption(yaml) === yaml ? text : plainCaption(text);
 }
 
 /** A whole frame block, written from a spec (used when an embed needs more than it can say). */

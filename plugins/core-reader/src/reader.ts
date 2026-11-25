@@ -2,14 +2,17 @@ import {
   DisposableStore,
   Links,
   ShellService,
-  embedSizeCss,
+  embedCaption,
   parseEmbedSize,
+  sizeEmbed,
   toDisposable,
   type CodeBlockRenderer,
   type Disposable,
   type DocumentsApi,
   type EmbedContext,
   type EmbedRenderer,
+  type MediaSize,
+  type Remembered,
   type FileMetadata,
   type MarkdownSyntaxApi,
   type MetadataIndexApi,
@@ -22,6 +25,7 @@ import {
   type WorkspaceApi,
 } from '@pumice/api';
 import { PreambleStore } from './preamble';
+import { mediaSize, placeholder } from './media-header';
 import { createIcon, createVideoPlayer } from '@pumice/ui';
 import { numberRendered, setEmbedCaption, splitFigureLines } from './figures';
 import { showLightbox } from './lightbox';
@@ -76,6 +80,7 @@ export function sectionOf(
 }
 
 export interface ReaderDeps {
+  sizes: Remembered<MediaSize & { of?: string }>;
   ctx: PluginContext;
   vault: VaultApi;
   documents: DocumentsApi;
@@ -407,11 +412,23 @@ export class ReaderImpl implements ReaderApi {
     ctx: Omit<EmbedContext, 'file' | 'register'>,
     store: DisposableStore,
   ): Promise<void> {
-    const resolved = this.deps.index.resolve(ctx.target, ctx.sourcePath);
     const container = ctx.container;
     container.classList.add('pm-embed');
+    // Whatever it is, it takes the size written in the note.
+    sizeEmbed(container, parseEmbedSize(ctx.alias));
     delete container.dataset.embedType;
     container.replaceChildren();
+    if (/^https?:\/\//i.test(ctx.target)) {
+      container.dataset.embedType = 'image';
+      return this.picture(ctx, {
+        key: ctx.target,
+        name: ctx.target,
+        size: this.deps.sizes.get(ctx.target),
+        url: () => ctx.target,
+        open: () => this.deps.ctx.tryUse(ShellService)?.openExternal(ctx.target),
+      });
+    }
+    const resolved = this.deps.index.resolve(ctx.target, ctx.sourcePath);
     if (!resolved) {
       const missing = document.createElement('span');
       missing.className = 'pm-embed-missing';
@@ -420,24 +437,20 @@ export class ReaderImpl implements ReaderApi {
       return;
     }
     const file = resolved.file;
-    const name = file.path.toLowerCase();
-    let renderer: EmbedRenderer | undefined;
-    let length = 0;
-    for (const r of this.embeds) {
-      for (const ext of r.extensions) {
-        if (name.endsWith(`.${ext}`) && ext.length > length) {
-          renderer = r;
-          length = ext.length;
-        }
-      }
-    }
+    const renderer = this.rendererFor(file.path);
     if (!renderer) {
       container.append(this.fileLink(file.path, file.title));
       return;
     }
     container.dataset.embedType = renderer.id;
     try {
-      await renderer.render({ ...ctx, file, register: (d) => store.add(d) });
+      const size = await this.sizeOf(file.path, renderer);
+      await renderer.render({
+        ...ctx,
+        file,
+        ...(size ? { size } : {}),
+        register: (d) => store.add(d),
+      });
     } catch (e) {
       container.textContent = `Could not embed “${file.title}”: ${e instanceof Error ? e.message : String(e)}`;
     }
@@ -464,6 +477,145 @@ export class ReaderImpl implements ReaderApi {
   >();
   /** How much is kept that nothing shows at the moment. */
   private static readonly KEEP_UNUSED = 256 * 1024 * 1024;
+
+  private rendererFor(path: VaultPath): EmbedRenderer | undefined {
+    const name = path.toLowerCase();
+    let found: EmbedRenderer | undefined;
+    let length = 0;
+    for (const r of this.embeds)
+      for (const ext of r.extensions)
+        if (name.endsWith(`.${ext}`) && ext.length > length) {
+          found = r;
+          length = ext.length;
+        }
+    return found;
+  }
+
+  /** Files that do not say how large they are: not asked again until they change. */
+  private readonly unmeasured = new Set<VaultPath>();
+  /** What tells one state of a file from another; undefined for what is not of the vault. */
+  private version(path: VaultPath): string | undefined {
+    const file = this.deps.vault.get(path);
+    return file?.kind === 'file' ? `${file.mtime}:${file.size}` : undefined;
+  }
+  /** The size that was learned, of the file as it is now (it may have changed while closed). */
+  private known(path: VaultPath): MediaSize | undefined {
+    const found = this.deps.sizes.get(path);
+    return found && found.of === this.version(path) ? found : undefined;
+  }
+  private learn(path: VaultPath, size: MediaSize): void {
+    const of = this.version(path);
+    this.deps.sizes.learn(path, { ...size, ...(of ? { of } : {}) });
+  }
+
+  private readonly measuring = new Map<VaultPath, Promise<MediaSize | undefined>>();
+
+  /** How large a file is, if its kind of embed can tell (quickly: it does not hold it up). */
+  private async sizeOf(path: VaultPath, renderer: EmbedRenderer): Promise<MediaSize | undefined> {
+    const known = this.known(path);
+    if (known || !renderer.measure || this.unmeasured.has(path)) return known;
+    return Promise.race([
+      this.measure(path, renderer),
+      new Promise<undefined>((r) => setTimeout(() => r(undefined), 150)),
+    ]);
+  }
+
+  private measure(path: VaultPath, renderer: EmbedRenderer): Promise<MediaSize | undefined> {
+    let job = this.measuring.get(path);
+    if (!job) {
+      const extension = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
+      const of = this.version(path);
+      job = renderer.measure!({ path, extension }, (offset, length) =>
+        this.deps.vault.readRange(path, offset, length),
+      )
+        .then((size) => {
+          // (Not if it changed meanwhile.)
+          if (size && of === this.version(path)) this.learn(path, size);
+          else if (!size) this.unmeasured.add(path);
+          return size;
+        })
+        .catch(() => undefined)
+        .finally(() => this.measuring.delete(path));
+      this.measuring.set(path, job);
+    }
+    return job;
+  }
+
+  /** Looks at the files of the vault ahead of time, a few at once, so that notes open in place. */
+  async measureAll(stopped: () => boolean): Promise<void> {
+    if (this.measuringAll) return;
+    this.measuringAll = true;
+    try {
+      await this.measureNew(stopped);
+    } finally {
+      this.measuringAll = false;
+    }
+  }
+  private measuringAll = false;
+  private async measureNew(stopped: () => boolean): Promise<void> {
+    const { vault } = this.deps;
+    const todo = vault.files().flatMap(({ path }) => {
+      const renderer = this.rendererFor(path);
+      return renderer?.measure && !this.known(path) && !this.unmeasured.has(path)
+        ? [{ path, renderer }]
+        : [];
+    });
+    if (!todo.length) return;
+    // Where only whole files can be read it is not worth it.
+    const first = await vault.readRange(todo[0]!.path, 0, 1).catch(() => new Uint8Array());
+    if (!first) return;
+    const next = async () => {
+      for (let item = todo.shift(); item && !stopped(); item = todo.shift())
+        if (vault.get(item.path)) await this.measure(item.path, item.renderer);
+    };
+    await Promise.all([next(), next(), next(), next()]);
+  }
+
+  /**
+   * A picture, of the vault or from the web: its room is kept (as large as it is or was, or in
+   * the proportions written in the note) until it is there. `key`: what its size is known by.
+   */
+  private async picture(
+    ctx: { alias?: string; container: HTMLElement },
+    of: {
+      key: string;
+      name: string;
+      size: MediaSize | undefined;
+      url(): string | Promise<string>;
+      /** Cmd/Ctrl-click; a click alone enlarges it. */
+      open(): unknown;
+    },
+  ): Promise<void> {
+    const img = document.createElement('img');
+    img.className = 'pm-embed-media pm-zoomable';
+    // Decoded beside the page, not in its way: a large picture does not hold up scrolling.
+    img.decoding = 'async';
+    img.alt = embedCaption(ctx.alias) ?? of.name;
+    const { w, h } = parseEmbedSize(ctx.alias);
+    const size =
+      of.size ?? (w && h && !w.unit && !h.unit ? { width: w.value, height: h.value } : undefined);
+    if (size) img.src = placeholder(size);
+    ctx.container.append(img);
+    img.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.metaKey || e.ctrlKey) of.open();
+      else showLightbox(img.src, img.alt);
+    });
+    const url = await of.url();
+    img.addEventListener('load', () => {
+      if (img.src === url && img.naturalWidth)
+        this.learn(of.key, { width: img.naturalWidth, height: img.naturalHeight });
+    });
+    img.addEventListener('error', () => {
+      if (img.src !== url) return;
+      const missing = document.createElement('span');
+      missing.className = 'pm-embed-missing';
+      missing.textContent = `“${img.alt}” could not be shown.`;
+      img.replaceWith(missing);
+    });
+    img.src = url;
+  }
 
   private dropMedia(path: VaultPath): void {
     const entry = this.media.get(path);
@@ -492,6 +644,8 @@ export class ReaderImpl implements ReaderApi {
         const paths =
           c.type === 'delete' ? [c.path] : c.type === 'rename' ? [c.oldPath] : [c.entry.path];
         for (const path of paths) {
+          this.deps.sizes.forget(path);
+          this.unmeasured.delete(path);
           const entry = this.media.get(path);
           if (!entry) continue;
           if (entry.users === 0) this.dropMedia(path);
@@ -542,23 +696,16 @@ export class ReaderImpl implements ReaderApi {
     this.registerEmbedRenderer({
       id: 'image',
       extensions: IMAGE,
+      measure: (file, read) => mediaSize(file.extension, read),
       render: async (ctx) => {
-        const img = document.createElement('img');
-        // Decoded beside the page, not in its way: a large picture does not hold up scrolling.
-        img.decoding = 'async';
-        img.alt = ctx.alias && !/^\d+(x\d+)?$/.test(ctx.alias) ? ctx.alias : ctx.file!.title;
-        sized(ctx.container, img, ctx.alias);
-        img.src = await this.blobUrl(ctx.file!.path, ctx.file!.extension, (d) => ctx.register(d));
-        // A click enlarges the picture; with Cmd/Ctrl it opens in a tab of its own.
-        const path = ctx.file!.path;
-        img.classList.add('pm-zoomable');
-        img.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (e.metaKey || e.ctrlKey) void this.deps.workspace.openFile(path, { newTab: true });
-          else showLightbox(img.src, img.alt);
+        const { path, extension, title } = ctx.file!;
+        await this.picture(ctx, {
+          key: path,
+          name: title,
+          size: ctx.size,
+          url: () => this.blobUrl(path, extension, (d) => ctx.register(d)),
+          open: () => this.deps.workspace.openFile(path, { newTab: true }),
         });
-        ctx.container.append(img);
       },
     });
     this.registerEmbedRenderer({
@@ -566,6 +713,7 @@ export class ReaderImpl implements ReaderApi {
       extensions: AUDIO,
       render: async (ctx) => {
         const audio = document.createElement('audio');
+        audio.className = 'pm-embed-media';
         audio.controls = true;
         audio.src = await this.blobUrl(ctx.file!.path, ctx.file!.extension, (d) => ctx.register(d));
         ctx.container.append(audio);
@@ -574,22 +722,32 @@ export class ReaderImpl implements ReaderApi {
     this.registerEmbedRenderer({
       id: 'video',
       extensions: VIDEO,
+      measure: (file, read) => mediaSize(file.extension, read),
       render: async (ctx) => {
         // The app's own controls, the same as in the viewer.
         const path = ctx.file!.path;
-        const { dom, video } = createVideoPlayer(
-          await this.blobUrl(path, ctx.file!.extension, (d) => ctx.register(d)),
-          {
-            // As for a picture: a click enlarges it; with Cmd/Ctrl it opens in a tab.
-            onClick: (shown, e) => {
-              if (e.metaKey || e.ctrlKey) void this.deps.workspace.openFile(path, { newTab: true });
-              else showLightbox(shown.currentSrc || shown.src, ctx.file!.title, shown);
-            },
+        const { dom, video } = createVideoPlayer(undefined, {
+          // As for a picture: a click enlarges it; with Cmd/Ctrl it opens in a tab.
+          onClick: (shown, e) => {
+            if (e.metaKey || e.ctrlKey) void this.deps.workspace.openFile(path, { newTab: true });
+            else showLightbox(shown.currentSrc || shown.src, ctx.file!.title, shown);
           },
-        );
+        });
+        video.classList.add('pm-embed-media');
         video.loop = this.loopVideos();
-        sized(ctx.container, dom, ctx.alias, video);
+        // Its room, until it is known how large it is.
+        const { size } = ctx;
+        // (As its still picture, which gives it its size as the video will.)
+        if (size) video.poster = placeholder(size);
+        video.addEventListener('loadedmetadata', () => {
+          if (size) video.removeAttribute('poster');
+          this.learn(path, {
+            width: video.videoWidth,
+            height: video.videoHeight,
+          });
+        });
         ctx.container.append(dom);
+        video.src = await this.blobUrl(path, ctx.file!.extension, (d) => ctx.register(d));
       },
     });
     this.registerEmbedRenderer({
@@ -597,7 +755,7 @@ export class ReaderImpl implements ReaderApi {
       extensions: ['pdf'],
       render: async (ctx) => {
         const frame = document.createElement('iframe');
-        frame.className = 'pm-embed-pdf';
+        frame.className = 'pm-embed-pdf pm-embed-media';
         frame.src = await this.blobUrl(ctx.file!.path, 'pdf', (d) => ctx.register(d));
         ctx.container.append(frame);
       },
@@ -733,40 +891,4 @@ export class ReaderImpl implements ReaderApi {
       handle.dispose();
     }
   }
-}
-
-/**
- * Gives an embedded picture or video the size its alias says (`|300`, `|50%`, `|300x200`).
- * In a rendered note the width is the embed's own, with what it shows filling it: a share of
- * the text's width is a share of the paragraph, which the picture inside an embed that is as
- * wide as its content could not take by itself. Elsewhere (the editor, which sizes embeds
- * itself) it is put on what is shown.
- */
-function sized(
-  container: HTMLElement,
-  shown: HTMLElement,
-  alias: string | undefined,
-  picture: HTMLElement = shown,
-): void {
-  const css = embedSizeCss(parseEmbedSize(alias));
-  if (css.width) {
-    if (container.classList.contains('pm-embed') && !container.classList.contains('cm-pm-embed')) {
-      // (Never wider than the text: in the style sheet, where a row can say otherwise.)
-      container.style.width = css.width;
-      // In a row it is the room it takes, the space to its neighbour included (see the CSS).
-      container.style.setProperty('--embed-w', css.width);
-      container.classList.add('is-sized');
-      shown.style.width = '100%';
-      if (picture !== shown) picture.style.width = '100%';
-    } else {
-      // In the editor the picture itself has the width (a drag changes it there); what is
-      // around it (a video's controls) follows it.
-      picture.style.width = css.width;
-      picture.style.maxWidth = '100%';
-    }
-  }
-  if (css.aspectRatio) {
-    picture.style.aspectRatio = css.aspectRatio;
-    picture.style.height = 'auto';
-  } else if (css.height) picture.style.height = css.height;
 }

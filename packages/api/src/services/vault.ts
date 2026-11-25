@@ -40,6 +40,8 @@ export interface VaultApi {
 
   read(path: VaultPath): Promise<string>;
   readBinary(path: VaultPath): Promise<Uint8Array>;
+  /** Part of a file (shorter at its end); undefined where only whole files can be read. */
+  readRange(path: VaultPath, offset: number, length: number): Promise<Uint8Array | undefined>;
   /** Creates a new file; fails if it exists. */
   create(path: VaultPath, content: string | Uint8Array): Promise<VaultFile>;
   /** Overwrites a file (creates it if missing). Open documents merge the change. */

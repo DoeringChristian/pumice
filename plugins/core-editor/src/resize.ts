@@ -1,35 +1,15 @@
 import type { EditorView } from '@codemirror/view';
-import { TEXT_WIDTH, embedPattern, embedSizeCss, type EmbedSize } from '@pumice/api';
+import { TEXT_WIDTH, embedShare, mediaAt, sizeEmbed, type EmbedSize } from '@pumice/api';
 import { createIcon } from '@pumice/ui';
 
 /**
  * A drag handle in the bottom-right corner of an embedded picture, video or frame. Dragging
- * changes the size on screen; letting go writes it into the note (`![[x.png|300]]`).
+ * changes the size on screen; letting go writes it into the note (`![[x.png]]{width=50%}`).
  */
 
 export interface Size {
   width: number;
   height?: number;
-}
-
-/** The text of a line with the size of the embed at `offset` set; null if there is none. */
-export function embedSizeEdit(
-  line: string,
-  offset: number,
-  size: Size,
-  setSize: (inner: string, size: Size) => string,
-): { from: number; to: number; insert: string } | null {
-  let best: RegExpExecArray | undefined;
-  for (const m of line.matchAll(embedPattern())) {
-    // The widget sits at the embed's start; with several on a line, take the nearest before it.
-    if (m.index <= offset && (!best || m.index > best.index)) best = m;
-    if (!best) best = m;
-  }
-  if (!best) return null;
-  const from = best.index + 3;
-  const to = from + best[1]!.length;
-  const insert = setSize(best[1]!, size);
-  return insert === best[1] ? null : { from, to, insert };
 }
 
 /**
@@ -40,17 +20,13 @@ export function embedAt(
   line: string,
   offset: number,
 ): { from: number; to: number; target: string } | null {
-  let best: RegExpExecArray | undefined;
-  for (const m of line.matchAll(embedPattern())) {
-    if (m.index <= offset && (!best || m.index > best.index)) best = m;
-    if (!best) best = m;
-  }
+  const best = mediaAt(line, offset);
   if (!best) return null;
-  let from = best.index;
-  let to = from + best[0].length;
+  // With the attributes behind it (`{width=50%}`), which are part of it.
+  let { from, to } = best;
   if (line[to] === ' ') to++;
   else if (from > 0 && line[from - 1] === ' ') from--;
-  return { from, to, target: best[1]!.split(/\\?\||#/)[0]!.trim() };
+  return { from, to, target: best.target };
 }
 
 /** A fenced block (with its fences) with `width` and `height` set among its YAML lines. */
@@ -158,7 +134,11 @@ export function sameHeightWidths(
 const ROW_MIN = 60;
 
 // Pictures, videos, frames, and drawings (which are embedded as an SVG).
-const SELECTOR = 'img:not(.cm-widgetBuffer), video, .pm-frame, .pm-excalidraw-embed > svg';
+const SELECTOR = '.pm-embed-media, .pm-frame';
+
+/** The line an embed or a block stands on. */
+const lineOf = (host: HTMLElement) =>
+  host.closest<HTMLElement>('.cm-line') ?? host.parentElement ?? host;
 
 /**
  * Gives what an embed shows the size its text says, in place (as a drag of its handle does).
@@ -167,11 +147,10 @@ const SELECTOR = 'img:not(.cm-widgetBuffer), video, .pm-frame, .pm-excalidraw-em
 export function applyEmbedSize(host: HTMLElement, size: EmbedSize): boolean {
   const target = host.querySelector<HTMLElement>(SELECTOR);
   if (!target || target.closest('.pm-embed[data-embed-type="note"]')) return false;
-  const css = embedSizeCss(size);
-  target.style.width = css.width ?? '';
-  target.style.maxWidth = css.width ? '100%' : '';
+  sizeEmbed(host, size);
   // The share of the text's width a plain number stands for: a drag goes on from it.
-  if (size.w && !size.w.unit) host.dataset.share = String(size.w.value / TEXT_WIDTH);
+  const share = embedShare(size.w);
+  if (share !== undefined) host.dataset.share = String(share / TEXT_WIDTH);
   else delete host.dataset.share;
   const frame = target.classList.contains('pm-frame')
     ? target.querySelector<HTMLElement>('.pm-frame-view')
@@ -179,13 +158,6 @@ export function applyEmbedSize(host: HTMLElement, size: EmbedSize): boolean {
   if (frame) {
     // A frame's height is its own (pixels, unless it has a unit), whatever its width.
     if (size.h) frame.style.height = `${size.h.value}${size.h.unit || 'px'}`;
-  } else {
-    // Pictures and videos keep their proportions unless a height is given; with a plain
-    // width and height (`300x200`) these are the proportions.
-    target.style.aspectRatio = css.aspectRatio ?? '';
-    target.style.height = css.height ?? 'auto';
-    target.removeAttribute('height');
-    target.removeAttribute('width');
   }
   return true;
 }
@@ -223,6 +195,18 @@ export function attachResizeHandle(
   const label = document.createElement('span');
   label.className = 'cm-pm-resize-label';
 
+  /** The box has the width; a block that is not an embed (a frame) has it itself. */
+  const setWidth = (box: HTMLElement, shown: HTMLElement | null, width: string) => {
+    if (box.classList.contains('pm-embed')) {
+      // (The figure around it, with its caption, is as wide as it is.)
+      box.style.setProperty('--embed-w', width);
+      box.classList.add('is-sized');
+    } else if (shown) {
+      shown.style.width = width;
+      shown.style.maxWidth = '100%';
+    }
+  };
+
   let start:
     { x: number; y: number; width: number; height: number; aspect: number | undefined } | undefined;
   let size: Size | undefined;
@@ -237,7 +221,6 @@ export function attachResizeHandle(
     width: number;
     sized: boolean;
     css: string;
-    inner: string;
   }> = [];
   const place = () => {
     // The corner of what is sized, which may be narrower than the line.
@@ -263,7 +246,7 @@ export function attachResizeHandle(
       // The width it has in the text: beside others on a line it is drawn a little narrower
       // (the space between them comes out of it), and a drag goes on from the written width.
       width:
-        Number(host.dataset.share) * (host.parentElement ?? host).getBoundingClientRect().width ||
+        Number(host.dataset.share) * lineOf(host).getBoundingClientRect().width ||
         target.getBoundingClientRect().width,
       height: box.height,
       aspect: box.height > 0 ? target.getBoundingClientRect().width / box.height : undefined,
@@ -274,7 +257,9 @@ export function attachResizeHandle(
     };
     // The others on the line give way as this one grows, and take the room it leaves.
     const mates = [
-      ...(host.parentElement?.querySelectorAll<HTMLElement>(':scope > .cm-pm-embed') ?? []),
+      ...lineOf(host).querySelectorAll<HTMLElement>(
+        ':scope > .cm-pm-embed, :scope > .cm-pm-figure > .cm-pm-embed',
+      ),
     ];
     row = mates
       .filter((m) => m !== host)
@@ -292,7 +277,6 @@ export function attachResizeHandle(
           width: 0,
           sized: m.classList.contains('is-sized'),
           css: m.style.getPropertyValue('--embed-w'),
-          inner: t?.style.width ?? '',
         };
       });
     handle.setPointerCapture(e.pointerId);
@@ -301,7 +285,7 @@ export function attachResizeHandle(
   });
   handle.addEventListener('pointermove', (e) => {
     if (!start) return;
-    const max = (host.parentElement ?? host).getBoundingClientRect().width;
+    const max = lineOf(host).getBoundingClientRect().width;
     // (Each of the others on the line keeps some room.)
     const free = Math.max(
       40,
@@ -319,12 +303,9 @@ export function attachResizeHandle(
       }
     }
     const width = Math.round(snap?.width ?? free);
-    target.style.width = `${width}px`;
-    target.style.maxWidth = '100%';
     // In a row the room it takes follows the drag, so it shows as it will be when let go.
     // (One that had no width shared the row evenly: it gets one with the first move.)
-    host.style.setProperty('--embed-w', `${width}px`);
-    host.classList.add('is-sized');
+    setWidth(host, target, `${width}px`);
     if (row.length) {
       // What is left of the line is theirs, in the proportions they had.
       const left = TEXT_WIDTH - written(width, max);
@@ -334,13 +315,7 @@ export function attachResizeHandle(
         o.width =
           i === row.length - 1 ? left - given : Math.max(1, Math.round((left * o.share) / total));
         given += o.width;
-        const px = `${(o.width / TEXT_WIDTH) * max}px`;
-        o.host.style.setProperty('--embed-w', px);
-        o.host.classList.add('is-sized');
-        if (o.target) {
-          o.target.style.width = px;
-          o.target.style.maxWidth = '100%';
-        }
+        setWidth(o.host, o.target, `${(o.width / TEXT_WIDTH) * max}px`);
       });
     }
     const frame = frameOf();
@@ -351,8 +326,6 @@ export function attachResizeHandle(
       label.textContent = `${snap ? `${snap.name} · ` : ''}${Math.round((width / max) * 100)}% × ${height}`;
     } else {
       // Pictures and videos keep their proportions.
-      target.style.height = 'auto';
-      target.removeAttribute('height');
       size = { width: written(width, max) };
       label.textContent = `${snap ? `${snap.name} · ` : ''}${Math.round((width / max) * 100)}%`;
     }
@@ -375,7 +348,6 @@ export function attachResizeHandle(
         o.host.classList.toggle('is-sized', o.sized);
         if (o.css) o.host.style.setProperty('--embed-w', o.css);
         else o.host.style.removeProperty('--embed-w');
-        if (o.target) o.target.style.width = o.inner;
       }
       // Given up: as it was.
       host.classList.toggle('is-sized', before.sized);

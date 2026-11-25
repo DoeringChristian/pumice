@@ -58,7 +58,7 @@ function foldIds(deps: IdEditorDeps, ctx: EditorExtensionContext): Extension {
         from,
         to,
         enter: (node) => {
-          if (node.name !== 'WikiLink') return node.name === 'Embed' ? false : undefined;
+          if (node.name !== 'WikiLink') return undefined;
           const target = node.node.getChild('WikiLinkTarget');
           const pipe = node.node.getChild('WikiLinkPipe');
           if (!target || !pipe) return false;

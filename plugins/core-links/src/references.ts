@@ -9,13 +9,12 @@ import type { EditorState, Extension } from '@codemirror/state';
 import { EditorView, ViewPlugin, keymap, type ViewUpdate } from '@codemirror/view';
 import {
   editorCompletions,
-  embedPattern,
+  mediaAt,
   figureLabel,
   figureReference,
   itemByNumber,
   labelChange,
   newLabel,
-  parseWikiLinkContent,
   referableItems,
   renameLabelChanges,
   validLabel,
@@ -57,8 +56,7 @@ function snippet(state: EditorState, item: NumberedItem): string {
   const line = state.doc.line(Math.min(item.line + 1, state.doc.lines)).text;
   if (item.kind === 'fig') {
     if (item.column === undefined) return 'frame';
-    const inner = embedPattern().exec(line.slice(item.column))?.[1] ?? '';
-    return parseWikiLinkContent(inner).target.split('/').pop() ?? '';
+    return mediaAt(line, item.column)?.target.split('/').pop() ?? '';
   }
   if (item.kind === 'tab') return cut(line.replace(/\s*\|\s*/g, ' | ').trim());
   const end = state.doc.line(Math.min(item.endLine + 1, state.doc.lines));

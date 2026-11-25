@@ -11,6 +11,7 @@ export interface PumiceHost {
     stat(path: string): Promise<FileStat | null>;
     readText(path: string): Promise<string>;
     readBinary(path: string): Promise<Uint8Array>;
+    readRange(path: string, offset: number, length: number): Promise<Uint8Array>;
     write(path: string, data: string | Uint8Array): Promise<FileStat>;
     rename(from: string, to: string): Promise<void>;
     remove(path: string, trash: boolean): Promise<void>;

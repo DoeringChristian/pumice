@@ -1,5 +1,5 @@
 import {
-  TEXT_WIDTH,
+  embedSizeCss,
   dirname,
   type DisposableLike,
   type MetadataIndexApi,
@@ -236,11 +236,14 @@ export async function mountFrame(
   let spec = options.spec;
   const figure = h('figure', { class: 'pm-frame' });
   figure.classList.toggle('is-fill', !!options.fill);
-  if (spec.width && !options.fill) {
-    // As for pictures: a share of the text's width, so it is the same share everywhere.
-    figure.style.width = `calc(var(--pm-text-w, 100%) * ${+(spec.width / TEXT_WIDTH).toFixed(5)})`;
-    figure.style.maxWidth = '100%';
-  }
+  /** A frame block has its width itself; an embed, or a tab, is a box that has one. */
+  const setWidth = (width: number | undefined) => {
+    if (options.fill || container.classList.contains('pm-embed')) return;
+    const css = embedSizeCss(width ? { w: { value: width, unit: '' } } : {}).width;
+    figure.style.width = css ?? '';
+    figure.style.maxWidth = css ? '100%' : '';
+  };
+  setWidth(spec.width);
   container.replaceChildren(figure);
   let disposed = false;
   exporters.set(figure, async (light) => {
@@ -504,7 +507,7 @@ export async function mountFrame(
       if (disposed || next.file !== spec.file) return false;
       const before = spec;
       spec = next;
-      if (!options.fill) figure.style.width = next.width ? `${next.width}px` : '';
+      setWidth(next.width);
       if (frame && next.height) frame.style.height = `${next.height}px`;
       const caption = figure.querySelector('.pm-frame-caption');
       if (next.caption !== before.caption) {

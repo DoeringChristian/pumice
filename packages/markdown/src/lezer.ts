@@ -92,7 +92,16 @@ const WikiLinkParser = {
     if (pipe) {
       const aliasFrom = mainTo + pipe[0].length;
       children.push(cx.elt('WikiLinkPipe', mainTo, aliasFrom));
-      if (aliasFrom < i) children.push(cx.elt('WikiLinkAlias', aliasFrom, i));
+      if (aliasFrom < i)
+        children.push(
+          cx.elt(
+            'WikiLinkAlias',
+            aliasFrom,
+            i,
+            // The caption of an embed is text like any other (references, formulas, emphasis).
+            start === pos ? [] : cx.parser.parseInline(cx.slice(aliasFrom, i), aliasFrom),
+          ),
+        );
     }
     children.push(cx.elt('WikiLinkMark', i, i + 2));
     return cx.addElement(cx.elt(start === pos ? 'WikiLink' : 'Embed', start, i + 2, children));

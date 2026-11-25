@@ -13,7 +13,12 @@
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
     "@pumice/app": "workspace:*",
+    "@pumice/collab-protocol": "workspace:*",
+    "@pumice/core-collab": "workspace:*",
+    "@pumice/platform": "workspace:*",
     "@pumice/platform-memory": "workspace:*",
+    "@pumice/platform-web": "workspace:*",
+    "@pumice/ui": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "yjs": "^13.6.33"

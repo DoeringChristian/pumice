@@ -54,9 +54,9 @@ body{margin:0!important;padding:0!important;background:var(--bg)!important;color
 .pm-export-page iframe.pm-frame-view{display:block;width:100%;border:0}
 .pm-export-page .pm-export-missing{color:var(--text-muted);font-style:italic}
 .pm-export-video{display:block;aspect-ratio:16/9;border-radius:6px;background:var(--bg-panel)}
-/* As in the note: a video without a size of its own is as wide as the text. */
+/* The player has the width; the video fills it. */
 .pm-export-page .pm-video{display:flex}
-.pm-export-page .pm-video>.pm-video-picture:not([width]){width:100%}
+.pm-export-page .pm-video>.pm-video-picture{width:100%}
 .pm-export-theme{position:fixed;top:14px;right:14px;z-index:20;display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid var(--border);border-radius:8px;background:var(--bg-elevated);color:var(--text-muted);cursor:pointer;opacity:.75}
 .pm-export-theme:hover{opacity:1;color:var(--text)}
 @media print{

@@ -1,5 +1,5 @@
 import { StateEffect, StateField, type Extension, type Range } from '@codemirror/state';
-import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
+import { Decoration, EditorView, ViewPlugin } from '@codemirror/view';
 import type { EditorExtensionContext, VaultPath } from '@pumice/api';
 import type { CommentStore } from './store';
 
@@ -43,27 +43,11 @@ const markField = StateField.define<MarkState>({
         const cls = `pm-comment-mark${m.id === active ? ' is-active' : ''}`;
         const attrs = { class: cls, 'data-thread': m.id };
         if (m.to > m.from) out.push(Decoration.mark({ attributes: attrs }).range(m.from, m.to));
-        else out.push(Decoration.widget({ widget: new PinWidget(m.id), side: 1 }).range(m.from));
+        // (Text that was deleted leaves no mark: its comment is in the panel.)
       }
       return Decoration.set(out, true);
     }),
 });
-
-/** A zero-width marker for comments on an empty range (their text was deleted inside the editor). */
-class PinWidget extends WidgetType {
-  constructor(readonly id: string) {
-    super();
-  }
-  override eq(o: PinWidget) {
-    return o.id === this.id;
-  }
-  toDOM() {
-    const s = document.createElement('span');
-    s.className = 'pm-comment-pin';
-    s.dataset.thread = this.id;
-    return s;
-  }
-}
 
 /** Current comment ranges of an editor (for the panel and saving anchors). */
 export function commentRanges(view: EditorView): Map<string, { from: number; to: number }> {
@@ -85,6 +69,8 @@ export function commentEditorExtension(
       private sub: { dispose(): void };
       private saveTimer: ReturnType<typeof setTimeout> | undefined;
       private loading = 0;
+      /** Whether the note has comments at all (also ones without their text). */
+      private any = false;
 
       constructor(readonly view: EditorView) {
         this.sub = deps.store.onDidChange((path) => {
@@ -99,6 +85,7 @@ export function commentEditorExtension(
         const gen = ++this.loading;
         const threads = await deps.store.threads(path);
         if (gen !== this.loading || ctx.path() !== path) return;
+        this.any = threads.length > 0;
         const len = this.view.state.doc.length;
         const marks: Mark[] = threads
           .filter((t) => t.range)
@@ -112,7 +99,7 @@ export function commentEditorExtension(
       }
 
       update(u: { docChanged: boolean; view: EditorView }) {
-        if (!u.docChanged || !u.view.state.field(markField).marks.length) return;
+        if (!u.docChanged || !this.any) return;
         // Save where the threads moved to, once typing pauses.
         clearTimeout(this.saveTimer);
         this.saveTimer = setTimeout(() => {

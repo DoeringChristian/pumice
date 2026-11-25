@@ -43,6 +43,12 @@ flag so it opens normally. Update with `brew upgrade pumice`. Android: download 
 [latest release](https://github.com/DoeringChristian/pumice/releases/latest). Other platforms:
 build from source (below).
 
+In a browser: the web app opens vaults shared through a [collaboration server](#collaboration-server).
+Sign in to the server, then open, join or create a vault. The vault is kept in the browser (IndexedDB)
+and synced, so edits made while the server is away are sent when it is back. One tab holds a vault
+at a time. Each release publishes the app to GitHub Pages; `pnpm --filter @pumice/web build` makes a
+folder to host anywhere (`apps/web/dist`). A page served over https can only use a server with https.
+
 On first start Pumice shows its vault selector: create a vault, or open any folder as one
 (including an existing Obsidian vault). After that it reopens the last vault. Switch vaults with
 the vault name at the top of the sidebar or **⌘/Ctrl+Shift+O**; "Manage vaults…" (also in the
@@ -58,11 +64,11 @@ pnpm install
 pnpm build:excalidraw         # builds the fork once (a few minutes; again after updating it)
 pnpm test            # unit + integration tests (parsers, index, links, collaboration, plugins…)
 pnpm typecheck
-pnpm dev:web         # browser harness with an in-memory demo vault → http://localhost:5199
+pnpm dev:web         # the web app → http://localhost:5199 (#demo: an in-memory demo vault)
 pnpm dev:desktop     # Electron app; asks for a vault folder (or set PUMICE_VAULT=/path)
 ```
 
-In the browser harness, `window.pumice` exposes the kernel and the in-memory file system
+In the demo vault, `window.pumice` exposes the kernel and the in-memory file system
 (`pumice.platform.fs.external.write(path, text)` simulates an edit by another program;
 `pumice.reset()` restores the sample vault).
 
@@ -122,6 +128,7 @@ packages/
   platform/           Platform interfaces (fs, watcher, storage, lifecycle, shell, net)
   platform-memory/    in-memory platform (tests, browser harness)
   platform-electron/  renderer-side platform over the Electron preload bridge
+  platform-web/       a vault in the browser's IndexedDB
   platform-capacitor/ iOS/Android platform over the native PumiceFs plugin
   collab-protocol/    versioned wire envelope shared by client and server
   plugin-cli/         pumice-plugin init/build/dev
@@ -135,7 +142,7 @@ plugins/              core plugins (each replaceable; vault, documents, markdown
   core-media/ core-pdf/ core-frames/ core-slides/ core-export/ core-comments/ core-agents/
   core-templates/ core-daily/ core-collab/ core-settings/ core-theme/ core-diagnostics/
 apps/
-  web/                browser harness
+  web/                web app: shared vaults in a browser, and a demo vault
   desktop/            Electron shell (+ electron-builder packaging, auto-update)
   mobile/             Capacitor shell + native PumiceFs plugin sources (Swift, Kotlin)
   server/             collaboration server: Yjs sync, accounts, vaults, blobs, history

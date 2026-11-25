@@ -7,17 +7,6 @@
 .pm-comment-mark.is-active {
   background: var(--highlight);
 }
-.pm-comment-pin::after {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin: 0 2px;
-  border-radius: 50%;
-  background: var(--accent);
-  vertical-align: middle;
-}
-
 /* Panel */
 .pm-comments-toolbar {
   justify-content: flex-end;
@@ -73,7 +62,6 @@
 }
 .pm-comment-thread.is-detached .pm-comment-quote {
   text-decoration: line-through;
-  cursor: default;
 }
 .pm-comment-thread-actions {
   display: flex;

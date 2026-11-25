@@ -124,7 +124,11 @@ export class CommentStore implements CommentsApi {
     const file = await this.load(path);
     if (!file.threads.length) return [];
     const text = this.deps.documents.peek(path) ?? (await this.deps.documents.read(path));
-    const located = file.threads.map((t) => ({ ...t, range: resolveAnchor(text, t.anchor) }));
+    const located = file.threads.map((t) => ({
+      ...t,
+      // (Nothing is at hand of a text that an earlier version recorded as empty.)
+      range: t.anchor.exact ? resolveAnchor(text, t.anchor) : null,
+    }));
     return located.sort((a, b) =>
       a.range && b.range ? a.range.from - b.range.from : a.range ? -1 : b.range ? 1 : 0,
     );
@@ -249,13 +253,22 @@ export class CommentStore implements CommentsApi {
    */
   updateRanges(path: VaultPath, ranges: Map<string, { from: number; to: number }>, text: string) {
     if (!this.cache.get(path)?.threads.length) return Promise.resolve();
+    // Text that was deleted, or may have come back: the lists are drawn again.
+    const threads = this.cache.get(path)!.threads;
+    const lost = threads.some((t) => {
+      const r = ranges.get(t.id);
+      return !r || r.from === r.to;
+    });
     return this.mutate(path, (file) => {
       for (const t of file.threads) {
         const r = ranges.get(t.id);
-        if (!r) continue;
+        // Of deleted text the comment keeps what it was, and where (undo brings it back).
+        if (!r || r.from === r.to) continue;
         const next = createAnchor(text, r.from, r.to);
-        if (next.exact || r.from === r.to) t.anchor = next;
+        if (next.exact) t.anchor = next;
       }
+    }).then(() => {
+      if (lost) this.changed.fire(path);
     });
   }
 

@@ -20,6 +20,8 @@ export interface PlatformFs {
   stat(path: VaultPath): Promise<FileStat | null>;
   readText(path: VaultPath): Promise<string>;
   readBinary(path: VaultPath): Promise<Uint8Array>;
+  /** Part of a file (shorter at its end). Absent where only whole files can be read. */
+  readRange?(path: VaultPath, offset: number, length: number): Promise<Uint8Array>;
   /** Atomic write (temp file + rename). Creates parent folders. Returns the new stat. */
   write(path: VaultPath, data: string | Uint8Array): Promise<FileStat>;
   rename(from: VaultPath, to: VaultPath): Promise<void>;

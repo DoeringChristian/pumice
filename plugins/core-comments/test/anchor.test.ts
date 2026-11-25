@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createAnchor, resolveAnchor } from '../src/anchor';
+import { createAnchor, formerPlace, resolveAnchor } from '../src/anchor';
 
 describe('comment anchors', () => {
   const text = 'The cat sat on the mat. The cat ran away. A dog sat too.';
@@ -28,5 +28,18 @@ describe('comment anchors', () => {
   it('returns null when the text is gone', () => {
     const a = createAnchor(text, 44, 47); // "dog"
     expect(resolveAnchor(text.replace('dog', 'bird'), a)).toBeNull();
+  });
+
+  it('does not move to the same word elsewhere when its own was deleted, and returns to it', () => {
+    const a = createAnchor(text, 44, 47); // "dog"
+    const gone = `${text.replace('dog ', '')} Every dog barks.`;
+    expect(resolveAnchor(gone, a)).toBeNull();
+    expect(gone.slice(0, formerPlace(gone, a)).endsWith('away. A ')).toBe(true);
+    expect(resolveAnchor(`${text} Every dog barks.`, a)).toEqual({ from: 44, to: 47 });
+  });
+
+  it('finds a longer text wherever it was moved to', () => {
+    const a = createAnchor(text, 0, 23);
+    expect(resolveAnchor(`Other things. ${text.slice(0, 23)}`, a)?.from).toBe(14);
   });
 });

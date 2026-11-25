@@ -480,52 +480,21 @@
   }
 }
 
-/* Several embeds on one line stand beside each other: pictures, videos, frames, notes. Those
-   with a width keep it, the others share the remaining space; too many wrap. */
-.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 12px;
-}
-.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-pm-embed {
-  flex: 1 1 0;
-  min-width: min(160px, 100%);
-}
-/* A width is the room an embed takes in the row, the space to its neighbour included: two of
-   half the text width stand beside each other, as do three thirds. */
-.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-pm-embed.is-sized {
-  flex: 1 1 calc(var(--embed-w, 200px) - 12px);
-  max-width: var(--embed-w, none);
-  min-width: 0;
-}
-/* A picture with a width fills the room it has in the row: the width is the room's (a width
-   in percent would otherwise be taken of that room once more). */
-.pm-markdown-page
-  .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed)
-  > .cm-pm-embed.is-sized
-  > img:not(.cm-widgetBuffer),
-.pm-markdown-page
-  .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed)
-  > .cm-pm-embed.is-sized
-  > .pm-excalidraw-embed
-  > svg {
-  width: 100% !important;
-}
-.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-pm-embed .pm-embed,
-.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-pm-embed .pm-frame {
+/* A row of embeds (what it is laid out by is in the reader's style sheet). */
+.pm-markdown-page .cm-line:has(> .pm-embed-box ~ .pm-embed-box) > .pm-embed-box .pm-embed,
+.pm-markdown-page .cm-line:has(> .pm-embed-box ~ .pm-embed-box) > .pm-embed-box .pm-frame {
   margin: 0;
 }
 /* The invisible helpers the editor puts around widgets take no room in the row. */
-.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > .cm-widgetBuffer {
+.pm-markdown-page .cm-line:has(> .pm-embed-box ~ .pm-embed-box) > .cm-widgetBuffer {
   display: none;
 }
 /* Neither does what stands for the hidden space between two embeds (it would add a gap), but
    it stays in the page: the cursor's place between the two is tied to it. */
-.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) {
+.pm-markdown-page .cm-line:has(> .pm-embed-box ~ .pm-embed-box) {
   position: relative;
 }
-.pm-markdown-page .cm-line:has(> .cm-pm-embed ~ .cm-pm-embed) > :not(.cm-pm-embed):empty {
+.pm-markdown-page .cm-line:has(> .pm-embed-box ~ .pm-embed-box) > :not(.pm-embed-box):empty {
   position: absolute;
   width: 0;
 }
@@ -722,9 +691,7 @@ input.cm-pm-caption-id.is-editing {
 /* What is rendered shows on hover that it is one thing that can be clicked. */
 .cm-pm-math.is-inline,
 .cm-pm-block-math,
-.cm-pm-embed img,
-.cm-pm-embed video,
-.cm-pm-embed .pm-excalidraw-embed,
+.cm-pm-embed .pm-embed-media,
 .cm-pm-embed .pm-frame-view,
 .cm-pm-block-code .pm-frame-view,
 .cm-pm-block-code:not(:has(.pm-frame)),
@@ -736,9 +703,7 @@ input.cm-pm-caption-id.is-editing {
 }
 .cm-pm-math.is-inline:hover,
 .cm-pm-block-math:hover,
-.cm-pm-embed:hover img,
-.cm-pm-embed:hover video,
-.cm-pm-embed:hover .pm-excalidraw-embed,
+.cm-pm-embed:hover .pm-embed-media,
 /* A frame is outlined itself, not the whole line it stands on (it may be narrower). */
 .cm-pm-embed:hover .pm-frame-view,
 .cm-pm-block-code:hover .pm-frame-view,
@@ -970,7 +935,34 @@ input.cm-pm-caption-id.is-editing {
 /* Every embed is one box within its line, whatever it shows. Laid out as a block it would stand
    between two empty lines of its own, and pictures would sit apart from text differently than
    videos or drawings do. */
-.pm-markdown-page .cm-line > .cm-pm-embed.pm-embed {
+.cm-pm-figure > .cm-widgetBuffer {
+  display: none;
+}
+.cm-pm-figure > .cm-pm-embed.pm-embed {
+  display: block;
+  margin: 0;
+}
+/* The figure is as wide as what it shows, also while that is dragged. In a row it is the figure
+   that has its share of the line, and what it shows fills it. */
+.cm-line:has(> .pm-embed-box ~ .pm-embed-box):not(:has(.is-resizing))
+  > .cm-pm-figure.is-sized
+  > .cm-pm-embed {
+  width: 100%;
+}
+.cm-line:has(> .pm-embed-box ~ .pm-embed-box):has(.is-resizing) > .cm-pm-figure:has(> .is-sized) {
+  flex: 0 0 auto !important;
+  max-width: none !important;
+}
+.cm-line:has(> .pm-embed-box ~ .pm-embed-box):has(.is-resizing)
+  > .cm-pm-figure
+  > .cm-pm-embed.is-sized {
+  width: calc(var(--embed-w) - 12px);
+}
+.pm-markdown-page .cm-line > .cm-pm-figure {
+  position: relative;
+  max-width: 100%;
+}
+.pm-markdown-page .cm-line > :is(.cm-pm-figure, .cm-pm-embed.pm-embed) {
   display: inline-block;
   margin: 0.3em 0;
   vertical-align: top;
@@ -978,11 +970,10 @@ input.cm-pm-caption-id.is-editing {
 /* What fills the line when it has no width of its own. */
 .pm-markdown-page
   .cm-line
-  > .cm-pm-embed.pm-embed:not(.is-sized):is(
-    [data-embed-type='note'],
-    [data-embed-type='pdf'],
-    [data-embed-type='frame']
-  ) {
+  > :is(
+    .cm-pm-embed[data-embed-type='note'],
+    .cm-pm-figure:has(> .cm-pm-embed:is([data-embed-type='pdf'], [data-embed-type='frame']))
+  ):not(.is-sized) {
   width: 100%;
 }
 /* No room for descenders under a picture, video or drawing: it is not a letter. */
@@ -996,50 +987,65 @@ input.cm-pm-caption-id.is-editing {
   display: flex;
 }
 
-/* A caption that can be written where it is read */
-.cm-pm-caption.is-editable .cm-pm-caption-text {
-  border-radius: 3px;
-  cursor: text;
+/* A caption that is text of the note. Its number is drawn in front of it. */
+/* (It reads as a caption, whatever colours its text would have as source.) */
+.cm-pm-caption.is-text
+  span:not(
+    .cm-pm-wikilink,
+    .cm-pm-caption-id,
+    .cm-pm-caption-label-place,
+    .cm-pm-math,
+    .cm-pm-math *
+  ),
+.cm-line.cm-pm-caption-text-line
+  span:not(
+    .cm-pm-wikilink,
+    .cm-pm-caption-id,
+    .cm-pm-caption-label-place,
+    .cm-pm-math,
+    .cm-pm-math *
+  ) {
+  color: inherit !important;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  background: none !important;
 }
-.cm-pm-caption.is-editable .cm-pm-caption-text:hover {
-  background: var(--bg-hover);
+.cm-line.cm-pm-caption-text-line {
+  background: none !important;
 }
-/* A figure without a caption offers one when the pointer is on it. */
-.cm-pm-caption.is-empty {
-  visibility: hidden;
+.cm-pm-caption[data-label]::before {
+  content: attr(data-label);
+  color: var(--text);
+  font-weight: 600;
+  white-space: pre;
+}
+.cm-pm-caption.is-begun {
   color: var(--text-faint);
 }
-.cm-pm-embed:hover > .cm-pm-caption.is-empty,
-.cm-pm-caption.is-empty:has(.is-editing) {
-  visibility: visible;
+.cm-line.cm-pm-caption-text-line {
+  padding-bottom: 6px;
 }
-/* While it is written: the same text in the same place, only marked as the thing being
-   edited. Nothing here may change how it is laid out: text that moves when the editing ends
-   moves under the click that ended it. */
-.cm-pm-caption-text.is-editing,
-.pm-frame-caption.is-editing {
-  border-radius: 3px;
-  outline: none;
-  background: var(--bg-hover);
-  box-shadow: 0 1px 0 var(--accent);
+/* A figure without a caption offers one when the pointer is on it. */
+.cm-pm-caption.is-empty,
+.cm-pm-caption-offer {
+  visibility: hidden;
+  color: var(--text-faint);
   cursor: text;
 }
-/* An empty one still needs a place for the cursor. */
-.cm-pm-caption-text.is-editing:empty {
-  display: inline-block;
-  min-width: 6em;
-  min-height: 1em;
-  vertical-align: top;
-}
-/* Under a frame block: only while it has no caption of its own. */
+.cm-pm-embed:hover > .cm-pm-caption.is-empty,
+.cm-pm-embed:hover > .cm-pm-caption > .cm-pm-caption-offer,
 .cm-pm-block-code:hover > .cm-pm-caption.is-empty {
   visibility: visible;
 }
-.cm-pm-block-code:has(.pm-frame-caption) > .cm-pm-frame-caption-offer {
-  display: none;
+/* Under a frame block: only while it has no caption of its own (which is text under it). */
+.cm-pm-block-code.has-text-caption > .cm-pm-frame-caption-offer,
+.cm-pm-block-code.has-text-caption .pm-frame-caption,
+.cm-pm-block-code.has-text-caption[data-figure]::after {
+  display: none !important;
 }
-.cm-pm-block-code .pm-frame-caption {
-  cursor: text;
+.cm-pm-figure:hover .cm-pm-caption-id,
+.cm-pm-caption:hover .cm-pm-caption-id {
+  opacity: 1;
 }
 
 /* ---- a text file that is not a note ------------------------------------------------------- */
@@ -1107,15 +1113,16 @@ input.cm-pm-caption-id.is-editing {
    their own text (a long caption would stand out beyond a narrow picture, and the controls
    would stay behind when a video is dragged smaller). */
 .cm-pm-embed > .cm-pm-caption,
+.cm-pm-figure > .cm-pm-caption,
 .cm-pm-embed > .pm-video > .pm-video-controls {
   box-sizing: border-box;
   width: 0;
   min-width: 100%;
 }
-/* Under something very narrow (a small drawing, an empty one) a caption keeps a width it can
-   be read at, and stands out beyond it. */
-.cm-pm-embed > .cm-pm-caption {
-  min-width: max(100%, 14em);
+/* (Under next to nothing, an empty drawing, it keeps a width for a word.) */
+.cm-pm-embed > .cm-pm-caption,
+.cm-pm-figure > .cm-pm-caption {
+  min-width: max(100%, 5em);
 }
 
 /* ---- how the note is shown: edit, read, source -------------------------------------------- */

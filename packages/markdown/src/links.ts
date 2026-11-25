@@ -80,6 +80,30 @@ export const referencePattern = (): RegExp =>
 export const embedPattern = (): RegExp => /!\[\[((?:[^[\]\n]|\[\[[^[\]\n]+\]\])*)\]\]/g;
 
 /**
+ * Every Markdown image of a line: `![alt|300](target "title")`. The groups are the alt text and
+ * the target.
+ */
+export const imagePattern = (): RegExp =>
+  /!\[((?:[^[\]\\\n]|\\.|\[\[[^[\]\n]+\]\]|\[[^[\]\n]*\])*)\]\(\s*(<[^<>\n]*>|(?:[^()\s<>]|\([^()\s]*\))+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\s*\)/g;
+
+/** The file or address a Markdown image names, as an embed would (`[[target#subpath]]`). */
+export function imageTarget(written: string): { target: string; subpath?: string } {
+  const url = written.replace(/^<([\s\S]*)>$/, '$1');
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return { target: url };
+  const decode = (text: string) => {
+    try {
+      return decodeURIComponent(text);
+    } catch {
+      return text;
+    }
+  };
+  const hash = url.indexOf('#');
+  return hash < 0
+    ? { target: decode(url) }
+    : { target: decode(url.slice(0, hash)), subpath: decode(url.slice(hash + 1)) };
+}
+
+/**
  * The width of the text in the app's page, in pixels: what a size without a unit is measured
  * against. `|350` is half of the line wherever the note is shown (a narrow window, a phone,
  * an exported page), as it is half of the line in the app at its usual width.
@@ -126,7 +150,7 @@ export function parseEmbedSize(alias: string | undefined): EmbedSize {
 }
 
 /**
- * A size as CSS. A width without a unit is a share of the text's width (see `TEXT_WIDTH`):
+ * A size as CSS. A width without a unit, or in percent, is a share of the text's width (see `TEXT_WIDTH`):
  * of `--pm-text-w` where the page says how wide its text is, else of what the embed stands
  * in. A height without a unit is in pixels; with a width without a unit too (`300x200`) the
  * two give the proportions instead, so the picture keeps them at any width.
@@ -138,10 +162,15 @@ export function embedSizeCss(size: EmbedSize): {
 } {
   const css = (l: EmbedLength) => `${l.value}${l.unit}`;
   const out: { width?: string; height?: string; aspectRatio?: string } = {};
-  if (size.w)
-    out.width = size.w.unit
-      ? css(size.w)
-      : `calc(var(--pm-text-w, 100%) * ${+(size.w.value / TEXT_WIDTH).toFixed(5)})`;
+  if (size.w) {
+    // `50%` is half of the text, as `350` is: not half of what it stands in, which may be just
+    // as wide as the picture itself.
+    const share = embedShare(size.w);
+    out.width =
+      share === undefined
+        ? css(size.w)
+        : `calc(var(--pm-text-w, 100%) * ${+(share / TEXT_WIDTH).toFixed(5)})`;
+  }
   if (size.h) {
     if (size.h.unit) out.height = css(size.h);
     else if (size.w && !size.w.unit && size.w.value > 0 && size.h.value > 0)
@@ -152,16 +181,22 @@ export function embedSizeCss(size: EmbedSize): {
 }
 
 /**
- * The inside of an embed (`target#sub|alias`, without the brackets) with its size set:
- * `|300` or `|300x200`, replacing a size that is there and keeping a caption.
+ * A size as what the box of an embed carries: whatever is in the box fills it (see the reader's
+ * style sheet). Undefined values are not set.
  */
-export function setEmbedSize(inner: string, size: { width: number; height?: number }): string {
-  // In a table cell the bar is written `\|`.
-  const sep = /\\\|/.test(inner) ? '\\|' : '|';
-  const parts = inner.split(/\\?\|/);
-  const spec = `${Math.round(size.width)}${size.height ? `x${Math.round(size.height)}` : ''}`;
-  if (parts.length > 1 && isEmbedSize(parts[parts.length - 1]!)) parts.pop();
-  return [...parts, spec].join(sep);
+export function embedSizeProperties(size: EmbedSize): Record<string, string | undefined> {
+  const css = embedSizeCss(size);
+  return { '--embed-w': css.width, '--embed-ratio': css.aspectRatio, '--embed-h': css.height };
+}
+
+/**
+ * A width as its share of the text, in the note's own measure (350 is half): for a plain number
+ * and for percent. Other units are not shares of anything.
+ */
+export function embedShare(width: EmbedLength | undefined): number | undefined {
+  if (!width) return undefined;
+  if (width.unit === '%') return (width.value / 100) * TEXT_WIDTH;
+  return width.unit ? undefined : width.value;
 }
 
 /**
@@ -194,19 +229,6 @@ export function parseImageAttributes(
   if (!known) return undefined;
   const size = width || height ? `${width ?? ''}${height ? `x${height}` : ''}` : undefined;
   return { length: block[0].length, ...(size ? { size } : {}), ...(id ? { id } : {}) };
-}
-
-/**
- * An attribute block (`{width=50% .wide}`) without its width and height: what is left of it
- * when the size is written into the embed itself. Empty when nothing else was in it.
- */
-export function withoutImageSize(block: string): string {
-  const rest = block
-    .slice(1, -1)
-    .replace(/(^|\s)(?:width|height)\s*=\s*(?:"[^"]*"|'[^']*'|\S+)/gi, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return rest ? `{${rest}}` : '';
 }
 
 /** Whether a part of an alias is a size (`300`, `300x200`, `50%`). */

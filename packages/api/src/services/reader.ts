@@ -22,6 +22,14 @@ export interface EmbedContext extends RenderContext {
   /** The resolved file, if any. */
   file?: IndexedFile;
   container: HTMLElement;
+  /** How large what is embedded is, where that is known before it is loaded (see `measure`). */
+  size?: MediaSize;
+}
+
+/** The size something has by itself, in pixels. */
+export interface MediaSize {
+  width: number;
+  height: number;
 }
 
 export interface EmbedRenderer {
@@ -29,6 +37,15 @@ export interface EmbedRenderer {
   /** File name endings this renderer handles (e.g. `png`, `excalidraw.md`); longest wins. */
   extensions: string[];
   render(ctx: EmbedContext): void | Promise<void>;
+  /**
+   * Optional, and quick: how large a file is, told without loading all of it, so that its room
+   * is kept while it loads. It comes to `render` as `ctx.size`. `read` gives part of the file,
+   * or undefined where the platform cannot. Undefined when it cannot be told: nothing is kept.
+   */
+  measure?(
+    file: { path: VaultPath; extension: string },
+    read: (offset: number, length: number) => Promise<Uint8Array | undefined>,
+  ): Promise<MediaSize | undefined>;
 }
 
 export interface CodeBlockRenderer {

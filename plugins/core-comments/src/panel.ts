@@ -1,3 +1,4 @@
+import { formerPlace } from './anchor';
 import type { EditorView } from '@codemirror/view';
 import {
   Emitter,
@@ -165,6 +166,13 @@ export function renderPanel(container: HTMLElement, deps: PanelDeps, state: Pane
         effects: [setActiveThread.of(t.id), EditorView_scrollIntoView(view, t.range.from)],
       });
       view.focus();
+    } else if (view) {
+      // Its text is gone: to where it was.
+      const at = formerPlace(view.state.doc.toString(), t.anchor);
+      view.dispatch({
+        selection: { anchor: at },
+        effects: [setActiveThread.of(null), EditorView_scrollIntoView(view, at)],
+      });
     } else if (t.range) {
       void workspace.openFile(path, { state: { offset: t.range.from } });
     }
@@ -186,12 +194,10 @@ export function renderPanel(container: HTMLElement, deps: PanelDeps, state: Pane
       'button',
       {
         class: 'pm-comment-quote',
-        title: t.range ? 'Show in note' : 'The commented text was removed',
+        title: t.range ? 'Show in note' : 'The text was deleted: show where it was',
         onclick: () => reveal(path, t),
       },
-      t.anchor.exact.trim()
-        ? t.anchor.exact.replace(/\s+/g, ' ').slice(0, 160)
-        : '(empty selection)',
+      t.anchor.exact.trim() ? t.anchor.exact.replace(/\s+/g, ' ').slice(0, 160) : '(not recorded)',
     );
     const header = h(
       'div',
@@ -412,7 +418,7 @@ export function renderPanel(container: HTMLElement, deps: PanelDeps, state: Pane
     for (const t of visible.filter((x) => x.range)) children.push(threadCard(path, t));
     const detached = visible.filter((x) => !x.range);
     if (detached.length) {
-      children.push(h('div', { class: 'pm-panel-section-title' }, 'Text no longer in the note'));
+      children.push(h('div', { class: 'pm-panel-section-title' }, 'Text was deleted'));
       for (const t of detached) children.push(threadCard(path, t));
     }
     if (!children.length) {

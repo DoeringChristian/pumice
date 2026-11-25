@@ -1,18 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
-  embedCaption,
   figureLabel,
   figureReference,
-  isFigureTarget,
   itemByNumber,
   labelChange,
   newLabel,
   numberItems,
   referableItems,
   renameLabelChanges,
-  setEmbedCaption,
   validLabel,
 } from '../src/figures';
+import { embedCaption, isFigureTarget } from '../src/media';
 
 const NOTE = `---
 title: x
@@ -128,25 +126,6 @@ describe('captions and targets', () => {
   });
 });
 
-describe('setting a caption', () => {
-  it('writes it between the target and the size', async () => {
-    const { setEmbedCaption } = await import('../src/figures');
-    expect(setEmbedCaption('pic.png', 'A view')).toBe('pic.png|A view');
-    expect(setEmbedCaption('pic.png|300', 'A view')).toBe('pic.png|A view|300');
-    expect(setEmbedCaption('pic.png|Old|300x200', 'New')).toBe('pic.png|New|300x200');
-    expect(setEmbedCaption('folder/pic.png#page=2|Old', 'New')).toBe('folder/pic.png#page=2|New');
-  });
-  it('removes it when it is empty, keeping the size', async () => {
-    const { setEmbedCaption } = await import('../src/figures');
-    expect(setEmbedCaption('pic.png|Old|300', '  ')).toBe('pic.png|300');
-    expect(setEmbedCaption('pic.png|Old', '')).toBe('pic.png');
-  });
-  it('keeps out what would break the embed', async () => {
-    const { setEmbedCaption } = await import('../src/figures');
-    expect(setEmbedCaption('pic.png', 'a | b ]] c')).toBe('pic.png|a b c');
-  });
-});
-
 describe('labels and references', () => {
   const note = [
     'Text.',
@@ -174,9 +153,6 @@ describe('labels and references', () => {
       ['fig', 1, 'First', undefined],
       ['fig', 2, 'As in [[#^fig-a]] again', 'fig-b'],
     ]);
-    expect(setEmbedCaption('b.png|x|350', 'See [[#^fig-a]] | [not] this')).toBe(
-      'b.png|See [[#^fig-a]] not this|350',
-    );
   });
 
   it('lists what has no number too, and labels it', () => {

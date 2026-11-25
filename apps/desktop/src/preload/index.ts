@@ -18,6 +18,7 @@ const host: PumiceHost = {
     stat: (p) => invoke('fs.stat', p),
     readText: (p) => invoke('fs.readText', p),
     readBinary: (p) => invoke('fs.readBinary', p),
+    readRange: (p, offset, length) => invoke('fs.readRange', p, offset, length),
     write: (p, d) => invoke('fs.write', p, d),
     rename: (a, b) => invoke('fs.rename', a, b),
     remove: (p, trash) => invoke('fs.remove', p, trash),

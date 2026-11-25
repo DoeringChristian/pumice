@@ -107,6 +107,14 @@ export class VaultImpl implements VaultApi {
     return this.platform.fs.readBinary(normalizePath(path));
   }
 
+  async readRange(
+    path: VaultPath,
+    offset: number,
+    length: number,
+  ): Promise<Uint8Array | undefined> {
+    return this.platform.fs.readRange?.(normalizePath(path), offset, length);
+  }
+
   async create(path: VaultPath, content: string | Uint8Array): Promise<VaultFile> {
     const p = this.checkPath(path);
     if (this.entries.has(p) || (await this.platform.fs.stat(p)))

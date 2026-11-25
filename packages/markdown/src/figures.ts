@@ -8,7 +8,8 @@
  */
 
 import type { TextChange } from './frontmatter';
-import { ID_ALPHABET, embedPattern, isEmbedSize, parseImageAttributes } from './links';
+import { ID_ALPHABET } from './links';
+import { isFigureTarget, mediaAt, mediaIn } from './media';
 
 export type FigureKind = 'fig' | 'tab' | 'eq';
 
@@ -43,45 +44,6 @@ export function figureLabel(item: Pick<NumberedItem, 'kind' | 'number'>): string
 /** How a reference to the item reads in running text: "Figure 2", "Table 1", "(3)". */
 export function figureReference(item: Pick<NumberedItem, 'kind' | 'number'>): string {
   return item.kind === 'eq' ? `(${item.number})` : figureLabel(item);
-}
-
-const MEDIA =
-  /\.(png|apng|jpe?g|jfif|gif|webp|svg|bmp|avif|ico|mp4|m4v|mov|mkv|ogv|webm|mp3|wav|m4a|aac|ogg|oga|opus|flac|pdf|html?|excalidraw)$/i;
-
-/** The caption in an embed's alias: everything but a size at the end (`Caption|300`). */
-export function embedCaption(alias: string | undefined): string | undefined {
-  if (!alias) return undefined;
-  const parts = alias.split(/\\?\|/);
-  if (isEmbedSize(parts[parts.length - 1]!)) parts.pop();
-  const caption = parts.join('|').trim();
-  return caption || undefined;
-}
-
-/**
- * The inside of an embed (`target#sub|alias`, without the brackets) with its caption set,
- * keeping a size at the end: `pic.png|A caption|300`. An empty caption removes it.
- */
-export function setEmbedCaption(inner: string, caption: string): string {
-  // In a table cell the bar is written `\|`.
-  const sep = /\\\|/.test(inner) ? '\\|' : '|';
-  const parts = inner.split(/\\?\|/);
-  const target = parts.shift() ?? '';
-  const size = parts.length && isEmbedSize(parts[parts.length - 1]!) ? parts.pop() : undefined;
-  // What would end the embed or split the caption cannot be part of it; links in it stay.
-  const plain = (t: string) => t.replace(/[|[\]\n]+/g, ' ');
-  let text = '';
-  let at = 0;
-  for (const link of caption.matchAll(/\[\[[^[\]\n]+\]\]/g)) {
-    text += plain(caption.slice(at, link.index)) + link[0];
-    at = link.index + link[0].length;
-  }
-  text = (text + plain(caption.slice(at))).replace(/\s+/g, ' ').trim();
-  return [target, ...(text ? [text] : []), ...(size !== undefined ? [size] : [])].join(sep);
-}
-
-/** Whether an embed target is something shown as a figure (not an embedded note). */
-export function isFigureTarget(target: string): boolean {
-  return MEDIA.test(target.trim());
 }
 
 const FENCE = /^\s*(`{3,}|~{3,})\s*([\w+-]*)/;
@@ -227,28 +189,22 @@ function scanItems(text: string, all: boolean): NumberedItem[] {
       continue;
     }
 
-    if (!line.includes('![[')) continue;
+    const media = mediaIn(line).filter((m) => isFigureTarget(m.target));
     // A label behind a picture is its own (`![[a.png]]{#fig-a}`); one at the end of the line,
     // as a block ID, belongs to the first picture that has none.
     const atEnd = /(?:^|\s)\^([A-Za-z0-9-]+)\s*$/.exec(line)?.[1];
     let given = false;
-    for (const m of line.matchAll(embedPattern())) {
-      const inner = m[1]!;
-      const bar = inner.search(/\\?\|/);
-      const target = (bar < 0 ? inner : inner.slice(0, bar)).split('#')[0]!;
-      if (!isFigureTarget(target)) continue;
-      const caption = embedCaption(bar < 0 ? undefined : inner.slice(bar).replace(/^\\?\|/, ''));
-      const own = parseImageAttributes(line.slice(m.index + m[0].length))?.id;
-      let mine = labelled(own, 'fig') ? own : undefined;
+    for (const m of media) {
+      let mine = labelled(m.id, 'fig') ? m.id : undefined;
       if (!mine && !given && labelled(atEnd, 'fig')) {
         mine = atEnd;
         given = true;
       }
-      add('fig', !!caption || !!mine, {
+      add('fig', !!m.caption || !!mine, {
         line: i,
         endLine: i,
-        column: m.index,
-        ...(caption ? { caption } : {}),
+        column: m.from,
+        ...(m.caption ? { caption: m.caption } : {}),
         ...(mine ? { id: mine } : {}),
       });
     }
@@ -286,13 +242,11 @@ export function labelChange(text: string, item: NumberedItem, id: string): TextC
   const insert = (at: number, what: string): TextChange => ({ from: at, to: at, insert: what });
   if (item.column !== undefined) {
     const line = lines[item.line] ?? '';
-    const embed = embedPattern().exec(line.slice(item.column));
-    const end = item.column + (embed && embed.index === 0 ? embed[0].length : 0);
+    const media = mediaAt(line, item.column);
+    const end = media?.end ?? item.column;
     const at = startOf(item.line) + end;
     // Into the attributes that are there (`{width=50%}`), or as attributes of its own.
-    return parseImageAttributes(line.slice(end))
-      ? insert(at + 1, `#${id} `)
-      : insert(at, `{#${id}}`);
+    return media && media.to > media.end ? insert(at + 1, `#${id} `) : insert(at, `{#${id}}`);
   }
   if (item.kind === 'fig') return insert(endOf(item.line), `\nlabel: ${id}`);
   if (item.kind === 'tab')

@@ -1,27 +1,8 @@
-import {
-  embedSizeCss,
-  parseEmbedSize,
-  parseImageAttributes,
-  setEmbedSize,
-  withAliasSize,
-  withoutImageSize,
-} from '@pumice/api';
+import { embedSizeCss, parseEmbedSize, parseImageAttributes, withAliasSize } from '@pumice/api';
 import { describe, expect, it } from 'vitest';
-import { blockSizeEdit, embedAt, embedSizeEdit, sameHeightWidths, snapWidth } from '../src/resize';
+import { blockSizeEdit, embedAt, sameHeightWidths, snapWidth } from '../src/resize';
 
 describe('embed sizes', () => {
-  it('writes Obsidian size specifiers', () => {
-    expect(setEmbedSize('pic.png', { width: 300 })).toBe('pic.png|300');
-    expect(setEmbedSize('pic.png|120', { width: 300.4 })).toBe('pic.png|300');
-    expect(setEmbedSize('pic.png|120x80', { width: 300 })).toBe('pic.png|300');
-    expect(setEmbedSize('a/b.html#x=1|600', { width: 640, height: 400 })).toBe(
-      'a/b.html#x=1|640x400',
-    );
-    // A caption stays; in a table the bar is escaped.
-    expect(setEmbedSize('pic.png|Figure 1', { width: 300 })).toBe('pic.png|Figure 1|300');
-    expect(setEmbedSize('pic.png\\|120', { width: 300 })).toBe('pic.png\\|300');
-  });
-
   it('reads them back, also after a caption', () => {
     expect(parseEmbedSize('300')).toMatchObject({ width: 300 });
     expect(parseEmbedSize('640x400')).toMatchObject({ width: 640, height: 400 });
@@ -41,20 +22,24 @@ describe('embed sizes', () => {
     // Not sizes: they stay captions.
     expect(parseEmbedSize('x')).toEqual({});
     expect(parseEmbedSize('50 percent')).toEqual({});
-    expect(setEmbedSize('pic.png|Fig|50%', { width: 348 })).toBe('pic.png|Fig|348');
   });
 
   it('turns a size into CSS: a plain number is a share of the text width', () => {
     expect(embedSizeCss(parseEmbedSize('700')).width).toBe('calc(var(--pm-text-w, 100%) * 1)');
     expect(embedSizeCss(parseEmbedSize('350')).width).toBe('calc(var(--pm-text-w, 100%) * 0.5)');
-    expect(embedSizeCss(parseEmbedSize('50%'))).toEqual({ width: '50%' });
+    expect(embedSizeCss(parseEmbedSize('50%'))).toEqual({
+      width: 'calc(var(--pm-text-w, 100%) * 0.5)',
+    });
     expect(embedSizeCss(parseEmbedSize('300px'))).toEqual({ width: '300px' });
     // Both plain: the proportions. A height with a unit, or alone: that height.
     expect(embedSizeCss(parseEmbedSize('300x200'))).toEqual({
       width: 'calc(var(--pm-text-w, 100%) * 0.42857)',
       aspectRatio: '300 / 200',
     });
-    expect(embedSizeCss(parseEmbedSize('50%x10em'))).toEqual({ width: '50%', height: '10em' });
+    expect(embedSizeCss(parseEmbedSize('50%x10em'))).toEqual({
+      width: 'calc(var(--pm-text-w, 100%) * 0.5)',
+      height: '10em',
+    });
     expect(embedSizeCss(parseEmbedSize('x200'))).toEqual({ height: '200px' });
     expect(embedSizeCss({})).toEqual({});
   });
@@ -73,20 +58,6 @@ describe('embed sizes', () => {
     expect(parseImageAttributes(' {width=50%}')).toBeUndefined();
     expect(withAliasSize('Fig 1|300', '50%')).toBe('Fig 1|50%');
     expect(withAliasSize(undefined, '50%')).toBe('50%');
-    expect(withoutImageSize('{width=50% .wide height=3cm}')).toBe('{.wide}');
-    expect(withoutImageSize('{width=50%}')).toBe('');
-  });
-
-  it('changes the embed the handle belongs to', () => {
-    const line = 'A ![[a.png]] and ![[b.png|50]] here';
-    const edit = (offset: number) => {
-      const e = embedSizeEdit(line, offset, { width: 200 }, setEmbedSize)!;
-      return line.slice(0, e.from) + e.insert + line.slice(e.to);
-    };
-    expect(edit(2)).toBe('A ![[a.png|200]] and ![[b.png|50]] here');
-    expect(edit(17)).toBe('A ![[a.png]] and ![[b.png|200]] here');
-    expect(embedSizeEdit('no embed', 0, { width: 200 }, setEmbedSize)).toBeNull();
-    expect(embedSizeEdit('![[a.png|200]]', 0, { width: 200 }, setEmbedSize)).toBeNull();
   });
 
   it('sets width and height in a frame block', () => {
@@ -170,5 +141,11 @@ describe('the width at which a picture of a row is as high as another', () => {
     expect(heights(700, found[1]!, 1.5, full)[0]).toBeCloseTo(
       heights(700, found[1]!, 1.5, full)[2]!,
     );
+  });
+});
+
+describe('sizes', () => {
+  it('in percent are shares of the text, as plain numbers are', () => {
+    expect(embedSizeCss(parseEmbedSize('50%')).width).toBe('calc(var(--pm-text-w, 100%) * 0.5)');
   });
 });

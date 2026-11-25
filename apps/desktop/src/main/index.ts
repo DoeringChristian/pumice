@@ -323,6 +323,16 @@ const handlers: Record<string, Handler> = {
   'fs.stat': (s, p) => s.stat(String(p)),
   'fs.readText': (s, p) => fs.readFile(s.abs(p), 'utf8'),
   'fs.readBinary': async (s, p) => new Uint8Array(await fs.readFile(s.abs(p))),
+  'fs.readRange': async (s, p, offset, length) => {
+    const file = await fs.open(s.abs(p), 'r');
+    try {
+      const bytes = new Uint8Array(Math.max(0, Math.min(Number(length), 1024 * 1024)));
+      const { bytesRead } = await file.read(bytes, 0, bytes.length, Number(offset));
+      return bytes.slice(0, bytesRead);
+    } finally {
+      await file.close();
+    }
+  },
   'fs.write': (s, p, data) => {
     if (typeof data !== 'string' && !(data instanceof Uint8Array)) throw new Error('Invalid data');
     return s.write(String(p), data);

@@ -75,6 +75,10 @@ export class MemoryFs implements PlatformFs, PlatformWatcher {
     return this.file(path).data!.slice();
   }
 
+  async readRange(path: VaultPath, offset: number, length: number): Promise<Uint8Array> {
+    return this.file(path).data!.slice(offset, offset + length);
+  }
+
   async write(path: VaultPath, data: string | Uint8Array): Promise<FileStat> {
     const p = normalizePath(path);
     if (this.nodes.get(p)?.kind === 'folder') throw new Error(`EISDIR: ${p}`);

@@ -243,7 +243,8 @@ export interface VideoPlayer {
  * the caller's (it enlarges the video, as a click on a picture does).
  */
 export function createVideoPlayer(
-  src: string,
+  /** Absent: the caller sets it when it is there. */
+  src: string | undefined,
   opts: { onClick?: (video: HTMLVideoElement, event: MouseEvent) => void } = {},
 ): VideoPlayer {
   const dom = document.createElement('span');
@@ -252,7 +253,7 @@ export function createVideoPlayer(
   video.className = 'pm-video-picture';
   video.preload = 'metadata';
   video.playsInline = true;
-  video.src = src;
+  if (src) video.src = src;
   video.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();

@@ -1,0 +1,108 @@
+.pm-start {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 100%;
+  padding: max(24px, 10vh) 16px 24px;
+  overflow: auto;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+}
+.pm-start-card {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 440px;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background: var(--bg);
+}
+.pm-start h1 {
+  margin: 0 0 16px;
+  font-size: 24px;
+}
+.pm-start h2 {
+  margin: 20px 0 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.pm-start-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 10px;
+}
+.pm-start-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pm-start-field > span,
+.pm-start-foot,
+.pm-start-open > span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+/* (16px: phones zoom into smaller fields.) */
+.pm-start input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+}
+.pm-start button {
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.pm-start button.is-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.pm-start-row,
+.pm-start-vault,
+.pm-start-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pm-start-account {
+  justify-content: space-between;
+}
+.pm-start-vault {
+  margin-bottom: 6px;
+}
+.pm-start button.pm-start-open {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
+}
+.pm-start button.pm-start-open:hover {
+  background: var(--bg-hover);
+}
+.pm-start-error {
+  color: var(--danger);
+}
+.pm-start-foot {
+  margin: 20px 0 0;
+}
+.pm-start-foot a {
+  color: var(--link);
+}

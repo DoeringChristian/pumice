@@ -28,6 +28,7 @@ export const plugin = definePlugin({
     // One fixed vault (web demo): nothing to switch.
     if (!vaults) return;
     const desktop = platform.kind === 'desktop';
+    const web = platform.kind === 'web';
 
     const fail = (e: unknown) =>
       workspace.notify(e instanceof Error ? e.message : String(e), { kind: 'error' });
@@ -63,10 +64,16 @@ export const plugin = definePlugin({
         );
       }
       items.push({
-        label: desktop ? 'Open folder as vault…' : 'Open a folder on this device…',
+        label: desktop
+          ? 'Open folder as vault…'
+          : web
+            ? 'Open another shared vault…'
+            : 'Open a folder on this device…',
         detail: desktop
           ? 'Any folder works, including an Obsidian vault'
-          : 'For example a synced Obsidian vault; asks for access to files',
+          : web
+            ? 'From your server, or with an invite'
+            : 'For example a synced Obsidian vault; asks for access to files',
         run: () => vaults.pick(),
       });
       if (desktop) {
@@ -104,7 +111,11 @@ export const plugin = definePlugin({
     });
     ctx.commands.register({
       id: 'vaults.open-folder',
-      title: desktop ? 'Open folder as vault…' : 'Open a folder on this device as vault…',
+      title: desktop
+        ? 'Open folder as vault…'
+        : web
+          ? 'Open another shared vault…'
+          : 'Open a folder on this device as vault…',
       category: 'Vault',
       run: () => vaults.pick().catch(fail),
     });

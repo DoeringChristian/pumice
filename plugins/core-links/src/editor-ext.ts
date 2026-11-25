@@ -148,7 +148,7 @@ function linkDecorations(deps: LinkEditorDeps, ctx: EditorExtensionContext): Ext
             else deco.push(Decoration.mark({ attributes }).range(node.from, node.to));
             return false;
           }
-          if (node.name !== 'WikiLink') return node.name === 'Embed' ? false : undefined;
+          if (node.name !== 'WikiLink') return undefined;
           const link = readLink(view.state, node);
           const resolved = deps.index.resolve(link.target, source);
           const lineActive = at(link.from, link.to);
@@ -266,6 +266,8 @@ function linkCompletion(deps: LinkEditorDeps, ctx: EditorExtensionContext): Exte
     if (!before) return null;
     const embed = before.text.startsWith('!');
     const query = before.text.slice(embed ? 3 : 2);
+    // Behind the bar of an embed its caption is written, not its target.
+    if (embed && query.includes('|')) return null;
     const line = context.state.doc.lineAt(context.pos);
     const inTable = /^\s*\|/.test(line.text);
     // Swallow the `]]` auto-inserted by bracket closing.

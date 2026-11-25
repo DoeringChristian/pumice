@@ -182,17 +182,13 @@ export async function buildPage(opts: BuildOptions): Promise<Built> {
           slot.className = 'pm-export-video';
           await playable(slot, src, 'video', 'mp4');
           if (video.loop) slot.setAttribute('data-loop', '');
-          if (video.getAttribute('width'))
-            slot.setAttribute('data-width', video.getAttribute('width')!);
-          if (holder.style.width) slot.setAttribute('data-holder-width', holder.style.width);
+          if (video.classList.contains('pm-embed-media')) slot.setAttribute('data-embed', '');
           const shown = video.getBoundingClientRect();
           // The room the player will take, so the page does not jump as it comes up.
           if (shown.width > 0 && shown.height > 0)
             slot.style.aspectRatio = `${Math.round(shown.width)} / ${Math.round(shown.height)}`;
-          const sized =
-            holder.style.width ||
-            (video.getAttribute('width') ? `${video.getAttribute('width')}px` : '');
-          slot.style.width = sized || '100%';
+          // A box with a size is filled (see `sizeEmbed`); without one it is as large as it is.
+          slot.style.width = widthOf(video);
           slot.style.maxWidth = '100%';
           holder.replaceWith(slot);
         }
@@ -347,13 +343,18 @@ async function stillOf(
     asset(new Uint8Array(await blob.arrayBuffer()), 'image/jpeg', 'video-still', 'jpg'),
   );
   img.alt = 'Video';
-  const holder = video.closest<HTMLElement>('.pm-video');
-  // As in the note: as wide as the text unless it has a size of its own.
-  img.style.width =
-    holder?.style.width ||
-    (video.getAttribute('width') ? `${video.getAttribute('width')}px` : '100%');
-  img.style.height = 'auto';
+  // (Sized by the box it is in, as the video was.)
+  img.className = video.classList.contains('pm-embed-media') ? 'pm-embed-media' : '';
+  img.style.width = widthOf(video);
+  img.style.maxWidth = '100%';
   return img;
+}
+
+/** How wide a video stands in the page: as in the note. */
+function widthOf(video: HTMLVideoElement): string {
+  if (video.closest('.pm-embed.is-sized')) return '100%';
+  const width = Number(video.getAttribute('width')) || video.videoWidth;
+  return width ? `${width}px` : '100%';
 }
 
 /**

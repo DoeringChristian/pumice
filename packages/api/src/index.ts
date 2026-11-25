@@ -11,6 +11,8 @@ export * from './services/workspace';
 export * from './services/editor';
 export * from './editor-reveal';
 export * from './caption';
+export * from './embed-size';
+export * from './remembered';
 export * from './editor-completion';
 export * from './services/plugins';
 export type {
@@ -34,10 +36,8 @@ export {
   parseWikiLinkContent,
   formatWikiLink,
   parseEmbedSize,
-  setEmbedSize,
   embedSizeCss,
   parseImageAttributes,
-  withoutImageSize,
   withAliasSize,
   isEmbedSize,
   TEXT_WIDTH,
@@ -61,12 +61,17 @@ export {
   itemByNumber,
   renameLabelChanges,
   validLabel,
-  embedPattern,
+  embedShare,
+  embedSizeProperties,
   figureLabel,
   figureReference,
   embedCaption,
-  setEmbedCaption,
   isFigureTarget,
+  mediaIn,
+  mediaAt,
+  mediaSizeChanges,
+  mediaCaptionChange,
+  type MediaText,
   type NumberedItem,
   type FigureKind,
   type FigureRef,

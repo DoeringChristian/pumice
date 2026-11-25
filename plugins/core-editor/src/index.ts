@@ -29,10 +29,11 @@ import {
 } from '@pumice/api';
 import { h, settingItem, toggle } from '@pumice/ui';
 import manifestJson from '../manifest.json';
+import { drawnHeights } from './heights';
 import { embedAt } from './resize';
 import './editor.css';
 import { MarkdownView } from './markdown-view';
-import { captionStep, editCaptionAtCursor, embedSource, shownCaptions } from './live-preview';
+import { captionStep, editCaptionAtCursor, embedSource } from './live-preview';
 import { TextView } from './text-view';
 import { HEADING_PREFIX, linePrefixChange, TASK_PREFIX, type LinePrefix } from './toolbar';
 
@@ -130,7 +131,12 @@ function toggleWrap(view: EditorView, marker: string): boolean {
 }
 
 export const plugin = definePlugin({
-  activate(ctx) {
+  async activate(ctx) {
+    drawnHeights.keep(
+      await ctx.storage.get('drawn-heights'),
+      (text) => void ctx.storage.set('drawn-heights', text),
+    );
+    ctx.register(drawnHeights);
     const workspace = ctx.use(Workspace);
     const documents = ctx.use(Documents);
     const vault = ctx.use(Vault);
@@ -297,7 +303,8 @@ export const plugin = definePlugin({
       enterCaptionFrom: (view, dir) =>
         captionStep(view, dir) ||
         (dir < 0 && ([...views].find((v) => v.editor === view)?.enterTitle() ?? false)),
-      captions: (view) => shownCaptions(view),
+      // (They are text of the note.)
+      captions: () => [],
       registerExtension(factory) {
         factories.push(factory);
         for (const v of views) v.reconfigureContributed();

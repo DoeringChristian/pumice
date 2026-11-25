@@ -20,8 +20,14 @@ const config: Config = JSON.parse(
     '{"vars":[],"series":{"light":[],"dark":[]}}',
 );
 
-/** Media kept inside the page as text: made into something a player can seek in. */
-async function media(id: string): Promise<string | undefined> {
+/** Media kept inside the page as text: made into something a player can seek in, once. */
+const made = new Map<string, Promise<string | undefined>>();
+function media(id: string): Promise<string | undefined> {
+  let url = made.get(id);
+  if (!url) made.set(id, (url = makeMedia(id)));
+  return url;
+}
+async function makeMedia(id: string): Promise<string | undefined> {
   const holder = document.getElementById(id);
   if (!holder) return undefined;
   const type = holder.getAttribute('data-type') || 'application/octet-stream';
@@ -44,12 +50,14 @@ async function players(): Promise<void> {
       onClick: (shown) => showLightbox(shown.currentSrc || shown.src, title, shown),
     });
     video.loop = slot.hasAttribute('data-loop');
-    const width = slot.getAttribute('data-width');
-    // The width the note gives the player (its bar is as wide); without one it is as wide as
-    // the text. Its height is the picture's and the bar's.
-    const given = slot.getAttribute('data-holder-width') ?? (width ? `${Number(width)}px` : '');
-    if (given) dom.style.width = given;
+    // As wide as the place kept for it: the player fills it, its bar is as wide. Its height is
+    // the picture's and the bar's.
+    dom.style.width = slot.style.width;
     dom.style.maxWidth = '100%';
+    if (slot.hasAttribute('data-embed')) video.classList.add('pm-embed-media');
+    // Its room is kept until it says how large it is.
+    video.style.aspectRatio = slot.style.aspectRatio;
+    video.addEventListener('loadedmetadata', () => (video.style.aspectRatio = ''), { once: true });
     slot.replaceWith(dom);
   }
   for (const el of [

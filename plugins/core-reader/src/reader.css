@@ -201,14 +201,15 @@
   color: var(--text-faint);
   font-style: italic;
 }
+/* A player of sounds has no proportions to take a height from. */
+audio.pm-embed-media {
+  --media-h: 54px;
+}
 .pm-embed-pdf {
+  --media-h: 600px;
   width: 100%;
-  height: 600px;
   border: 1px solid var(--border);
   border-radius: var(--radius-m);
-}
-.pm-embed video {
-  max-width: 100%;
 }
 .pm-code-render-mermaid {
   text-align: center;
@@ -284,41 +285,51 @@
   margin-bottom: 0;
 }
 
-/* An embedded picture or video is never wider than the text; it keeps its proportions unless
-   the note gives both a width and a height. */
-.pm-embed img,
-.pm-embed video,
-.cm-pm-embed img,
-.cm-pm-embed video {
+/* The box of an embed has the size the note gives it (see `sizeEmbed`), and what it shows fills
+   it, whatever that is: `pm-embed-media` is the picture itself, in the box or in one element
+   of it (a player, with its controls). Other content (a frame, a note) fills a box anyway. */
+.pm-embed {
+  --embed-w: initial;
+  --embed-ratio: initial;
+  --embed-h: initial;
+}
+.pm-embed.is-sized {
+  width: var(--embed-w);
   max-width: 100%;
 }
-.pm-embed img:not([height]),
-.pm-embed video:not([height]),
-.cm-pm-embed img:not([height]),
-.cm-pm-embed video:not([height]) {
-  height: auto;
+.pm-embed.is-sized > :is(.pm-embed-media, :has(> .pm-embed-media)),
+.pm-embed.is-sized > * > .pm-embed-media {
+  width: 100%;
 }
-
-/* An embed with a width is never wider than the text. */
-.pm-rendered .pm-embed.is-sized {
+/* (Never wider than the text, and in its own proportions unless the note gives others.) */
+.pm-embed > .pm-embed-media.pm-embed-media,
+.pm-embed > * > .pm-embed-media.pm-embed-media {
   max-width: 100%;
+  aspect-ratio: var(--embed-ratio, auto);
+  height: var(--embed-h, var(--media-h, auto));
 }
 
-/* Several embeds in one paragraph stand beside each other (see the editor's rule). */
-.pm-rendered p:has(> .pm-embed ~ .pm-embed) {
+/* Several embeds on one line of the editor, or in one paragraph of a rendered note, stand beside
+   each other: pictures, videos, frames, notes. Those with a width keep it, the others share the
+   remaining space; too many wrap. */
+:is(.pm-markdown-page .cm-line, .pm-rendered p):has(> .pm-embed-box ~ .pm-embed-box) {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 12px;
 }
-.pm-rendered p:has(> .pm-embed ~ .pm-embed) > .pm-embed {
+:is(.pm-markdown-page .cm-line, .pm-rendered p):has(> .pm-embed-box ~ .pm-embed-box)
+  > .pm-embed-box {
   flex: 1 1 0;
   min-width: min(160px, 100%);
+}
+.pm-rendered p:has(> .pm-embed-box ~ .pm-embed-box) > .pm-embed-box {
   margin: 0;
 }
 /* A width is the room an embed takes in the row, the space to its neighbour included: two of
-   half the text width stand beside each other, as do three thirds (as in the editor). */
-.pm-rendered p:has(> .pm-embed ~ .pm-embed) > .pm-embed.is-sized {
+   half the text width stand beside each other, as do three thirds. */
+:is(.pm-markdown-page .cm-line, .pm-rendered p):has(> .pm-embed-box ~ .pm-embed-box)
+  > .pm-embed-box.is-sized {
   flex: 1 1 calc(var(--embed-w, 200px) - 12px);
   max-width: var(--embed-w, none);
   min-width: 0;

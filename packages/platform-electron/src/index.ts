@@ -31,6 +31,7 @@ export async function createElectronPlatform(host: PumiceHost): Promise<Platform
       stat: (p) => host.fs.stat(p),
       readText: (p) => host.fs.readText(p),
       readBinary: (p) => host.fs.readBinary(p),
+      readRange: (p, offset, length) => host.fs.readRange(p, offset, length),
       write: (p, d) => host.fs.write(p, d),
       rename: (a, b) => host.fs.rename(a, b),
       remove: (p, opts) => host.fs.remove(p, opts?.trash ?? true),

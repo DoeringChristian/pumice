@@ -12,8 +12,6 @@ import {
   Workspace,
   definePlugin,
   dirname,
-  embedSizeCss,
-  parseEmbedSize,
   type DrawingsApi,
   type PluginModule,
   type ViewInstance,
@@ -221,7 +219,8 @@ export const plugin = definePlugin({
               svg = new XMLSerializer().serializeToString(el);
               void ctx.storage.set(key, svg);
             }
-            const holder = document.createElement('div');
+            // (Not a `div`: read again from an exported page it would end the paragraph it is in.)
+            const holder = document.createElement('span');
             holder.className = 'pm-excalidraw-embed';
             holder.title = `${file.title} — click to open`;
             holder.innerHTML = svg;
@@ -230,19 +229,7 @@ export const plugin = definePlugin({
               holder.classList.add('is-empty');
               holder.textContent = `${file.title}: an empty drawing. Click to draw.`;
             }
-            const css = embedSizeCss(parseEmbedSize(embed.alias));
-            const svgEl = holder.querySelector('svg');
-            if (svgEl && (css.width || css.height)) {
-              // `|400` sets the width (a share of the text's, see `embedSizeCss`); the height
-              // follows from the drawing unless one with a unit is given.
-              svgEl.removeAttribute('width');
-              svgEl.removeAttribute('height');
-              if (css.width) {
-                svgEl.style.width = css.width;
-                svgEl.style.maxWidth = '100%';
-              }
-              svgEl.style.height = css.height ?? 'auto';
-            }
+            holder.querySelector('svg')?.classList.add('pm-embed-media');
             holder.addEventListener('click', (e) => {
               e.preventDefault();
               e.stopPropagation();

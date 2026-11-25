@@ -10,7 +10,8 @@ import { toHtml } from 'hast-util-to-html';
 import type { Nodes, Parents, Root } from 'mdast';
 import { defaultHandlers, toHast, type Handler, type State } from 'mdast-util-to-hast';
 import type { Callout, Citation, Comment, Highlight, Tag, WikiLink, BlockId } from './mdast';
-import { embedSizeCss, parseEmbedSize, parseImageAttributes, withAliasSize } from './links';
+import { embedSizeProperties, parseEmbedSize, parseImageAttributes, withAliasSize } from './links';
+import { embedCaption } from './media';
 
 const EXTERNAL_URL = /^[a-z][a-z0-9+.-]*:/i;
 
@@ -66,7 +67,7 @@ export function toHastTree(tree: Root, opts: RenderOptions = {}): HastRoot {
     markdown: boolean,
   ): Element =>
     el('span', {
-      className: ['pm-embed'],
+      className: ['pm-embed', 'pm-embed-box'],
       dataTarget: target,
       ...(subpath ? { dataSubpath: subpath } : {}),
       ...(alias !== undefined ? { dataAlias: alias } : {}),
@@ -177,21 +178,25 @@ export function toHastTree(tree: Root, opts: RenderOptions = {}): HastRoot {
     image(_state: State, node: Extract<Nodes, { type: 'image' }>, parent: Parents | undefined) {
       const alias = withAttributes(node, parent, node.alt ?? undefined);
       if (EXTERNAL_URL.test(node.url)) {
-        // A picture from the web is shown as it is; its size is its own.
-        const css = embedSizeCss(parseEmbedSize(alias));
-        const style = [
-          css.width ? `width:${css.width};max-width:100%` : '',
-          css.aspectRatio ? `aspect-ratio:${css.aspectRatio};height:auto` : '',
-          css.height ? `height:${css.height}` : '',
-        ]
-          .filter(Boolean)
+        // A picture from the web: an embed like one of the vault, with the picture already in
+        // it (it needs no vault, so it also shows where embeds are not drawn).
+        const box = embed(node.url, undefined, alias, true);
+        const style = Object.entries(embedSizeProperties(parseEmbedSize(alias)))
+          .flatMap(([name, value]) => (value ? [`${name}:${value}`] : []))
           .join(';');
-        return el('img', {
-          src: node.url,
-          alt: node.alt ?? '',
-          ...(node.title ? { title: node.title } : {}),
-          ...(style ? { style } : {}),
-        });
+        box.properties.dataEmbedType = 'image';
+        if (style) box.properties.style = style;
+        if (parseEmbedSize(alias).w)
+          box.properties.className = ['pm-embed', 'pm-embed-box', 'is-sized'];
+        box.children = [
+          el('img', {
+            className: ['pm-embed-media'],
+            src: node.url,
+            alt: embedCaption(alias) ?? '',
+            ...(node.title ? { title: node.title } : {}),
+          }),
+        ];
+        return box;
       }
       const [target, subpath] = splitUrl(node.url);
       return embed(target, subpath, alias, true);

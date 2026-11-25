@@ -6,7 +6,9 @@ import {
   SettingsUi,
   Vault,
   Workspace,
+  Remembered,
   definePlugin,
+  type MediaSize,
   type PluginModule,
 } from '@pumice/api';
 import { button, calloutStyle, createIcon, h, settingItem, textInput, toggle } from '@pumice/ui';
@@ -50,14 +52,38 @@ ${EXAMPLES}
 `;
 
 export const plugin = definePlugin({
-  activate(ctx) {
+  async activate(ctx) {
+    // How large pictures and videos are, by path or address.
+    const sizes = new Remembered<MediaSize & { of?: string }>(
+      (a, b) => a.width === b.width && a.height === b.height && a.of === b.of,
+      20_000,
+    );
+    sizes.keep(
+      await ctx.storage.get('sizes-of-files'),
+      (text) => void ctx.storage.set('sizes-of-files', text),
+    );
+    ctx.register(sizes);
     const reader = new ReaderImpl({
+      sizes,
       ctx,
       vault: ctx.use(Vault),
       documents: ctx.use(Documents),
       syntax: ctx.use(MarkdownSyntax),
       index: ctx.use(MetadataIndex),
       workspace: ctx.use(Workspace),
+    });
+    // Once the vault is known, and what changes or is added from then on.
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const measure = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => void reader.measureAll(() => stopped), 500);
+    };
+    void ctx.use(MetadataIndex).ready.then(() => !stopped && measure());
+    ctx.register(ctx.use(Vault).onDidChange(measure));
+    ctx.register(() => {
+      stopped = true;
+      clearTimeout(timer);
     });
     ctx.register(
       reader.registerPostProcessor((root) => {

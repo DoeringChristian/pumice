@@ -26,6 +26,7 @@ import { GUIDE_VERSION, SERIES, TEMPLATE, THEME_VARS, agentGuidance, styleGuide 
 import {
   blockText,
   frameFence,
+  frameWidth,
   frameSlug,
   parseFrameBlock,
   parseFrameQuery,
@@ -163,7 +164,9 @@ export const plugin = definePlugin({
         extensions: ['html', 'htm'],
         render: async (ectx) => {
           // As for pictures: `|600` is a width, `|600x400` a width and a height.
-          const { width, height } = parseEmbedSize(ectx.alias);
+          const { w, h: tall } = parseEmbedSize(ectx.alias);
+          const height = tall && /^(px)?$/.test(tall.unit) ? tall.value : undefined;
+          const width = frameWidth(w);
           const spec: FrameSpec = {
             file: ectx.file!.path,
             ...(width ? { width } : {}),
