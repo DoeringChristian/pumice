@@ -8,6 +8,7 @@ import {
   syntaxHighlighting,
 } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
+import { bibtexLanguage, isBibtexPath } from './bibtex-mode';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import { findAndReplace } from './search-panel';
 import { Compartment, EditorState } from '@codemirror/state';
@@ -119,6 +120,10 @@ export class TextView implements ViewInstance {
     });
     // The language of the file, by its name: loaded when it is needed.
     const editor = this.editor;
+    if (isBibtexPath(path)) {
+      editor.dispatch({ effects: this.language.reconfigure(bibtexLanguage) });
+      return;
+    }
     void LanguageDescription.matchFilename(languages, basename(path))
       ?.load()
       .then((support) => {

@@ -121,18 +121,9 @@ export const plugin = definePlugin({
               void ctx.settings.set('file', path);
               store.touch();
             };
-            // What a new file starts with: an entry to write the next one after.
-            const example = [
-              '% References for the notes of this vault, as BibTeX. Cite one with @key.',
-              '',
-              '@article{doe2020,',
-              '  author  = {Doe, Jane and Roe, Richard},',
-              '  title   = {An example entry},',
-              '  journal = {Journal of Examples},',
-              '  year    = {2020},',
-              '}',
-              '',
-            ].join('\n');
+            // A new file starts empty but for a line that says what it is.
+            const example =
+              '% References for the notes of this vault, as BibTeX. Cite one with @key.\n\n';
             const create = async () => {
               if (!vault.get('references.bib')) await vault.create('references.bib', example);
               choose('references.bib');

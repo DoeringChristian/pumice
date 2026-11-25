@@ -52,6 +52,7 @@ const fenceOpenAt = (state: EditorState, number: number) => {
 
 const LANGUAGES: Array<[string, string]> = [
   ['frame', 'an HTML frame with settings'],
+  ['toc', 'the table of contents of the note'],
   ['mermaid', 'a diagram'],
   ['python', ''],
   ['ts', 'TypeScript'],

@@ -246,8 +246,21 @@ export async function buildPage(opts: BuildOptions): Promise<Built> {
         );
       }
     }
-    // Links to other notes lead nowhere outside the app.
-    for (const link of root.querySelectorAll('a.internal-link')) link.removeAttribute('href');
+    // Links to other notes lead nowhere outside the app; those to a heading of this note (a
+    // table of contents, `[[#Heading]]`) lead to it.
+    let anchors = 0;
+    for (const link of root.querySelectorAll<HTMLElement>('a.internal-link')) {
+      const heading = !link.dataset.target && link.dataset.subpath;
+      const target = heading
+        ? [...root.querySelectorAll<HTMLElement>('[data-heading]')].find(
+            (el) => el.dataset.heading === heading,
+          )
+        : undefined;
+      if (target) {
+        target.id ||= `heading-${++anchors}`;
+        link.setAttribute('href', `#${target.id}`);
+      } else link.removeAttribute('href');
+    }
     for (const box of root.querySelectorAll('input[type="checkbox"]'))
       box.setAttribute('disabled', '');
     for (const el of root.querySelectorAll('[contenteditable]'))

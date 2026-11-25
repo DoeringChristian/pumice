@@ -2,10 +2,24 @@
   "id": "core.outline",
   "name": "Outline",
   "version": "0.1.0",
-  "description": "Headings of the active note.",
+  "description": "Headings of the active note, and a table of contents in the note itself (a toc block, or a line that says [TOC]).",
   "api": "^0.1.0",
   "dependencies": {
     "core.workspace": "^0.1.0",
     "core.index": "^0.1.0"
+  },
+  "optionalDependencies": {
+    "core.reader": "^0.1.0",
+    "core.editor": "^0.1.0",
+    "core.documents": "^0.1.0",
+    "core.vault": "^0.1.0"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "id": "outline.insert-toc",
+        "title": "Insert table of contents"
+      }
+    ]
   }
 }

@@ -386,15 +386,11 @@ export const plugin = definePlugin({
           ? []
           : [
               {
-                label: 'Remove from note…',
+                // Without asking: only the text in the note goes (what it shows stays in the
+                // vault), as when it is deleted by hand, and undo brings it back.
+                label: 'Remove from note',
                 icon: 'x',
-                danger: true,
-                run: async () => {
-                  const ok = await workspace.confirm(
-                    'Remove this block from the note? The frame and its files stay in the vault.',
-                    { confirmLabel: 'Remove' },
-                  );
-                  if (!ok) return;
+                run: () => {
                   const { doc } = view.state;
                   // With the line break after it.
                   const to = block.to < doc.length ? block.to + 1 : block.to;
@@ -461,15 +457,9 @@ export const plugin = definePlugin({
           ? []
           : [
               {
-                label: 'Remove from note…',
+                label: 'Remove from note',
                 icon: 'x',
-                run: async () => {
-                  const ok = await workspace.confirm(
-                    `Remove ${name} from this note? The file stays in the vault.`,
-                    { confirmLabel: 'Remove' },
-                  );
-                  if (ok) removeFromNote();
-                },
+                run: () => removeFromNote(),
               },
             ]),
       ];

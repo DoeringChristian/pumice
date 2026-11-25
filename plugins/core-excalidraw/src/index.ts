@@ -1,5 +1,6 @@
 import {
   Documents,
+  Drawings,
   Editor,
   FileLocations,
   Links,
@@ -13,19 +14,28 @@ import {
   dirname,
   embedSizeCss,
   parseEmbedSize,
+  type DrawingsApi,
   type PluginModule,
   type ViewInstance,
 } from '@pumice/api';
 import manifestJson from '../manifest.json';
 import { excalidrawCodec } from './codec';
 import { drawingMetadata, drawingSearchText } from './extract';
-import { isDrawingPath, newDrawing, parseDrawing } from './format';
+import {
+  applyDrawingOps,
+  describeDrawing,
+  estimateText,
+  type DrawingOp,
+  type MeasureText,
+} from './agent';
+import { isDrawingPath, newDrawing, parseDrawing, serializeDrawing } from './format';
 import type { DrawingServices } from './services';
 import './excalidraw.css';
 
 export { excalidrawCodec, elementsMap, wins } from './codec';
 export * from './format';
 export { drawingMetadata } from './extract';
+export * from './agent';
 
 export const manifest = manifestJson;
 
@@ -48,9 +58,75 @@ async function hash(text: string): Promise<string> {
     .slice(0, 32);
 }
 
+/** The longer side of the picture an agent is given of a drawing, at most. */
+const PICTURE_SIDE = 1500;
+
+/**
+ * How large a text is in the drawing font: measured where the font is there (once a drawing
+ * has been shown), guessed otherwise. The library lays the text out again when it is edited.
+ */
+const measureText: MeasureText = (text, fontSize) => {
+  const guess = estimateText(text, fontSize);
+  try {
+    const font = `${fontSize}px Excalifont`;
+    if (!document.fonts.check(font)) return guess;
+    const canvas = document.createElement('canvas').getContext('2d');
+    if (!canvas) return guess;
+    canvas.font = font;
+    const width = Math.max(...text.split('\n').map((line) => canvas.measureText(line).width));
+    return { width: Math.ceil(width), height: guess.height };
+  } catch {
+    return guess;
+  }
+};
+
 export const plugin = definePlugin({
   activate(ctx) {
     const vault = ctx.use(Vault);
+    const drawings: DrawingsApi = {
+      isDrawing: isDrawingPath,
+      describe(path, text) {
+        const drawing = parseDrawing(path, text);
+        return describeDrawing(drawing.scene, drawing.embedded);
+      },
+      edit(path, text, operations, options) {
+        if (!isDrawingPath(path))
+          throw new Error('A drawing is a file that ends in ".excalidraw.md".');
+        const drawing = parseDrawing(path, text ?? (path.endsWith('.md') ? newDrawing() : ''));
+        const summary = applyDrawingOps(
+          drawing.scene,
+          operations as DrawingOp[],
+          measureText,
+          options,
+        );
+        return { text: serializeDrawing(drawing), summary };
+      },
+      async picture(path, text) {
+        const { exportToPng, loadEmbeddedFiles } = await loadView();
+        const drawing = parseDrawing(path, text);
+        const files = await loadEmbeddedFiles(services, path, drawing.embedded);
+        const blob = await exportToPng({
+          elements: drawing.scene.elements.filter((e) => !e.isDeleted) as never,
+          appState: drawing.scene.appState as never,
+          files: Object.fromEntries(files.map((f) => [f.id, f])) as never,
+          dark: false,
+          background: '#ffffff',
+        });
+        // No larger than is of use: a model looks at about 1500 pixels a side.
+        const image = await createImageBitmap(blob);
+        const scale = Math.min(1, PICTURE_SIDE / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const c = canvas.getContext('2d')!;
+        c.fillStyle = '#ffffff';
+        c.fillRect(0, 0, canvas.width, canvas.height);
+        c.drawImage(image, 0, 0, canvas.width, canvas.height);
+        image.close();
+        return canvas.toDataURL('image/png');
+      },
+    };
+    ctx.provide(Drawings, drawings);
     const documents = ctx.use(Documents);
     const workspace = ctx.use(Workspace);
     const index = ctx.use(MetadataIndex);

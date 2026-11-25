@@ -14,7 +14,7 @@ import {
   type PluginModule,
   type VaultPath,
 } from '@pumice/api';
-import { h, settingItem, textInput } from '@pumice/ui';
+import { h, settingItem, textInput, toggle } from '@pumice/ui';
 import '@pumice/ui/panel.css';
 import manifestJson from '../manifest.json';
 import { commentBubble, openComposer } from './bubble';
@@ -98,9 +98,34 @@ export const plugin = definePlugin({
         ...(thread.range ? { range: thread.range } : {}),
       });
     };
+    /**
+     * The agent a new comment is addressed to from the start: the one the user last wrote to
+     * in a comment (the app's own until there is one), unless that is switched off.
+     */
+    const defaultAgent = (): string | undefined => {
+      if (!ctx.settings.get('agentByDefault', true) || !agentAvailable()) return undefined;
+      const last = ctx.settings.get('lastAgent', 'agent');
+      const known = [
+        'agent',
+        'assistant',
+        'chatgpt',
+        'claude',
+        'codex',
+        'gemini',
+        ...mentions().map((m) => m.mention),
+      ];
+      return known.includes(last) ? last : 'agent';
+    };
     const maybeAskAgent = (path: VaultPath, threadId: string, body: string) => {
       const mention = addressed(threadId, body);
       if (!mention) return;
+      // Named in the comment itself (not only continued in its thread): the one to offer next.
+      const named = agentMention(
+        body,
+        mentions().map((m) => m.mention),
+      );
+      if (named && named !== ctx.settings.get('lastAgent', 'agent'))
+        void ctx.settings.set('lastAgent', named);
       if (!agentAvailable()) {
         workspace.notify('No assistant is available to answer this comment.', { kind: 'warning' });
         return;
@@ -122,6 +147,12 @@ export const plugin = definePlugin({
             agentAvailable,
             recipient: (path, range, body) => recipient(path, { range }, body),
             mentions,
+            defaultAgent,
+            copyLocation: () =>
+              ctx.commands.execute('links.copy-location-quote').then(
+                () => true,
+                () => false,
+              ),
             submit: async (path, range, body) => {
               const thread = await store.addThread(path, range, body, author());
               state.focusThread = thread.id;
@@ -312,6 +343,15 @@ export const plugin = definePlugin({
                 textInput(
                   ctx.settings.get('author', ''),
                   (v) => void ctx.settings.set('author', v.trim()),
+                ),
+              ),
+              settingItem(
+                'Address the assistant by default',
+                'A new comment starts with the name of the assistant you last wrote to in a comment (@agent until then), so it is answered unless you take the name out. Off: a comment goes to an assistant only when you name one.',
+                toggle(
+                  ctx.settings.get('agentByDefault', true),
+                  (on) => void ctx.settings.set('agentByDefault', on),
+                  { label: 'Address the assistant by default' },
                 ),
               ),
             );

@@ -981,6 +981,15 @@ importers:
 
   plugins/core-outline:
     dependencies:
+      '@codemirror/language':
+        specifier: ^6.10.3
+        version: 6.13.1
+      '@codemirror/state':
+        specifier: ^6.4.1
+        version: 6.7.6
+      '@codemirror/view':
+        specifier: ^6.34.1
+        version: 6.43.15
       '@pumice/api':
         specifier: workspace:*
         version: link:../../packages/api

@@ -1,0 +1,29 @@
+/* A table of contents in a note */
+.pm-toc {
+  margin: 0.4em 0;
+  line-height: 1.7;
+}
+.pm-toc-title {
+  margin-bottom: 0.2em;
+  font-weight: 650;
+}
+.pm-toc-entry {
+  padding-left: calc(var(--pm-toc-level, 0) * 1.4em);
+}
+.pm-toc-number {
+  margin-right: 0.5em;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.pm-toc-link {
+  color: var(--link);
+  text-decoration: none;
+  cursor: pointer;
+}
+.pm-toc-link:hover {
+  text-decoration: underline;
+}
+.pm-toc-empty {
+  color: var(--text-faint);
+  font-style: italic;
+}

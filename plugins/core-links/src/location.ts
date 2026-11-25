@@ -71,6 +71,18 @@ export function formatLocationWithText(
   return `${formatLocation(path, text, from, to, format)}\n${fence}markdown\n${selected.replace(/\n$/, '')}\n${fence}\n`;
 }
 
+/**
+ * Where a selection begins, and what is selected: `Notes/a.md:12:8 "the selected text"`. One
+ * line that an agent (or an editor) reads as a place in a file, with the words to find there
+ * should the lines have moved. Nothing selected: the place alone.
+ */
+export function formatLocationQuote(path: string, text: string, from: number, to: number): string {
+  const r = lineRange(text, from, to);
+  const place = `${path}:${r.fromLine}:${r.fromCol}`;
+  const selected = text.slice(from, to).replace(/\n+$/, '');
+  return selected ? `${place} "${selected}"` : place;
+}
+
 const BLOCK_ID_AT_END = /\s\^([A-Za-z0-9-]+)\s*$/;
 const HEADING = /^#{1,6}\s+(.*?)\s*#*\s*$/;
 

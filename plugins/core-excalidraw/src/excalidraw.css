@@ -58,3 +58,10 @@
   font-family: var(--font-ui);
   font-size: var(--font-size-ui);
 }
+
+/* A formula that is being edited covers what it shows with its source: on the background of
+   the drawing, not on the white a text field has by itself. (Other texts are written on a
+   transparent field, which the library sets itself.) */
+.pm-excalidraw-view textarea.excalidraw-wysiwyg {
+  background-color: var(--pm-drawing-bg, var(--bg));
+}

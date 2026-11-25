@@ -654,6 +654,10 @@ async function openVault(root: string): Promise<void> {
       clearTimeout(timeout);
       ipcMain.off(IPC.closeReady, onReady);
       if (!window.isDestroyed()) window.destroy();
+      // Holding the window back to let it save also called off a quit that was under way
+      // (Cmd+Q, or the terminal ending the app): go on with it, or the app stays running
+      // without a window.
+      if (quitting) app.quit();
     };
     // Only this window's own renderer may release it (several vault windows can be open).
     const onReady = (event: Electron.IpcMainEvent) => {
@@ -877,9 +881,31 @@ app.whenReady().then(async () => {
   else await openLastVaultOrLauncher();
 });
 
-app.on('window-all-closed', () => {
-  if (OS !== 'macos') app.quit();
+/** A quit was asked for (the menu, Cmd+Q, a signal): windows that close now close for good. */
+let quitting = false;
+app.on('before-quit', () => {
+  quitting = true;
 });
+
+app.on('window-all-closed', () => {
+  // On a Mac an app stays when its last window goes. Not one run from the source: it would
+  // stay behind, without a window, each time a development session ends.
+  if (OS !== 'macos' || !app.isPackaged) app.quit();
+});
+
+// Run from the source, the app belongs to what started it (the development server, a test):
+// when that is gone, so is the app. Otherwise each session leaves one behind in the Dock.
+if (!app.isPackaged) {
+  const started = process.ppid;
+  const watch = setInterval(() => {
+    if (process.ppid === started) return;
+    clearInterval(watch);
+    app.quit();
+    // A window that will not let go does not keep it.
+    setTimeout(() => app.exit(0), 3000).unref();
+  }, 2000);
+  watch.unref();
+}
 
 app.on('activate', () => {
   // macOS keeps the app running without windows: come back to the last vault.

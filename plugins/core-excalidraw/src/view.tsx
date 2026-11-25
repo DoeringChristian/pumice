@@ -418,6 +418,13 @@ export class ExcalidrawView implements ViewInstance {
   ): void {
     const handle = this.handle;
     if (!handle) return;
+    // What is written over (a formula while it is edited) covers with the drawing's own
+    // background: the app's, unless the drawing has one of its own.
+    const background = appState.viewBackgroundColor;
+    this.ctx.container.style.setProperty(
+      '--pm-drawing-bg',
+      !background || background === 'transparent' ? 'var(--bg)' : background,
+    );
     const changed: DrawingElement[] = [];
     for (const el of elements) {
       if ((this.known.get(el.id) ?? -1) < el.version) {
@@ -467,4 +474,4 @@ export class ExcalidrawView implements ViewInstance {
   }
 }
 
-export { exportToSvg };
+export { exportToPng, exportToSvg };

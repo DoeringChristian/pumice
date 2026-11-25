@@ -110,6 +110,7 @@ export {
 } from '@pumice/markdown';
 export * from './services/links';
 export * from './services/bibliography';
+export * from './services/drawings';
 export * from './services/ids';
 export * from './services/comments';
 export * from './services/files';

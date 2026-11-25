@@ -6,6 +6,30 @@ public API third-party plugins use. Reads and writes Obsidian vaults, links note
 (`[[id|Name]]`) so renames never break links, and supports real-time collaboration through a
 self-hostable server. See [docs/plan](docs/plan/README.md) for the architecture and roadmap.
 
+![A note in Pumice: formulas, numbered figures with a plot and a drawing side by side, citations, a callout, and the backlinks of the note](docs/screenshot.png)
+
+## What it does
+
+- **Writing**: live preview where everything is drawn in place and only what the cursor is at
+  shows as source; a read mode and a source mode; tables as grids; lists that keep their
+  numbers in order; find and replace; spell checking; optional Vim keys.
+- **Papers and reports**: LaTeX formulas with a preview while typing; figures, tables and
+  equations that number themselves, with labels (`{#fig-loss}`) and references (`@fig-loss`);
+  citations from BibTeX files (`@doe2020`, `[@doe2020, p. 3]`) with a reference list; figures
+  side by side, resized and rearranged by dragging; export to a single web page or a PDF;
+  a note presented as slides.
+- **Linking**: `[[links]]` that follow renames, backlinks, outline, tags, properties, graph,
+  full-text search, daily notes, templates.
+- **More than text**: Excalidraw drawings (with LaTeX), PDFs with highlights and notes, images,
+  audio and video, and frames: HTML visualizations shown in notes with settings and data.
+- **Assistant** (desktop): a chat beside the note, on your own ChatGPT plan or with Claude Code,
+  Codex or Gemini CLI. It reads and edits notes with your approval, answers comments, searches
+  the web, and draws and changes Excalidraw drawings while looking at how they turn out.
+- **Together**: real-time collaboration with presence, history and roles through a server you
+  can host yourself.
+- **Yours**: plain files in a folder, Obsidian-compatible, and every feature a plugin that can
+  be switched off or replaced.
+
 ## Install
 
 macOS (Apple Silicon and Intel), with [Homebrew](https://brew.sh):
@@ -15,7 +39,7 @@ brew install --cask doeringchristian/pumice/pumice
 ```
 
 The app is not signed with an Apple Developer certificate; the cask clears macOS's quarantine
-flag so it opens normally. Android: download the APK from the
+flag so it opens normally. Update with `brew upgrade pumice`. Android: download the APK from the
 [latest release](https://github.com/DoeringChristian/pumice/releases/latest). Other platforms:
 build from source (below).
 
@@ -104,9 +128,11 @@ packages/
   ui/                 theme, icons, fuzzy matching, DOM and settings helpers
   app/                boots the kernel with the bundled plugins; community plugin manager
 plugins/              core plugins (each replaceable; vault, documents, markdown, workspace required)
-  core-vault/ core-documents/ core-markdown/ core-index/ core-workspace/ core-editor/
-  core-reader/ core-links/ core-explorer/ core-switcher/ core-palette/ core-search/
-  core-backlinks/ core-outline/ core-tags/ core-properties/ core-graph/ core-excalidraw/
+  core-vault/ core-vaults/ core-documents/ core-markdown/ core-index/ core-workspace/
+  core-editor/ core-reader/ core-links/ core-ids/ core-explorer/ core-files/ core-switcher/
+  core-palette/ core-search/ core-backlinks/ core-outline/ core-tags/ core-properties/
+  core-graph/ core-tables/ core-bibliography/ core-snippets/ core-vim/ core-excalidraw/
+  core-media/ core-pdf/ core-frames/ core-slides/ core-export/ core-comments/ core-agents/
   core-templates/ core-daily/ core-collab/ core-settings/ core-theme/ core-diagnostics/
 apps/
   web/                browser harness
@@ -126,6 +152,7 @@ examples/             example community plugins (word-goal, kbd-syntax)
   is written right there. Stored in `.pumice/comments/<note path>.json`, not in the markdown; they
   follow their text through edits. A comment or reply with `@agent` (or `@claude`, `@chatgpt`,
   `@codex`, `@gemini`) is answered by that agent in the thread, and it can edit the note.
+  A new comment starts addressed to the agent you last wrote to (Settings → Comments).
 - **Side by side**: several embeds on one line (`![[a.png]] ![[b.png]]`, also videos, frames and
   notes) stand beside each other; those with a width keep it and the others share the rest.
 - **Drag and drop**: drag a file from the file list into a note to embed it (a note is linked).
@@ -133,8 +160,12 @@ examples/             example community plugins (word-goal, kbd-syntax)
   dropped frame asks which files it should show (several, for a frame that compares). Files
   dragged in from outside go to the attachments folder, or into the folder of the file list
   they are dropped on; a picture dragged from a web page is saved the same way.
-- **Right-click an embed** (picture, video, frame) to open it, remove it from the note, or
-  delete the file; both ask first, and deleting says in how many other notes the file is used.
+- **Right-click an embed** (picture, video, frame) to open it, copy it (as a picture or as
+  its text), or remove it from the note. Removing does not ask: only the reference goes, and
+  undo brings it back. Selecting across embeds selects them like text.
+- **Moving figures**: drag a picture, video or drawing to another place in the note; dropped
+  on the left or right third of another figure it goes beside it. In a row, resizing one
+  figure gives the others the rest of the width, and snaps where two are equally high.
 - **Web resources in frames**: a setting written `[label](https://…)` or `<https://…>` refers to
   a file on the web the same way `[[file]]` refers to one in the vault.
 - **Sizing embeds**: an embedded picture, video or frame has a handle in its bottom-right corner;
@@ -148,11 +179,38 @@ examples/             example community plugins (word-goal, kbd-syntax)
   `editorCompletions`.
 - **Captions, numbering and references**: a figure's caption is the alias of its embed
   (`![[loss.png|Loss over time|400]]`) or the `caption:` of a frame block; a table's is a
-  `Table: …` line above it. A block ID after it is its label (`^fig-loss`, `^tab-runs`,
-  `^eq-energy`; for a frame block, a table or a `$$` block on the line after it). Figures,
-  tables and equations are numbered in the order of the note, and `[[#^fig-loss]]` reads
-  "Figure 2" (from another note, `[[Results#^fig-loss]]` reads "Figure 2 in Results"). Nothing but
-  Obsidian syntax is written; the numbers are worked out when the note is shown.
+  `Table: …` line above it. A label is written as pandoc does: `{#fig-loss}` right behind an
+  embed, `{#tab-runs}` at the end of the `Table: …` line, `{#eq-energy}` on the line after a
+  `$$` block, `label: fig-setup` in a frame block (Obsidian's `^fig-loss` is still read).
+  Figures, tables and equations are numbered in the order of the note, and `@fig-loss` or
+  `[[#^fig-loss]]` reads "Figure 2" (from another note, `[[Results#^fig-loss]]` reads "Figure 2
+  in Results"). Typing `@` suggests what can be referred to, by number, label or caption; a
+  label is renamed in place, and the references follow. A click on a reference goes to its
+  target and flashes it.
+- **Bibliography**: `@doe2020` and `[@doe2020, p. 3; @roe2021]` cite from a BibTeX file, as
+  numbers or as author and year, with the list of references at the end of the note. The file
+  is the note's `bibliography:` property, the one chosen in Settings → Bibliography (which can
+  also create one or copy one in), or the `.bib` files at the top of the vault.
+- **Table of contents**: a `toc` block (settings `title`, `depth`, `numbered`, and
+  `from: all | below`), or a line that says `[TOC]`, shows the note's headings as links, kept
+  current as they change and exported as links.
+- **Find and replace** (`Mod+F`): a card with the number of matches, match case, whole words
+  and regular expressions. A match inside something drawn (a formula, a link, a table) shows
+  as the source it was found in.
+- **Lists**: Enter on an empty item ends the list; numbered lists renumber as items are added,
+  removed or set in; a long item wraps under its own text.
+- **Read, write, source**: three ways to show a note, switched at its top right. Reading shows
+  it as writing does, with nothing that can be changed.
+- **Slides and export**: "Present this note as slides" starts a new slide at each `---`;
+  "Export" writes the note as one web page that needs nothing else, or as a PDF, laid out as
+  the note is.
+- **Vim mode** (off until switched on in the settings): normal, insert and visual modes, with keys to switch
+  files, search the vault and leap to a place on screen.
+- **Drawings for the assistant**: the built-in assistant lists what is in an Excalidraw
+  drawing and changes it by adding, updating and deleting shapes, texts (also LaTeX) and
+  arrows. Arrows between shapes route themselves, at right angles by default, and a whole
+  diagram can be arranged as a flowchart, downwards or to the right. After each step the
+  assistant is shown a picture of the result.
 - **Editing rendered things**: a list keeps its dots on the line being edited (the dash shows
   when the cursor is at it). A click on a formula puts the cursor at the symbol clicked; while
   a formula is written, what it gives is shown under it, and a formula with a mistake is drawn
@@ -205,7 +263,8 @@ examples/             example community plugins (word-goal, kbd-syntax)
   are kept in `.pumice/annotations/<pdf path>.json`, the PDF is never changed; highlights made
   with Obsidian's "PDF Annotator" plugin are taken over on first open.
 - **Copy location**: `Mod+Alt+C` copies `path:line` for pasting into an agent; also "with text"
-  and "link to block" in the right-click menu.
+  and "link to block" in the right-click menu. The pin beside a selection copies where it
+  begins and what it says: `Notes/Plan.md:12:8 "the selected text"`.
 - **Assistant** (desktop): a chat in the right sidebar. Built in: **ChatGPT on your own plan**
   through OpenAI's "Sign in with ChatGPT" (nothing to install; it can search, read and, with your
   approval, edit notes). Also Claude Code, Codex and Gemini CLI through the Agent Client Protocol
@@ -266,9 +325,10 @@ how, is listed per milestone. Known gaps are at the end.
 
 ### Known gaps
 
-- Mobile native projects have not been built or run: no Xcode / Android SDK was available. App
-  Store / Play submission is therefore not done.
-- Packaged desktop builds were produced and launched unsigned on macOS only.
+- Android: each release carries a debug APK, built but little used. iOS has not been built or
+  run. App Store / Play submission is not done.
+- Desktop builds are unsigned. macOS builds are released and used; Windows and Linux packages
+  are built in CI but have not been run.
 - Login emails need an SMTP hook on the server; OIDC sign-in is not implemented.
 - End-to-end encryption (D14) and partial replicas are post-beta.
 - Not yet: hover previews, `.canvas` files, Excalidraw collaborator pointers, typing `[[` inside

@@ -156,13 +156,20 @@
 
 /* Comment button next to a selection, and the comment box that opens there */
 /* These are editor tooltips: the selectors outrank the editor's own (always light) tooltip box. */
-.cm-editor .cm-tooltip.pm-comment-bubble {
+/* The buttons beside a selection: comment on it, copy where it is. */
+.cm-editor .cm-tooltip.pm-selection-actions {
+  display: flex;
+  gap: 4px;
+  margin: 4px 0 4px 6px;
+  border: 0;
+  background: none;
+}
+.cm-editor .pm-comment-bubble {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 30px;
   height: 28px;
-  margin: 4px 0 4px 6px;
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -171,7 +178,8 @@
   box-shadow: var(--shadow);
   cursor: pointer;
 }
-.cm-editor .cm-tooltip.pm-comment-bubble:hover {
+.cm-editor .pm-comment-bubble:hover,
+.cm-editor .pm-comment-bubble.is-done {
   color: var(--accent);
   border-color: var(--accent);
 }

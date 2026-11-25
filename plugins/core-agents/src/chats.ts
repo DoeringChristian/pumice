@@ -71,8 +71,16 @@ export function storableItems(items: TranscriptItem[]): TranscriptItem[] {
       const { respond: _respond, ...rest } = item;
       return { ...rest, chosen: rest.chosen ?? 'cancelled' };
     }
-    if (item.kind === 'tool' && (item.status === 'in_progress' || item.status === 'pending'))
-      return { ...item, status: 'cancelled' };
+    if (item.kind === 'tool') {
+      // Pictures shown to the agent are not kept with the chat: they are large.
+      const content = item.content.filter(
+        (c) => !(c.type === 'content' && c.content.type === 'image'),
+      );
+      const kept = content.length === item.content.length ? item : { ...item, content };
+      return kept.status === 'in_progress' || kept.status === 'pending'
+        ? { ...kept, status: 'cancelled' }
+        : kept;
+    }
     return item;
   });
 }

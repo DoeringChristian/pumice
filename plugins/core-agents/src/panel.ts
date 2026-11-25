@@ -906,6 +906,14 @@ export function renderAgentPanel(
     if (c.type === 'content' && c.content.type === 'text') {
       return h('pre', { class: 'pm-agent-tool-output' }, c.content.text.slice(0, 4000));
     }
+    // What the agent was shown (a drawing as it looked after its change).
+    if (c.type === 'content' && c.content.type === 'image') {
+      return h('img', {
+        class: 'pm-agent-tool-image',
+        alt: 'What the agent was shown',
+        src: `data:${c.content.mimeType};base64,${c.content.data}`,
+      });
+    }
     return null;
   };
 

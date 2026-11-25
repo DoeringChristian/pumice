@@ -22,6 +22,7 @@ import { LinksImpl, editNote } from './links';
 import {
   blockTarget,
   formatLocation,
+  formatLocationQuote,
   formatLocationWithText,
   newBlockId,
   type LocationFormat,
@@ -247,6 +248,22 @@ export const plugin = definePlugin({
       category: 'Links',
       when: hasEditor,
       run: () => copyLocation(true),
+    });
+    ctx.commands.register({
+      id: 'links.copy-location-quote',
+      title: 'Copy location and selection (path:line:column "text")',
+      category: 'Links',
+      when: hasEditor,
+      run: async () => {
+        const active = editor.active();
+        if (!active) return;
+        const { state } = active.view;
+        const { from, to } = state.selection.main;
+        await copy(
+          formatLocationQuote(locationPath(active.path), state.doc.toString(), from, to),
+          'location',
+        );
+      },
     });
     ctx.commands.register({
       id: 'links.copy-block-link',

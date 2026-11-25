@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { blockTarget, formatLocation, formatLocationWithText } from '../src/location';
+import {
+  blockTarget,
+  formatLocation,
+  formatLocationQuote,
+  formatLocationWithText,
+} from '../src/location';
 
 const text = 'line one\nline two\nline three\n';
 
@@ -41,5 +46,23 @@ describe('copy location', () => {
       id: 'n',
       insert: { at: doc.indexOf('other') + 5, text: ' ^n' },
     });
+  });
+});
+
+describe('copy location and selection', () => {
+  const text = 'first line\nsecond line here\nthird';
+  it('points at where the selection begins, with what is selected in quotes', () => {
+    const from = text.indexOf('line here');
+    expect(formatLocationQuote('Notes/a.md', text, from, from + 9)).toBe(
+      'Notes/a.md:2:8 "line here"',
+    );
+  });
+  it('keeps a selection over several lines as it is, without the line break at its end', () => {
+    expect(formatLocationQuote('a.md', text, 6, text.indexOf('third'))).toBe(
+      'a.md:1:7 "line\nsecond line here"',
+    );
+  });
+  it('gives the place alone when nothing is selected', () => {
+    expect(formatLocationQuote('a.md', text, 11, 11)).toBe('a.md:2:1');
   });
 });

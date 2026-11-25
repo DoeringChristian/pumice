@@ -1,5 +1,6 @@
 import {
   Documents,
+  Drawings,
   Agents,
   Comments,
   Editor,
@@ -88,6 +89,10 @@ export const plugin = definePlugin({
     const vault = ctx.use(Vault);
     const syntax = ctx.use(MarkdownSyntax);
     const platform = ctx.use(PlatformService);
+    // Drawings read and changed as text (absent without the drawing plugin). Asked for when a
+    // chat starts, not now: the drawing plugin starts after this one (naming it as a dependency
+    // would close a circle through the reader and the frames, which wait for this plugin).
+    const drawingsNow = () => ctx.tryUse(Drawings);
     const host = platform.process;
     const root = platform.vaultRoot ?? '';
 
@@ -172,6 +177,7 @@ export const plugin = definePlugin({
                 savedMode: () => ctx.settings.get<string | undefined>('chatgptMode', undefined),
                 saveMode: (id) => void ctx.settings.set('chatgptMode', id),
                 guidance,
+                drawings: drawingsNow,
                 ...(platform.net ? { net: platform.net } : {}),
                 webAccess: () => ctx.settings.get('webAccess', true),
                 webAlwaysAllowed: () => !ctx.settings.get('webAsk', true),
