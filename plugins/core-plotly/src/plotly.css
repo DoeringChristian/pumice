@@ -1,0 +1,16 @@
+/* A Plotly figure: as wide as its box, its height its own. */
+.pm-plotly {
+  display: block;
+  /* Not the text's: what is shown is a figure (Plotly sets its own where it means something). */
+  cursor: default;
+  width: 100%;
+  min-height: 120px;
+}
+.pm-plotly .modebar {
+  background: transparent !important;
+}
+/* Its controls in the other corner from the app's. */
+.pm-plotly .modebar {
+  right: auto !important;
+  left: 6px !important;
+}

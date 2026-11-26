@@ -1,0 +1,14 @@
+{
+  "name": "@pumice/core-plotly",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@pumice/api": "workspace:*",
+    "@pumice/ui": "workspace:*",
+    "plotly.js-strict-dist-min": "4.2.0"
+  }
+}

@@ -234,6 +234,10 @@ examples/             example community plugins (word-goal, kbd-syntax)
   move through what a tab has shown.
 - **Media**: images (including SVG), audio and video open in a tab, with zoom for images;
   double-click an embedded image to open it.
+- **Plotly figures**: a figure saved by Plotly (`fig.write_json("loss.plotly.json")`) is shown
+  where a note embeds it, `![[loss.plotly.json|Loss over time]]{#fig-loss width=60%}`, in the
+  app's colours and as wide as its box; exports show it as a picture. Its data stays in its file:
+  a note never holds it.
 - **Frames**: HTML files (visualizations, interactive figures, small tools) shown inside notes.
   `![[frames/bars/index.html]]` shows one; a `frame` block passes settings and data files to it,
   so one HTML file serves many notes and the note itself stays small:

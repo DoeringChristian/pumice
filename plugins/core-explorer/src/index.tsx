@@ -90,6 +90,7 @@ export const plugin = definePlugin({
               vault={vault}
               workspace={workspace}
               settings={ctx.settings}
+              storage={ctx.storage}
               actions={{
                 newNote: (folder) => void createNote(vault, workspace, folder),
                 rename: (entry) => void renameEntry(vault, workspace, entry),

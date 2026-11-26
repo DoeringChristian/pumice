@@ -3,12 +3,13 @@ import {
   joinPath,
   type MenuEntry,
   type PluginSettings,
+  type PluginStorage,
   type VaultApi,
   type VaultEntry,
   type WorkspaceApi,
 } from '@pumice/api';
 import { Icon } from '@pumice/core-workspace';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 interface Actions {
   newNote(folder: string): void;
@@ -20,8 +21,14 @@ interface Props {
   vault: VaultApi;
   workspace: WorkspaceApi;
   settings: PluginSettings;
+  /** Where the list was scrolled to is kept here (on this device). */
+  storage: PluginStorage;
   actions: Actions;
 }
+
+const SCROLL_KEY = 'scroll';
+/** Where the list was, while the app runs (the list is made anew when its tab comes back). */
+let lastScroll: number | undefined;
 
 const DRAG_TYPE = 'application/x-pumice-path';
 
@@ -37,7 +44,7 @@ function useRerender(subscribe: (cb: () => void) => { dispose(): void }) {
   }, [subscribe]);
 }
 
-export function Explorer({ vault, workspace, settings, actions }: Props) {
+export function Explorer({ vault, workspace, settings, storage, actions }: Props) {
   useRerender(useCallback((cb) => vault.onDidChange(cb), [vault]));
   useRerender(useCallback((cb) => workspace.onDidChangeActiveFile(cb), [workspace]));
   const [expanded, setExpanded] = useState(() => new Set(settings.get<string[]>('expanded', [])));
@@ -48,16 +55,80 @@ export function Explorer({ vault, workspace, settings, actions }: Props) {
     setExpanded(next);
     void settings.set('expanded', [...next]);
   };
-
-  // Reveal the active file.
+  // Folders opened or closed elsewhere (another window of the vault).
   useEffect(() => {
+    const sub = settings.onDidChange((key) => {
+      if (key !== 'expanded') return;
+      const now = settings.get<string[]>('expanded', []);
+      setExpanded((was) =>
+        was.size === now.length && now.every((p) => was.has(p)) ? was : new Set(now),
+      );
+    });
+    return () => sub.dispose();
+  }, [settings]);
+
+  const list = useRef<HTMLUListElement>(null);
+  // Scrolled as it was: when the list is shown again, and when the app starts.
+  const [placed, setPlaced] = useState(false);
+  useLayoutEffect(() => {
+    const el = list.current;
+    if (!el) return;
+    let done = false;
+    const place = (top: number) => {
+      if (done) return;
+      el.scrollTop = top;
+      done = true;
+      setPlaced(true);
+    };
+    if (lastScroll !== undefined) place(lastScroll);
+    else
+      void storage.get(SCROLL_KEY).then(
+        (v) => place(Number(v) || 0),
+        () => place(0),
+      );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onScroll = () => {
+      if (!done) return;
+      lastScroll = el.scrollTop;
+      clearTimeout(timer);
+      timer = setTimeout(() => void storage.set(SCROLL_KEY, String(Math.round(el.scrollTop))), 400);
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      done = true;
+      el.removeEventListener('scroll', onScroll);
+      clearTimeout(timer);
+      if (lastScroll !== undefined) void storage.set(SCROLL_KEY, String(Math.round(lastScroll)));
+    };
+  }, [storage]);
+
+  // The open file is shown: its folders opened, and the list scrolled to it if it is not in view.
+  const reveal = useRef<string | undefined>(undefined);
+  // (Before the effect below, which takes it, in the same commit.)
+  useLayoutEffect(() => {
     if (!active) return;
     const missing: string[] = [];
     for (let dir = dirname(active); dir !== ''; dir = dirname(dir))
       if (!expanded.has(dir)) missing.push(dir);
     if (missing.length) persist(new Set([...expanded, ...missing]));
+    reveal.current = active;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
+  useLayoutEffect(() => {
+    const path = reveal.current;
+    const el = list.current;
+    // (Not before the list is where it was: that comes first.)
+    if (!path || !el || !placed) return;
+    const row = [...el.querySelectorAll<HTMLElement>('button.pm-tree-row')].find(
+      (r) => r.dataset.path === path,
+    );
+    if (!row) return;
+    reveal.current = undefined;
+    const box = row.getBoundingClientRect();
+    const view = el.getBoundingClientRect();
+    if (box.top < view.top || box.bottom > view.bottom)
+      el.scrollTop += box.top - view.top - (view.height - box.height) / 2;
+  });
 
   const toggle = (path: string) => {
     const next = new Set(expanded);
@@ -244,6 +315,7 @@ export function Explorer({ vault, workspace, settings, actions }: Props) {
         </button>
       </div>
       <ul
+        ref={list}
         className="pm-tree"
         role="tree"
         aria-label="Files"

@@ -17,7 +17,7 @@ import {
 } from './links';
 
 const FILE =
-  /\.(png|apng|jpe?g|jfif|gif|webp|svg|bmp|avif|ico|mp4|m4v|mov|mkv|ogv|webm|mp3|wav|m4a|aac|ogg|oga|opus|flac|pdf|html?|excalidraw)$/i;
+  /\.(png|apng|jpe?g|jfif|gif|webp|svg|bmp|avif|ico|mp4|m4v|mov|mkv|ogv|webm|mp3|wav|m4a|aac|ogg|oga|opus|flac|pdf|html?|excalidraw|plotly\.json)$/i;
 
 /** Whether a target is something shown as a figure (not an embedded note). */
 export function isFigureTarget(target: string): boolean {

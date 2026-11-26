@@ -30,6 +30,7 @@
     "@pumice/core-backlinks": "workspace:*",
     "@pumice/core-frames": "workspace:*",
     "@pumice/core-media": "workspace:*",
+    "@pumice/core-plotly": "workspace:*",
     "@pumice/core-outline": "workspace:*",
     "@pumice/core-pdf": "workspace:*",
     "@pumice/core-export": "workspace:*",

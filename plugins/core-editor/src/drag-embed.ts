@@ -137,17 +137,21 @@ export function moveEmbed(
 /** The embed that is being dragged, and the editor it is in. */
 let dragged: { view: EditorView; el: HTMLElement } | undefined;
 
-/** `dragstart` on an embed: it can be dropped elsewhere in its note. */
+/**
+ * `dragstart` on an embed: it can be dropped elsewhere in its note. What is shown and takes the
+ * pointer itself (a plot that is turned or zoomed) says so with `data-pm-interactive`.
+ */
 export function beginEmbedDrag(view: EditorView, el: HTMLElement, e: DragEvent): void {
   const target = e.target as HTMLElement | null;
   // What is dragged for its own sake: the size, the place in a video, the text of a caption.
   if (
     view.state.readOnly ||
     target?.closest?.(
-      '.cm-pm-resize, .cm-pm-embed-menu, .cm-pm-caption, .pm-video-controls, input, button',
+      '.cm-pm-resize, .cm-pm-embed-menu, .cm-pm-caption, .pm-video-controls, [data-pm-interactive], input, button',
     )
   ) {
-    if (target?.closest?.('.cm-pm-resize, .pm-video-controls, input')) e.preventDefault();
+    if (target?.closest?.('.cm-pm-resize, .pm-video-controls, [data-pm-interactive], input'))
+      e.preventDefault();
     return;
   }
   dragged = { view, el };

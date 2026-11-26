@@ -1183,6 +1183,18 @@ class EmbedWidget extends WidgetType {
     if (!view.state.readOnly) {
       el.draggable = true;
       el.addEventListener('dragstart', (e) => beginEmbedDrag(view, el, e));
+      // What takes the pointer itself is not dragged away while it does.
+      el.addEventListener('pointerdown', (e) => {
+        if (!(e.target as HTMLElement).closest?.('[data-pm-interactive]')) return;
+        el.draggable = false;
+        const back = () => {
+          el.draggable = true;
+          window.removeEventListener('pointerup', back, true);
+          window.removeEventListener('pointercancel', back, true);
+        };
+        window.addEventListener('pointerup', back, true);
+        window.addEventListener('pointercancel', back, true);
+      });
     }
     const reader = view.state.facet(previewDeps)?.reader;
     // Events inside the widget do not reach the editor's own handlers.
@@ -2652,7 +2664,38 @@ const formulaArrows = Prec.high(
   ]),
 );
 
+/**
+ * A click beside a line of media, left of its first element or right of its last, puts the
+ * cursor at that end of the line (the browser would put it where the elements meet, or into a
+ * caption).
+ */
+const clickBesideMedia = Prec.high(
+  EditorView.domEventHandlers({
+    mousedown(e, view) {
+      if (e.button !== 0 || e.shiftKey || e.detail > 1) return false;
+      if ((e.target as HTMLElement).closest?.('.cm-pm-embed, .cm-pm-block')) return false;
+      const block = view.lineBlockAtHeight(e.clientY - view.documentTop);
+      const line = view.state.doc.lineAt(block.from);
+      if (!mediaOnly(view, line)) return false;
+      const shown = embedsOn(view, line)
+        .map((span) => mediaElement(view, span)?.getBoundingClientRect())
+        .filter((r): r is DOMRect => !!r && r.width > 0);
+      if (!shown.length) return false;
+      const left = Math.min(...shown.map((r) => r.left));
+      const right = Math.max(...shown.map((r) => r.right));
+      // (A press in the margin comes as one at the text's left edge: see `MarkdownView`.)
+      const at = e.clientX <= left + 2 ? line.from : e.clientX >= right - 2 ? line.to : undefined;
+      if (at === undefined) return false;
+      e.preventDefault();
+      view.dispatch({ selection: { anchor: at }, userEvent: 'select.pointer' });
+      view.focus();
+      return true;
+    },
+  }),
+);
+
 export const livePreview: Extension = [
+  clickBesideMedia,
   revealTracking,
   // Before the previews, which read it.
   sourceShown,

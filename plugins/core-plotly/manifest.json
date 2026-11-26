@@ -1,0 +1,18 @@
+{
+  "id": "core.plotly",
+  "name": "Plotly figures",
+  "version": "0.1.0",
+  "description": "Shows Plotly figures saved as files (fig.write_json(\"loss.plotly.json\")) in notes: ![[loss.plotly.json|Caption]]. The data stays in its file, never in the note.",
+  "api": "^0.1.0",
+  "dependencies": {
+    "core.vault": "^0.1.0",
+    "core.documents": "^0.1.0",
+    "core.reader": "^0.1.0"
+  },
+  "optionalDependencies": {
+    "core.settings": "^0.1.0"
+  },
+  "contributes": {
+    "fileTypes": [{ "id": "plotly", "extensions": ["plotly.json"] }]
+  }
+}

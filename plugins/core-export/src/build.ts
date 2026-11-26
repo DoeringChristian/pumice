@@ -75,7 +75,9 @@ async function settled(root: HTMLElement, limit = 10000): Promise<void> {
     [...root.querySelectorAll('video')].some((v) => v.readyState < 2 && !v.error) ||
     [...root.querySelectorAll('.pm-frame')].some(
       (f) => !f.querySelector('iframe, .pm-frame-error'),
-    );
+    ) ||
+    // (Something a plugin draws says so with `data-pm-drawing` until it is drawn.)
+    !!root.querySelector('[data-pm-drawing]');
   // What is embedded is put in a moment after the text.
   await sleep(250);
   while (pending() && Date.now() - started < limit) await sleep(100);
@@ -207,6 +209,20 @@ export async function buildPage(opts: BuildOptions): Promise<Built> {
           () => audio.removeAttribute('src'),
           () => undefined,
         );
+      }
+    }
+    // What a plugin draws and can give as a picture (`pmSnapshot`, an address of it): that picture.
+    for (const el of root.querySelectorAll<HTMLElement>('[data-pm-snapshot]')) {
+      const snapshot = (el as HTMLElement & { pmSnapshot?: () => Promise<string> }).pmSnapshot;
+      if (!snapshot) continue;
+      try {
+        const img = document.createElement('img');
+        img.setAttribute(SRC, await snapshot());
+        img.className = el.className;
+        img.style.width = '100%';
+        el.replaceWith(img);
+      } catch {
+        // It stays as it is.
       }
     }
     // What is drawn on a canvas, as the picture it is now.

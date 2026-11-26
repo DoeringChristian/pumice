@@ -361,6 +361,9 @@ importers:
       '@pumice/core-pdf':
         specifier: workspace:*
         version: link:../../plugins/core-pdf
+      '@pumice/core-plotly':
+        specifier: workspace:*
+        version: link:../../plugins/core-plotly
       '@pumice/core-properties':
         specifier: workspace:*
         version: link:../../plugins/core-properties
@@ -1039,6 +1042,18 @@ importers:
       pdfjs-dist:
         specifier: 5.4.296
         version: 5.4.296
+
+  plugins/core-plotly:
+    dependencies:
+      '@pumice/api':
+        specifier: workspace:*
+        version: link:../../packages/api
+      '@pumice/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      plotly.js-strict-dist-min:
+        specifier: 4.2.0
+        version: 4.2.0
 
   plugins/core-properties:
     dependencies:
@@ -3935,6 +3950,9 @@ packages:
   plist@3.1.1:
     resolution: {integrity: sha512-ZIfcLJC+7E7FBFnDxm9MPmt7D+DidyQ26lewieO75AdhA2ayMtsJSES0iWzqJQbcVRSrTufQoy0DR94xHue0oA==}
     engines: {node: '>=10.4.0'}
+
+  plotly.js-strict-dist-min@4.2.0:
+    resolution: {integrity: sha512-187yjrpuOgQHocroi66mWVAh6Ckdm1BOEO6uWQE552lG1GlmL/70LJdLsvOMq3evTG/EehCLFggIVm2/2ZHyJQ==}
 
   points-on-curve@0.2.0:
     resolution: {integrity: sha512-0mYKnYYe9ZcqMCWhUjItv/oHjvgEsfKvnUTg8sAtnHr3GVy7rGkXCb6d5cSyqrWqL4k81b9CPg3urd+T7aop3A==}
@@ -8040,6 +8058,8 @@ snapshots:
       '@xmldom/xmldom': 0.9.12
       base64-js: 1.5.1
       xmlbuilder: 15.1.1
+
+  plotly.js-strict-dist-min@4.2.0: {}
 
   points-on-curve@0.2.0: {}
 

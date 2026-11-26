@@ -22,6 +22,7 @@ import index from '@pumice/core-index';
 import links from '@pumice/core-links';
 import markdown from '@pumice/core-markdown';
 import media from '@pumice/core-media';
+import plotly from '@pumice/core-plotly';
 import outline from '@pumice/core-outline';
 import pdf from '@pumice/core-pdf';
 import slides from '@pumice/core-slides';
@@ -64,6 +65,7 @@ export const bundledPlugins: PluginModule[] = [
   ids,
   files,
   media,
+  plotly,
   frames,
   pdf,
   slides,
