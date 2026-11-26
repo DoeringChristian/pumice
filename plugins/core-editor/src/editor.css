@@ -444,11 +444,15 @@
   transition: opacity 0.1s;
   touch-action: none;
 }
+.cm-pm-resize[hidden] {
+  display: none;
+}
 .cm-pm-resize svg {
   transform: rotate(45deg);
 }
 .cm-pm-resizable:hover > .cm-pm-resize,
-.cm-pm-resizable.is-resizing > .cm-pm-resize {
+.cm-pm-resizable.is-resizing > .cm-pm-resize,
+.cm-line:hover .cm-pm-row-resize {
   opacity: 1;
 }
 .cm-pm-resize:hover,
@@ -467,6 +471,9 @@
   color: var(--text);
   font: 11px var(--font-ui);
   white-space: nowrap;
+}
+.pm-is-reading .cm-pm-row-resize {
+  display: none;
 }
 /* The pointer must reach the handle, not the frame's page, while dragging. */
 .cm-pm-resizable.is-resizing iframe {
@@ -949,14 +956,17 @@ input.cm-pm-caption-id.is-editing {
   > .cm-pm-embed {
   width: 100%;
 }
-.cm-line:has(> .pm-embed-box ~ .pm-embed-box):has(.is-resizing) > .cm-pm-figure:has(> .is-sized) {
+/* A row being dragged stays one row (a fraction of a pixel too much would wrap its last). */
+.pm-markdown-page .cm-line:has(> .pm-embed-box ~ .pm-embed-box):has(.is-resizing) {
+  flex-wrap: nowrap;
+}
+.cm-line:has(> .pm-embed-box ~ .pm-embed-box):has(.is-resizing) > .cm-pm-figure {
   flex: 0 0 auto !important;
   max-width: none !important;
 }
-.cm-line:has(> .pm-embed-box ~ .pm-embed-box):has(.is-resizing)
-  > .cm-pm-figure
-  > .cm-pm-embed.is-sized {
-  width: calc(var(--embed-w) - 12px);
+.cm-line:has(> .pm-embed-box ~ .pm-embed-box):has(.is-resizing) > .cm-pm-figure > .cm-pm-embed {
+  /* As the row will be laid out (see `rowLayout`). */
+  width: var(--drag-w, calc(var(--embed-w) - 12px));
 }
 .pm-markdown-page .cm-line > .cm-pm-figure {
   position: relative;

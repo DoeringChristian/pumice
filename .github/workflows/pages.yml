@@ -37,6 +37,9 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: pnpm build:excalidraw
       - run: pnpm --filter @pumice/web build
+        # Plotly is one large file: more memory than the runner's default to bundle it.
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
       - uses: actions/upload-pages-artifact@v3
         with:
           path: apps/web/dist

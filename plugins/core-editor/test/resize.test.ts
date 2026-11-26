@@ -1,6 +1,6 @@
 import { embedSizeCss, parseEmbedSize, parseImageAttributes, withAliasSize } from '@pumice/api';
 import { describe, expect, it } from 'vitest';
-import { blockSizeEdit, embedAt, sameHeightWidths, snapWidth } from '../src/resize';
+import { blockSizeEdit, embedAt, sameHeightWidths, snapWidth, rowLayout } from '../src/resize';
 
 describe('embed sizes', () => {
   it('reads them back, also after a caption', () => {
@@ -147,5 +147,15 @@ describe('the width at which a picture of a row is as high as another', () => {
 describe('sizes', () => {
   it('in percent are shares of the text, as plain numbers are', () => {
     expect(embedSizeCss(parseEmbedSize('50%')).width).toBe('calc(var(--pm-text-w, 100%) * 0.5)');
+  });
+});
+
+describe('a row as it is laid out', () => {
+  it('grows each up to its width, shares what is missing', () => {
+    expect(rowLayout([210, 210], 700)).toEqual([210, 210]);
+    const full = rowLayout([350, 350], 700);
+    expect(full.map(Math.round)).toEqual([344, 344]);
+    const over = rowLayout([500, 500], 700);
+    expect(Math.round(over[0]! + over[1]! + 12)).toBe(700);
   });
 });

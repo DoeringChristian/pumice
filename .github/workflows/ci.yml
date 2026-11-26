@@ -51,6 +51,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:excalidraw
       - run: pnpm --filter @pumice/desktop exec electron-vite build
+        # Plotly is one large file: more memory than the runner's default to bundle it.
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
       # Without signing secrets the variables are empty, and an empty CSC_LINK is taken for a
       # certificate file that does not exist: leave out what is not set.
       - shell: bash
