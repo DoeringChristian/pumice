@@ -3,6 +3,7 @@ import {
   fillCaption,
   figureLabel,
   figureReference,
+  equationNumber,
   isFigureTarget,
   numberItems,
   type NumberedItem,
@@ -105,7 +106,7 @@ export function numberRendered(container: HTMLElement, markdown: string): Number
     .filter(own)
     .forEach((el, ordinal) => {
       const item = equations.get(ordinal);
-      if (item) mark(el, figureReference(item));
+      if (item) mark(el, equationNumber(item));
     });
 
   return {

@@ -63,7 +63,7 @@ function snippet(state: EditorState, item: NumberedItem): string {
   const tex = state.doc
     .sliceString(state.doc.line(item.line + 1).from, end.to)
     // Without the label behind the closing `$$`.
-    .replace(/\$\$\s*\^[A-Za-z0-9-]+\s*$/, '')
+    .replace(/\$\$\s*(?:\^[A-Za-z0-9-]+|\{#[A-Za-z0-9-]+\})\s*$/, '')
     .replace(/\$\$/g, '');
   return cut(tex.replace(/\s+/g, ' ').trim());
 }

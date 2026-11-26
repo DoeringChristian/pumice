@@ -65,6 +65,7 @@ export {
   embedSizeProperties,
   figureLabel,
   figureReference,
+  equationNumber,
   embedCaption,
   isFigureTarget,
   mediaIn,

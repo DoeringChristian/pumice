@@ -1,0 +1,22 @@
+{
+ "nodes": [
+  {
+   "kind": "math",
+   "text": "$$\nE = mc^2\n$$"
+  },
+  {
+   "kind": "blockId",
+   "text": "{#eq-energy}",
+   "value": "eq-energy"
+  },
+  {
+   "kind": "math",
+   "text": "$$\na = b\n$$"
+  },
+  {
+   "kind": "blockId",
+   "text": "{#eq-below}",
+   "value": "eq-below"
+  }
+ ]
+}

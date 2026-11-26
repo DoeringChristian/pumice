@@ -194,20 +194,20 @@ export const plugin = definePlugin({
         const found = await itemFor(arg, 'Rename the label of…', true);
         if (!found) return;
         const { view, path, item } = found;
-        if (!item.id) {
+        // Written where the label stands (`name`), or asked for.
+        const given = (arg as { name?: unknown } | undefined)?.name;
+        if (!item.id && typeof given !== 'string') {
           workspace.notify('It has no label yet: it gets one when it is first referred to.');
           return;
         }
         const prefix = `${item.kind}-`;
-        // Written where the label stands (`name`), or asked for.
-        const given = (arg as { name?: unknown } | undefined)?.name;
         const typed =
           typeof given === 'string'
             ? given
             : await workspace.showPrompt({
                 title: `New label (references to ${item.id} follow)`,
-                value: item.id,
-                selection: [prefix.length, item.id.length],
+                value: item.id!,
+                selection: [prefix.length, item.id!.length],
               });
         if (typed === undefined) return;
         // Words become a label: `Loss curve` is `fig-loss-curve`.
@@ -225,6 +225,14 @@ export const plugin = definePlugin({
         }
         if (itemsOf(view.state).some((i) => i.id === id)) {
           workspace.notify(`This note already has the label ${id}.`, { kind: 'warning' });
+          return;
+        }
+        // One it did not have yet is written where labels of its kind stand.
+        if (!item.id) {
+          view.dispatch({
+            changes: labelChange(view.state.doc.toString(), item, id),
+            userEvent: 'input.rename',
+          });
           return;
         }
         const others = await renameLabel(view, path, item.id, id, { index, documents });

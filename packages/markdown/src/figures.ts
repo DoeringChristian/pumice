@@ -40,9 +40,12 @@ export function figureLabel(item: Pick<NumberedItem, 'kind' | 'number'>): string
   return `${NAMES[item.kind]} ${item.number}`;
 }
 
-/** How a reference to the item reads in running text: "Figure 2", "Table 1", "(3)". */
+/** The number an equation shows beside it, as in LaTeX: "(3)". */
+export const equationNumber = (item: Pick<NumberedItem, 'number'>): string => `(${item.number})`;
+
+/** How a reference to the item reads in running text: "Figure 2", "Table 1", "Equation 3". */
 export function figureReference(item: Pick<NumberedItem, 'kind' | 'number'>): string {
-  return item.kind === 'eq' ? `(${item.number})` : figureLabel(item);
+  return figureLabel(item);
 }
 
 const FENCE = /^\s*(`{3,}|~{3,})\s*([\w+-]*)/;
@@ -252,8 +255,8 @@ export function labelChange(text: string, item: NumberedItem, id: string): TextC
     return item.captionLine !== undefined
       ? insert(endOf(item.captionLine), ` {#${id}}`)
       : insert(startOf(item.line), `Table: {#${id}}\n\n`);
-  // An equation written on one line has it behind it.
-  return insert(endOf(item.endLine), item.line === item.endLine ? ` {#${id}}` : `\n{#${id}}`);
+  // Behind the `$$` that closes it.
+  return insert(endOf(item.endLine), ` {#${id}}`);
 }
 
 /** The item a reference by number means: `fig2`, `tab-1`, `eq3` (as numbered right now). */

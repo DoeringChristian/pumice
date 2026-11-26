@@ -669,6 +669,24 @@ input.cm-pm-caption-id.is-editing {
   padding-left: 12px;
   color: var(--text-muted);
 }
+/* An equation's label, under its number while the pointer is on it (a click renames it). */
+.cm-pm-block-math {
+  position: relative;
+}
+.cm-pm-block-math > .cm-pm-equation-id {
+  position: absolute;
+  right: 0;
+  bottom: -2px;
+  margin: 0;
+}
+.cm-pm-block-math:hover > .cm-pm-equation-id,
+.cm-pm-block-math > input.cm-pm-equation-id {
+  opacity: 1;
+}
+.cm-pm-equation-id.is-new {
+  font-family: var(--font-ui);
+  font-style: italic;
+}
 .pm-markdown-page .cm-line.cm-pm-caption-line {
   color: var(--text-muted);
   font-family: var(--font-ui);
@@ -677,8 +695,14 @@ input.cm-pm-caption-id.is-editing {
 }
 
 /* A formula being written: what it gives, under its source (block) or floating (inline) */
+/* What a formula being written gives, outlined as a formula is under the pointer: where it ends
+   is seen, however large it is. */
 .cm-pm-math-preview {
-  padding: 4px 0 8px;
+  margin: 6px 0 10px;
+  padding: 4px 0;
+  outline: 1px solid var(--border);
+  outline-offset: 2px;
+  border-radius: var(--radius-s);
   white-space: normal;
   opacity: 0.9;
 }

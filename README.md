@@ -187,8 +187,8 @@ examples/             example community plugins (word-goal, kbd-syntax)
 - **Captions, numbering and references**: a figure's caption is the alias of its embed
   (`![[loss.png|Loss over time]]{#fig-loss width=50%}`, or `![Loss over time](loss.png){…}`) or the `caption:` of a frame block; a table's is a
   `Table: …` line above it. A label is written as pandoc does: `{#fig-loss}` right behind an
-  embed, `{#tab-runs}` at the end of the `Table: …` line, `{#eq-energy}` on the line after a
-  `$$` block, `label: fig-setup` in a frame block (Obsidian's `^fig-loss` is still read).
+  embed, `{#tab-runs}` at the end of the `Table: …` line, `{#eq-energy}` behind the `$$` that
+  closes a formula (or on the line after it), `label: fig-setup` in a frame block (Obsidian's `^fig-loss` is still read).
   Figures, tables and equations are numbered in the order of the note, and `@fig-loss` or
   `[[#^fig-loss]]` reads "Figure 2" (from another note, `[[Results#^fig-loss]]` reads "Figure 2
   in Results"). Typing `@` suggests what can be referred to, by number, label or caption; a

@@ -310,7 +310,7 @@ function parseMathBlock(cx: BlockContext, line: Line): boolean {
   ).input;
   const after = cx.lineStart + line.text.length;
   const rest = input.read(after, Math.min(input.length, after + 20000));
-  if (!/\n[ \t>]*\${2,}[ \t]*(?:\r?\n|$)/.test(rest)) return false;
+  if (!/\n[ \t>]*\${2,}[ \t]*(?:\{#[A-Za-z0-9-]+\}[ \t]*)?(?:\r?\n|$)/.test(rest)) return false;
   const from = cx.lineStart + line.pos;
   const marks: Element[] = [cx.elt('MathMark', from, from + len)];
   const depth = cx.depth;
@@ -318,10 +318,18 @@ function parseMathBlock(cx: BlockContext, line: Line): boolean {
     pushMarkers(line, marks);
     let i = line.pos;
     while (line.text.charCodeAt(i) === 36) i++;
-    if (i - line.pos >= len && line.skipSpace(i) === line.text.length) {
-      marks.push(cx.elt('MathMark', cx.lineStart + line.pos, cx.lineStart + i));
-      cx.nextLine();
-      break;
+    if (i - line.pos >= len) {
+      // Its label may stand behind it: `$$ {#eq-energy}`.
+      const label = /^[ \t]*(\{#[A-Za-z0-9-]+\})[ \t]*$/.exec(line.text.slice(i));
+      if (line.skipSpace(i) === line.text.length || label) {
+        const end = cx.lineStart + i;
+        marks.push(cx.elt('MathMark', cx.lineStart + line.pos, end));
+        const at = label ? end + label[0].indexOf('{') : -1;
+        cx.nextLine();
+        cx.addElement(cx.elt('MathBlock', from, end, marks));
+        if (label) cx.addElement(cx.elt('BlockId', at, at + label[1]!.length));
+        return true;
+      }
     }
   }
   cx.addElement(cx.elt('MathBlock', from, cx.prevLineEnd(), marks));

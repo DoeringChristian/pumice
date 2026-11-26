@@ -50,6 +50,7 @@ import {
   figureLabel,
   drawnFor,
   figureReference,
+  equationNumber,
   fillCaption,
   type LinksApi,
   type WikiLinkParts,
@@ -831,7 +832,8 @@ function labelChip(view: EditorView, id: string, rename: (name: string) => void)
     e.preventDefault();
     e.stopPropagation();
     const input = document.createElement('input');
-    input.className = 'cm-pm-caption-id is-editing';
+    // Where the chip was, as it was placed (an equation's stands in its corner).
+    input.className = `${chip.className.replace(/\bis-new\b/, '')} is-editing`;
     input.value = id;
     input.spellcheck = false;
     input.setAttribute('aria-label', 'Label');
@@ -1316,6 +1318,10 @@ export function embedSource(view: EditorView, el: HTMLElement): string {
 /** Where a rendered block is in the note and what it was rendered from, kept current. */
 const blockOf = new WeakMap<HTMLElement, { source: string; from: number }>();
 
+/** The TeX of a `$$` block: without its marks, and without the label behind them. */
+const formulaOf = (source: string): string =>
+  source.replace(/^\$\$+/, '').replace(/\$\$+[ \t]*(?:\{#[A-Za-z0-9-]+\}[ \t]*)?$/, '');
+
 class BlockWidget extends WidgetType {
   constructor(
     readonly kind: 'table' | 'math' | 'properties' | 'code',
@@ -1325,6 +1331,8 @@ class BlockWidget extends WidgetType {
     readonly label?: string,
     /** The caption of a frame is shown as text of the note, under it. */
     readonly captioned = false,
+    /** An equation's label (`''`: it has none yet): shown and renamed beside it. */
+    readonly id?: string,
   ) {
     super();
   }
@@ -1336,6 +1344,7 @@ class BlockWidget extends WidgetType {
       other.from === this.from &&
       other.label === this.label &&
       other.captioned === this.captioned &&
+      other.id === this.id &&
       other.epoch === this.epoch
     );
   }
@@ -1394,13 +1403,27 @@ class BlockWidget extends WidgetType {
     this.applyLabel(el);
     const { kind } = this;
     if (this.kind === 'math') {
-      const tex = this.source.replace(/^\$\$+/, '').replace(/\$\$+\s*$/, '');
+      const tex = formulaOf(this.source);
       // Inner element: `.pm-math.is-display` has vertical margins (see the CSS note on blocks).
       const math = document.createElement('div');
       math.className = 'pm-math is-display';
       math.textContent = tex;
       el.append(math);
       void deps?.reader?.renderMath(tex, true, math, formulaSource(deps));
+      // Its label, on hover; a click renames it (or gives it one).
+      if (this.id !== undefined && !view.state.readOnly) {
+        const rename = (name: string) =>
+          view.state
+            .facet(previewDeps)
+            ?.run?.('links.rename-label', { pos: view.posAtDOM(el), name });
+        const chip = labelChip(view, this.id || 'eq-', rename);
+        chip.classList.add('cm-pm-equation-id');
+        if (!this.id) {
+          chip.textContent = 'Add a label';
+          chip.classList.add('is-new');
+        }
+        el.append(chip);
+      }
     } else if (this.kind === 'table' && deps) {
       el.classList.add('pm-rendered');
       el.innerHTML = deps.syntax.renderHtml(deps.syntax.parse(this.source));
@@ -2180,7 +2203,7 @@ function buildBlocks(state: EditorState): DecorationSet {
       if (kind === 'math' && !owned.has(name) && touches(from, to) && reader) {
         // A formula being written: its source stays, and what it gives is shown below it.
         const source = state.doc.sliceString(from, to);
-        const tex = source.replace(/^\$\$+/, '').replace(/\$\$+\s*$/, '');
+        const tex = formulaOf(source);
         if (tex.trim()) {
           decorations.push(
             Decoration.widget({
@@ -2199,7 +2222,7 @@ function buildBlocks(state: EditorState): DecorationSet {
       const end = state.doc.lineAt(to).to;
       const label =
         kind === 'math'
-          ? ((item) => (item ? figureReference(item) : undefined))(itemAt(state, start, 'eq'))
+          ? ((item) => (item ? equationNumber(item) : undefined))(itemAt(state, start, 'eq'))
           : kind === 'code'
             ? ((item) => (item ? figureLabel(item) : undefined))(itemAt(state, start, 'fig'))
             : undefined;
@@ -2220,6 +2243,7 @@ function buildBlocks(state: EditorState): DecorationSet {
             start,
             label,
             !!captionLine,
+            kind === 'math' ? (itemAt(state, start, 'eq')?.id ?? '') : undefined,
           ),
           block: true,
         }).range(start, captionLine ? captionLine.from - 1 : end),
@@ -2276,7 +2300,7 @@ function buildBlocks(state: EditorState): DecorationSet {
         const preview = () => {
           const source = state.doc.sliceString(node.from, node.to);
           const lead = /^\$\$+/.exec(source)?.[0].length ?? 0;
-          const tex = source.slice(lead).replace(/\$\$+\s*$/, '');
+          const tex = formulaOf(source.slice(lead));
           if (!tex.trim()) return;
           decorations.push(
             Decoration.widget({
@@ -2308,9 +2332,11 @@ function buildBlocks(state: EditorState): DecorationSet {
               'math',
               source,
               node.from,
-              ((item) => (item ? figureReference(item) : undefined))(
+              ((item) => (item ? equationNumber(item) : undefined))(
                 itemAt(state, first.from, 'eq'),
               ),
+              false,
+              itemAt(state, first.from, 'eq')?.id ?? '',
             ),
             block: true,
           }).range(first.from, last.to),

@@ -100,7 +100,7 @@ describe('numberItems', () => {
   it('writes references', () => {
     expect(figureReference(items[0]!)).toBe('Figure 1');
     expect(figureReference(items.find((i) => i.kind === 'tab')!)).toBe('Table 1');
-    expect(figureReference(items.find((i) => i.kind === 'eq')!)).toBe('(1)');
+    expect(figureReference(items.find((i) => i.kind === 'eq')!)).toBe('Equation 1');
   });
 
   it('renumbers when the order changes', () => {
@@ -162,7 +162,7 @@ describe('labels and references', () => {
     expect(withFig).toContain('![[a.png|First]]{#fig-new}\n');
     expect(numberItems(withFig)[0]!.id).toBe('fig-new');
     const withEq = apply(note, labelChange(note, items[2]!, 'eq-new'));
-    expect(withEq).toContain('x = 1\n$$\n{#eq-new}\n');
+    expect(withEq).toContain('x = 1\n$$ {#eq-new}\n');
     expect(numberItems(withEq).find((i) => i.kind === 'eq')?.id).toBe('eq-new');
     const withTab = apply(note, labelChange(note, items[3]!, 'tab-new'));
     expect(withTab).toContain('Table: {#tab-new}\n\n| a | b |');

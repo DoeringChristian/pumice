@@ -237,9 +237,41 @@ export interface ParseOptions {
   transforms?: Array<(tree: Root) => void>;
 }
 
+/**
+ * A label behind the `$$` that closes a formula (`$$ {#eq-energy}`) as if it stood on the line
+ * after it, which is where the `$$` syntax allows it: the space before it becomes a line break,
+ * so every offset stays as it is. Mirrored in `lezer.ts` (`parseMathBlock`).
+ */
+function labelsOnTheirLine(text: string): string {
+  if (!/\$\$[ \t]+\{#/.test(text)) return text;
+  let open = false;
+  let fence: string | undefined;
+  const out = text.split('\n').map((line) => {
+    const code = /^[ \t>]*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (!open && code && (!fence || (code[0] === fence[0] && code.length >= fence.length))) {
+      fence = fence ? undefined : code;
+      return line;
+    }
+    if (fence) return line;
+    if (!open) {
+      // A formula of its own lines: `$$` with nothing behind it (`$$x$$` is one line).
+      if (/^[ \t>]*\${2,}[ \t]*$/.test(line)) open = true;
+      return line;
+    }
+    const close = /^([ \t>]*\${2,})[ \t]+(\{#[A-Za-z0-9-]+\}[ \t]*)$/.exec(line);
+    if (close) {
+      open = false;
+      return `${close[1]}\n${line.slice(close[1]!.length + 1)}`;
+    }
+    if (/^[ \t>]*\${2,}[ \t]*$/.test(line)) open = false;
+    return line;
+  });
+  return out.join('\n');
+}
+
 /** Parses the full dialect into mdast. */
 export function parseMarkdown(text: string, opts: ParseOptions = {}): Root {
-  const tree = fromMarkdown(text, {
+  const tree = fromMarkdown(labelsOnTheirLine(text), {
     extensions: micromarkExtensions(opts.micromark),
     mdastExtensions: mdastExtensions(opts.mdast),
   });
