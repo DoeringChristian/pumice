@@ -1,9 +1,10 @@
-import { createHash, randomInt } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { createHash, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
+import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { join } from 'node:path';
+import { extname, join, resolve, sep } from 'node:path';
 import { encodeControl, type PublicUser, type Role } from '@pumice/collab-protocol';
 import { WebSocketServer } from 'ws';
+import type { AgentChats } from './sessions.ts';
 import { Store } from './db.ts';
 import { SyncHub, type Connection } from './sync.ts';
 
@@ -19,12 +20,37 @@ export interface ServerOptions {
   publicUrl?: string;
   /** Maximum blob size in bytes. */
   maxBlobSize?: number;
+  /**
+   * Vaults open with their links (served folders, see OpenVault): no accounts, so no signing
+   * in, no vaults made or invites given through the server.
+   */
+  open?: boolean;
+  /** The built web app (apps/web/dist): served to browsers, which then use this server. */
+  webApp?: string;
+}
+
+/**
+ * A vault that opens with its link (a served folder): whoever has it gets in, each browser or
+ * device under a name of its own (no accounts), and may also run agents in the folder.
+ */
+export interface OpenVault {
+  vaultId: string;
+  name: string;
+  /** The key in its link. */
+  key: string;
+  /** The folder on disk: agents run in it (and speak of its files by their path in it). */
+  root: string;
+  /** Its agent chats (see sessions.ts), with the agents that may run in it. */
+  chats?: AgentChats;
+  agents: string[];
 }
 
 export interface RunningServer {
   url: string;
   port: number;
   store: Store;
+  /** Serves this vault by its links (see OpenVault); the server has to be `open`. */
+  addOpenVault(vault: OpenVault): void;
   close(): Promise<void>;
 }
 
@@ -70,6 +96,18 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     opts.sendLoginCode ??
     ((email, code) => console.log(`[pumice-server] login code for ${email}: ${code}`));
 
+  const openVaults = new Map<string, OpenVault>();
+  /** Refused on a server of vaults that open with their links: there are no accounts. */
+  const notWhenOpen = () => {
+    if (opts.open)
+      throw new HttpError(403, 'Vaults here open with their links; there is no signing in.');
+  };
+  /** A served folder of which `user` is an owner (they may run its agents), or nothing. */
+  const ownedFolder = (vaultId: string, user: PublicUser) => {
+    const served = openVaults.get(vaultId);
+    return served && store.role(vaultId, user.id) === 'owner' ? served : undefined;
+  };
+  const sha = (s: string) => createHash('sha256').update(s).digest();
   const crashTimes = new Map<string, number[]>();
   const authUser = (req: IncomingMessage): PublicUser => {
     const header = req.headers.authorization ?? '';
@@ -114,22 +152,89 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       },
     ],
     [
+      'GET',
+      /^\/api\/info$/,
+      // (How the web app knows the server it came from is a Pumice server.)
+      async () => (opts.open ? { pumice: true, open: true } : { pumice: true }),
+    ],
+    [
+      'GET',
+      /^\/api\/vaults\/([\w-]+)\/folder$/,
+      // For the vault's owners: where its folder is, and which agents run in it.
+      async (req, _res, m) => {
+        const served = ownedFolder(m[1]!, authUser(req));
+        if (!served) throw new HttpError(404, 'Not found');
+        return { root: served.root, agents: served.agents };
+      },
+    ],
+    [
+      'GET',
+      /^\/api\/vaults\/([\w-]+)\/link$/,
+      // A served folder's link, for whoever is in it (to pass it on; it gives everything).
+      async (req, _res, m) => {
+        const user = authUser(req);
+        const served = openVaults.get(m[1]!);
+        if (!served || !store.role(served.vaultId, user.id)) throw new HttpError(404, 'Not found');
+        return { key: served.key };
+      },
+    ],
+    [
+      'POST',
+      /^\/api\/open$/,
+      // A vault's link: its role for this browser or device (signed in by an earlier link, or
+      // now, under a name of its own).
+      async (req) => {
+        const {
+          vault: vaultId,
+          key,
+          device,
+        } = await json<{
+          vault?: string;
+          key?: string;
+          device?: string;
+        }>(req);
+        const served = typeof vaultId === 'string' ? openVaults.get(vaultId) : undefined;
+        if (!served || typeof key !== 'string' || !timingSafeEqual(sha(key), sha(served.key)))
+          throw new HttpError(403, 'This link is not (or no longer) a link to a vault here.');
+        const header = req.headers.authorization ?? '';
+        const current = header.startsWith('Bearer ')
+          ? store.userForToken(header.slice(7))
+          : undefined;
+        const user =
+          current ??
+          store.createUser(`device-${randomUUID().slice(0, 12)}@pumice.local`, generatedName());
+        // (Who has the link has the vault, as its owner does.)
+        const had = store.role(served.vaultId, user.id);
+        if (!had) store.addMember(served.vaultId, user.id, 'owner');
+        else if (had !== 'owner') store.setRole(served.vaultId, user.id, 'owner');
+        const vault = store.vaultsOf(user.id).find((v) => v.id === served.vaultId)!;
+        const token = current
+          ? header.slice(7)
+          : store.createSession(user.id, String(device ?? 'unknown'));
+        return { token, user, vault };
+      },
+    ],
+    [
       'POST',
       /^\/api\/auth\/request$/,
       async (req) => {
+        notWhenOpen();
         const { email } = await json<{ email?: string }>(req);
         const address = email?.trim().toLowerCase() ?? '';
         if (!EMAIL.test(address)) throw new HttpError(400, 'Enter a valid email address');
         const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
         store.setLoginCode(address, code, 15 * 60 * 1000);
         await sendCode(address, code);
-        return opts.devLogin ? { sent: true, code } : { sent: true };
+        // Without a way to send them (no email yet), codes are printed where the server runs.
+        const where = opts.sendLoginCode ? {} : { where: 'log' as const };
+        return opts.devLogin ? { sent: true, code, ...where } : { sent: true, ...where };
       },
     ],
     [
       'POST',
       /^\/api\/auth\/verify$/,
       async (req) => {
+        notWhenOpen();
         const { email, code, name, device } = await json<{
           email?: string;
           code?: string;
@@ -166,6 +271,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       'POST',
       /^\/api\/vaults$/,
       async (req) => {
+        notWhenOpen();
         const user = authUser(req);
         const { name } = await json<{ name?: string }>(req);
         if (!name?.trim()) throw new HttpError(400, 'A vault needs a name');
@@ -209,6 +315,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       'POST',
       /^\/api\/vaults\/([\w-]+)\/invites$/,
       async (req, _res, m) => {
+        notWhenOpen();
         const user = authUser(req);
         requireRole(m[1]!, user, 'owner');
         const { role = 'editor' } = await json<{ role?: unknown }>(req);
@@ -222,6 +329,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       'POST',
       /^\/api\/invites\/([\w-]+)\/accept$/,
       async (req, _res, m) => {
+        notWhenOpen();
         const vault = store.acceptInvite(m[1]!, authUser(req).id);
         if (!vault) throw new HttpError(404, 'This invite is invalid or has expired');
         return vault;
@@ -295,6 +403,12 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     }
     const path = (req.url ?? '/').split('?')[0]!;
     const route = routes.find(([method, re]) => method === req.method && re.test(path));
+    if (!route && opts.webApp && (req.method === 'GET' || req.method === 'HEAD')) {
+      if (!path.startsWith('/api/')) {
+        void serveWebApp(opts.webApp, path, res);
+        return;
+      }
+    }
     if (!route) {
       res
         .writeHead(404, { 'Content-Type': 'application/json' })
@@ -321,7 +435,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 50 * 1024 * 1024 });
   http.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
-    if (url.pathname !== '/sync') return socket.destroy();
+    if (url.pathname !== '/sync' && url.pathname !== '/agents') return socket.destroy();
     const token = url.searchParams.get('token') ?? '';
     const user = token ? store.userForToken(token) : undefined;
     if (!user) {
@@ -329,7 +443,29 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       socket.destroy();
       return;
     }
+    if (url.pathname === '/agents') {
+      // The agent chats of a served folder, for its owners (see sessions.ts).
+      const served = ownedFolder(url.searchParams.get('vault') ?? '', user);
+      if (!served?.chats) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        // A malformed frame is that connection's end, not the server's.
+        ws.on('error', () => ws.terminate());
+        const ping = setInterval(() => ws.readyState === ws.OPEN && ws.ping(), 30_000);
+        ws.on('close', () => clearInterval(ping));
+        served.chats!.connect(ws, { id: user.id, name: user.name }).catch((e: unknown) => {
+          console.error('[pumice-server] agent chats:', e);
+          ws.terminate();
+        });
+      });
+      return;
+    }
     wss.handleUpgrade(req, socket, head, (ws) => {
+      // A malformed frame is that connection's end, not the server's.
+      ws.on('error', () => ws.terminate());
       const conn: Connection = { socket: ws, user, awarenessIds: new Map() };
       ws.binaryType = 'nodebuffer';
       ws.send(
@@ -360,6 +496,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     url,
     port,
     store,
+    addOpenVault(vault) {
+      openVaults.set(vault.vaultId, vault);
+    },
     async close() {
       for (const ws of wss.clients) ws.terminate();
       wss.close();
@@ -369,3 +508,67 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     },
   };
 }
+
+const TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
+  '.wasm': 'application/wasm',
+  '.webmanifest': 'application/manifest+json',
+  '.txt': 'text/plain; charset=utf-8',
+};
+
+/**
+ * A file of the web app; the page itself for every other address. An invite link opens the app
+ * with the invite (`/invite/<token>` stays the link: the desktop app takes it as it is).
+ */
+async function serveWebApp(dir: string, path: string, res: ServerResponse): Promise<void> {
+  const invite = /^\/invite\/([\w-]+)\/?$/.exec(path);
+  if (invite) {
+    res.writeHead(302, { Location: `/#invite=${invite[1]}` }).end();
+    return;
+  }
+  const root = resolve(dir);
+  let decoded = path;
+  try {
+    decoded = decodeURIComponent(path);
+  } catch {
+    // (Not an address of a file: the page.)
+  }
+  let file = resolve(root, `.${decoded}`);
+  if (file !== root && !file.startsWith(root + sep)) file = root;
+  const found = await stat(file).catch(() => undefined);
+  if (!found?.isFile()) file = join(root, 'index.html');
+  try {
+    const data = await readFile(file);
+    res
+      .writeHead(200, {
+        'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream',
+        // The page is looked at anew each time; its scripts have their hash in their names.
+        'Cache-Control': file.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000',
+      })
+      .end(data);
+  } catch {
+    res.writeHead(404, { 'Content-Type': 'text/plain' }).end('The web app is not built.');
+  }
+}
+
+const ADJECTIVES =
+  'Amber Brisk Calm Clever Curious Daring Eager Gentle Golden Happy Humble Jolly Keen Kind Lively Lucky Mellow Merry Nimble Patient Quiet Rapid Silver Steady Sunny Swift Tidy Witty'.split(
+    ' ',
+  );
+const ANIMALS =
+  'Badger Beaver Crane Dolphin Falcon Ferret Finch Fox Gecko Heron Ibis Koala Lark Lemur Lynx Marten Moose Newt Otter Owl Panda Puffin Raven Seal Stoat Swan Tapir Wren'.split(
+    ' ',
+  );
+/** A name for a browser or device that opened the vault with its key (as on Excalidraw). */
+const generatedName = () =>
+  `${ADJECTIVES[randomInt(ADJECTIVES.length)]} ${ANIMALS[randomInt(ANIMALS.length)]}`;

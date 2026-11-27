@@ -7,8 +7,8 @@
     ".": "./src/index.tsx"
   },
   "dependencies": {
-    "@pumice/api": "workspace:*",
-    "@pumice/core-workspace": "workspace:*",
+    "@pumice/api": "*",
+    "@pumice/core-workspace": "*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   }

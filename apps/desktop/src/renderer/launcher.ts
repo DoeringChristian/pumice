@@ -1,4 +1,5 @@
 // The vault selector: the window shown when no vault is open (first start, or "Manage vaults").
+import { deleteWebVault } from '@pumice/platform-web';
 import type { LauncherHost, LauncherVault } from '@pumice/platform-electron/host';
 
 const host = (window as unknown as { pumiceLauncher?: LauncherHost }).pumiceLauncher!;
@@ -41,11 +42,16 @@ function showMenu(vault: LauncherVault, anchor: HTMLElement): void {
     };
     menu.append(b);
   };
-  if (!vault.missing)
+  if (!vault.missing && !vault.server)
     item(host.platform === 'darwin' ? 'Reveal in Finder' : 'Show in file manager', () =>
       host.reveal(vault.path),
     );
-  item('Remove from list', () => host.forget(vault.path));
+  item('Remove from list', async () => {
+    // A shared vault's copy is in this app's storage: it goes with it (the vault stays on its
+    // server).
+    if (vault.server) await deleteWebVault(vault.path);
+    await host.forget(vault.path);
+  });
   const r = anchor.getBoundingClientRect();
   menu.style.left = `${Math.min(r.left, window.innerWidth - 200)}px`;
   menu.style.top = `${r.bottom + 4}px`;
@@ -57,7 +63,11 @@ function pathLabel(v: LauncherVault): HTMLElement {
   const div = el('div', 'vault-path');
   // `bdi` keeps the path's own punctuation in order inside the right-to-left box.
   const bdi = document.createElement('bdi');
-  bdi.textContent = v.missing ? `${v.path} — not found` : v.path;
+  bdi.textContent = v.server
+    ? `Shared · ${v.server}`
+    : v.missing
+      ? `${v.path} — not found`
+      : v.path;
   div.append(bdi);
   return div;
 }
@@ -73,7 +83,7 @@ async function render(): Promise<void> {
     const row = el('div', `vault${v.missing ? ' is-missing' : ''}`);
     row.setAttribute('role', 'listitem');
     row.tabIndex = 0;
-    row.title = v.missing ? `${v.path} (not found)` : v.path;
+    row.title = v.server ? `Shared, on ${v.server}` : v.missing ? `${v.path} (not found)` : v.path;
     const text = el('div', 'vault-text');
     text.append(el('div', 'vault-name', v.name), pathLabel(v));
     const more = el('button', 'vault-more', '⋯');
@@ -114,6 +124,23 @@ function showCreate(show: boolean): void {
 }
 
 $('open-folder').onclick = () => void host.pick().catch(fail);
+// A shared vault by its link: into a folder made for it (in Documents), then opened.
+($('shared') as HTMLFormElement).onsubmit = (e) => {
+  e.preventDefault();
+  const link = ($('shared-link') as HTMLInputElement).value.trim();
+  const said = $('shared-error');
+  said.textContent = '';
+  if (link)
+    void host
+      .openShared(link)
+      .catch(
+        (err: unknown) =>
+          (said.textContent =
+            err instanceof Error
+              ? err.message.replace(/^Error invoking remote method [^:]+: (Error: )?/, '')
+              : String(err)),
+      );
+};
 $('show-create').onclick = () => showCreate(true);
 $('back').onclick = () => showCreate(false);
 $('browse').onclick = async () => {

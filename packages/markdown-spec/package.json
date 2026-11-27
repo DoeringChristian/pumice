@@ -5,6 +5,6 @@
   "type": "module",
   "description": "Conformance corpus for the Pumice markdown dialect: both parsers must agree with hand-recorded expectations.",
   "dependencies": {
-    "@pumice/markdown": "workspace:*"
+    "@pumice/markdown": "*"
   }
 }

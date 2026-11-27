@@ -19,14 +19,9 @@ import {
 import manifestJson from '../manifest.json';
 import { excalidrawCodec } from './codec';
 import { drawingMetadata, drawingSearchText } from './extract';
-import {
-  applyDrawingOps,
-  describeDrawing,
-  estimateText,
-  type DrawingOp,
-  type MeasureText,
-} from './agent';
-import { isDrawingPath, newDrawing, parseDrawing, serializeDrawing } from './format';
+import { estimateText, type MeasureText } from './agent';
+import { textDrawings } from './drawings';
+import { isDrawingPath, newDrawing, parseDrawing } from './format';
 import type { DrawingServices } from './services';
 import './excalidraw.css';
 
@@ -81,52 +76,33 @@ const measureText: MeasureText = (text, fontSize) => {
 export const plugin = definePlugin({
   activate(ctx) {
     const vault = ctx.use(Vault);
-    const drawings: DrawingsApi = {
-      isDrawing: isDrawingPath,
-      describe(path, text) {
-        const drawing = parseDrawing(path, text);
-        return describeDrawing(drawing.scene, drawing.embedded);
-      },
-      edit(path, text, operations, options) {
-        if (!isDrawingPath(path))
-          throw new Error('A drawing is a file that ends in ".excalidraw".');
-        const drawing = parseDrawing(path, text ?? newDrawing(path));
-        const summary = applyDrawingOps(
-          drawing.scene,
-          operations as DrawingOp[],
-          measureText,
-          options,
-        );
-        return { text: serializeDrawing(drawing), summary };
-      },
-      async picture(path, text) {
-        const { exportToPng, loadEmbeddedFiles } = await loadView();
-        const drawing = parseDrawing(path, text);
-        const files = await loadEmbeddedFiles(services, path, drawing.embedded);
-        const blob = await exportToPng({
-          elements: drawing.scene.elements.filter((e) => !e.isDeleted) as never,
-          appState: drawing.scene.appState as never,
-          files: {
-            ...drawing.scene.files,
-            ...Object.fromEntries(files.map((f) => [f.id, f])),
-          } as never,
-          dark: false,
-          background: '#ffffff',
-        });
-        // No larger than is of use: a model looks at about 1500 pixels a side.
-        const image = await createImageBitmap(blob);
-        const scale = Math.min(1, PICTURE_SIDE / Math.max(image.width, image.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(image.width * scale));
-        canvas.height = Math.max(1, Math.round(image.height * scale));
-        const c = canvas.getContext('2d')!;
-        c.fillStyle = '#ffffff';
-        c.fillRect(0, 0, canvas.width, canvas.height);
-        c.drawImage(image, 0, 0, canvas.width, canvas.height);
-        image.close();
-        return canvas.toDataURL('image/png');
-      },
-    };
+    const drawings: DrawingsApi = textDrawings(measureText, async (path, text) => {
+      const { exportToPng, loadEmbeddedFiles } = await loadView();
+      const drawing = parseDrawing(path, text);
+      const files = await loadEmbeddedFiles(services, path, drawing.embedded);
+      const blob = await exportToPng({
+        elements: drawing.scene.elements.filter((e) => !e.isDeleted) as never,
+        appState: drawing.scene.appState as never,
+        files: {
+          ...drawing.scene.files,
+          ...Object.fromEntries(files.map((f) => [f.id, f])),
+        } as never,
+        dark: false,
+        background: '#ffffff',
+      });
+      // No larger than is of use: a model looks at about 1500 pixels a side.
+      const image = await createImageBitmap(blob);
+      const scale = Math.min(1, PICTURE_SIDE / Math.max(image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      const c = canvas.getContext('2d')!;
+      c.fillStyle = '#ffffff';
+      c.fillRect(0, 0, canvas.width, canvas.height);
+      c.drawImage(image, 0, 0, canvas.width, canvas.height);
+      image.close();
+      return canvas.toDataURL('image/png');
+    });
     ctx.provide(Drawings, drawings);
     const documents = ctx.use(Documents);
     const workspace = ctx.use(Workspace);

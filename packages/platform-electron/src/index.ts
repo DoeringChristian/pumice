@@ -1,4 +1,5 @@
 import type { ChatGptHost, ChildProcessHandle, Platform, ProcessHost } from '@pumice/platform';
+import { createWebPlatform, deleteWebVault, withServedFolder } from '@pumice/platform-web';
 import type { ChatGptMessage, ProcEvent, PumiceHost } from './host';
 
 export type { PumiceHost } from './host';
@@ -21,7 +22,7 @@ export async function createElectronPlatform(host: PumiceHost): Promise<Platform
     // Give flushes (debounced document saves) a moment to reach the disk.
     await new Promise((r) => setTimeout(r, 150));
   });
-  return {
+  const base: Platform = {
     kind: 'desktop',
     os: info.os,
     vaultName: info.vaultName,
@@ -46,6 +47,7 @@ export async function createElectronPlatform(host: PumiceHost): Promise<Platform
     shell: {
       openExternal: (url) => host.openExternal(url),
       revealInFileManager: (p) => host.revealInFileManager(p),
+      copyFile: (p) => host.copyFile(p),
       spelling: {
         atPointer: async () => (await host.spelling.atPointer()) ?? undefined,
         learn: (word) => host.spelling.learn(word),
@@ -61,6 +63,7 @@ export async function createElectronPlatform(host: PumiceHost): Promise<Platform
       pick: (opts) => host.vaults.pick(!!opts?.newWindow),
       forget: (id) => host.vaults.forget(id),
       manage: () => host.vaults.manage(),
+      add: (link, opts) => host.vaults.add(link, !!opts?.newWindow),
     },
     print: { toPdf: (html, pdf) => host.printToPdf(html, pdf) },
     save: {
@@ -85,6 +88,35 @@ export async function createElectronPlatform(host: PumiceHost): Promise<Platform
             `app://frame.${token}/${path.split('/').map(encodeURIComponent).join('/')}`,
           dispose: () => void host.frames.close(token),
         };
+      },
+    },
+  };
+  if (!info.shared) return base;
+
+  // A shared vault (docs/plan/10): no folder here. Its copy is this window's storage, as in the
+  // browser; a served folder's agents run on its server. What needs a folder here (frames,
+  // printing, revealing, programs here) is left out.
+  const { id, ...session } = info.shared;
+  const shared = await withServedFolder(session);
+  const web = await createWebPlatform({ id, name: info.vaultName, shared });
+  const { frames: _frames, print: _print, process: _here, vaultRoot: _root, ...desktop } = base;
+  // (A shared vault's files are not files here.)
+  const { revealInFileManager: _reveal, copyFile: _copy, ...shell } = base.shell;
+  return {
+    ...desktop,
+    shell,
+    fs: web.fs,
+    watcher: web.watcher,
+    storage: web.storage,
+    shared,
+    ...(web.vaultRoot ? { vaultRoot: web.vaultRoot } : {}),
+    vaults: {
+      ...base.vaults!,
+      // A shared vault's copy is in this app's storage: it goes with it (the vault stays on
+      // its server).
+      forget: async (vault) => {
+        if (vault.startsWith('shared:')) await deleteWebVault(vault);
+        await host.vaults.forget(vault);
       },
     },
   };

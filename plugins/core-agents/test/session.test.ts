@@ -7,6 +7,7 @@ import type { SavedChat } from '../src/chats';
 import { AgentSession, type TranscriptItem } from '../src/session';
 
 const MOCK = fileURLToPath(new URL('./fixtures/mock-agent.mjs', import.meta.url));
+const MOCK_MCP = fileURLToPath(new URL('./fixtures/mock-mcp-agent.mjs', import.meta.url));
 
 /** Spawns real processes (here: the mock agent under Node). */
 const nodeHost: ProcessHost = {
@@ -62,6 +63,50 @@ const answerPermissions = (session: AgentSession, optionId: string) =>
   });
 
 describe('agent session (ACP)', () => {
+  it('offers Pumice’s note tools to an agent that takes them, and tells it about them', async () => {
+    const files: Record<string, string> = { 'note.md': 'Hello' };
+    const written: string[] = [];
+    const session = new AgentSession(
+      { id: 'mock', name: 'Mock', command: process.execPath, args: [MOCK_MCP] },
+      nodeHost,
+      {
+        root: '/vault',
+        read: async (p) => {
+          if (!(p in files)) throw new Error(`missing ${p}`);
+          return files[p]!;
+        },
+        write: async (p, c) => {
+          written.push(p);
+          files[p] = c;
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      () => ({
+        vault: {
+          get: (p: string) => (p in files ? { path: p, kind: 'file' } : undefined),
+          files: () => Object.keys(files).map((path) => ({ path })),
+        } as never,
+      }),
+    );
+    await session.start();
+    await session.prompt('go');
+    const said = session.items.find((i) => i.kind === 'agent');
+    expect(said && 'text' in said ? JSON.parse(said.text) : said).toEqual({
+      tools: ['create_note', 'edit_note', 'list_notes', 'read_note'],
+      read: 'Hello',
+      edit: 'Edited note.md.',
+      outside: true,
+      briefed: true,
+      guided: false,
+    });
+    // The edit went through the app's file access (in the app: the note's document).
+    expect(written).toEqual(['note.md']);
+    expect(files['note.md']).toBe('Hello, tools');
+    session.dispose();
+  });
+
   it('runs a turn: streams text, plans, tool calls, permission, edits through the client', async () => {
     const { session, files } = setup();
     await session.start();
@@ -155,6 +200,45 @@ describe('agent session (ACP)', () => {
     expect(fresh.items[2]).toMatchObject({ kind: 'info' });
     expect(String((fresh.items[2] as { text: string }).text)).toContain('does not remember');
     fresh.dispose();
+  });
+
+  it('chooses the model and the effort, and keeps them with the chat', async () => {
+    const { session } = setup();
+    await session.start();
+    // From the agent's options (models in groups).
+    expect(session.models).toEqual([
+      { id: 'fast', name: 'Fast' },
+      { id: 'deep', name: 'Deep' },
+    ]);
+    expect(session.currentModel).toBe('fast');
+    expect(session.efforts.map((e) => e.id)).toEqual(['low', 'medium', 'high']);
+    await session.setModel('deep');
+    await session.setEffort('high');
+    expect([session.currentModel, session.currentEffort]).toEqual(['deep', 'high']);
+    expect(session.snapshot()).toMatchObject({ model: 'deep', effort: 'high' });
+    session.dispose();
+
+    // A new agent for the same chat starts with its defaults: the chat's choice is made again.
+    const again = new AgentSession(
+      { id: 'mock', name: 'Mock', command: process.execPath, args: [MOCK, '--no-load'] },
+      nodeHost,
+      { root: '/vault', read: async () => 'Hello', write: async () => {} },
+      () => '',
+      {
+        version: 1,
+        id: 'c',
+        agent: 'mock',
+        title: 'C',
+        created: '2026-11-27T10:00:00.000Z',
+        updated: '2026-11-27T10:00:00.000Z',
+        items: [{ kind: 'user', id: 1, text: 'hi' }],
+        model: 'deep',
+        effort: 'low',
+      },
+    );
+    await again.start();
+    expect([again.currentModel, again.currentEffort]).toEqual(['deep', 'low']);
+    again.dispose();
   });
 
   it('reports a command that is not installed', async () => {

@@ -4,7 +4,7 @@
 //   docs/screenshot-phone.png    the phone layout, as on Android (the same interface, at the
 //                                width of a phone; without the system's bars)
 //
-// Usage: pnpm screenshot [--phone] [out.png]   (builds the desktop app first; needs Playwright)
+// Usage: npm run screenshot -- [--phone] [out.png]   (builds the desktop app first; needs Playwright)
 //
 // The vault is copied to a temporary folder, and the app runs with a profile of its own, so
 // neither the repository nor your own Pumice settings are changed.

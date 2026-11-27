@@ -14,11 +14,11 @@ brew install openjdk@21 && brew install --cask android-commandlinetools
 export JAVA_HOME=/opt/homebrew/opt/openjdk@21 ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
-pnpm --filter @pumice/mobile android:apk   # → android/app/build/outputs/apk/debug/app-debug.apk
-pnpm --filter @pumice/mobile android       # or open it in Android Studio
+npm run android:apk -w @pumice/mobile     # → android/app/build/outputs/apk/debug/app-debug.apk
+npm run android -w @pumice/mobile         # or open it in Android Studio
 ```
 
-`native/android/PumiceFsPlugin.kt` is the source of the native plugin; `pnpm native` copies it
+`native/android/PumiceFsPlugin.kt` is the source of the native plugin; `npm run native` copies it
 into the Android project (the build scripts do this for you).
 
 **Vaults on Android.** Vaults live in the app's storage (`Android/data/app.pumice.mobile/files/`,
@@ -30,7 +30,7 @@ framework for thousands of notes. Switch vaults with the folder button in the bo
 ## iOS (needs Xcode; not built yet)
 
 ```sh
-pnpm --filter @pumice/mobile exec cap add ios        # creates ios/
+npm exec -w @pumice/mobile -- cap add ios          # creates ios/
 ```
 
 Copy `native/ios/PumiceFsPlugin.swift` into `ios/App/App/` (add it to the App target in Xcode;

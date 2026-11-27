@@ -7,12 +7,12 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@pumice/api": "workspace:*",
-    "@pumice/platform": "workspace:*",
+    "@pumice/api": "*",
+    "@pumice/platform": "*",
     "semver": "^7.6.3"
   },
   "devDependencies": {
-    "@pumice/platform-memory": "workspace:*",
+    "@pumice/platform-memory": "*",
     "@types/semver": "^7.5.8"
   }
 }

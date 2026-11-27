@@ -46,7 +46,7 @@ build from source (below).
 In a browser: the web app opens vaults shared through a [collaboration server](#collaboration-server).
 Sign in to the server, then open, join or create a vault. The vault is kept in the browser (IndexedDB)
 and synced, so edits made while the server is away are sent when it is back. One tab holds a vault
-at a time. Each release publishes the app to GitHub Pages; `pnpm --filter @pumice/web build` makes a
+at a time. Each release publishes the app to GitHub Pages; `npm run build -w @pumice/web` makes a
 folder to host anywhere (`apps/web/dist`). A page served over https can only use a server with https.
 
 On first start Pumice shows its vault selector: create a vault, or open any folder as one
@@ -56,17 +56,17 @@ File menu) brings the selector back.
 
 ## Getting started
 
-Requires Node ≥ 22.5 (24 recommended) and pnpm 10 (`npx pnpm@10.18.0 …` works without installing).
+Requires Node ≥ 22.5 (24 recommended), with the npm that comes with it.
 
 ```sh
 git submodule update --init   # vendor/excalidraw: our Excalidraw fork with LaTeX
-pnpm install
-pnpm build:excalidraw         # builds the fork once (a few minutes; again after updating it)
-pnpm test            # unit + integration tests (parsers, index, links, collaboration, plugins…)
-pnpm typecheck
-pnpm dev:web         # the web app → http://localhost:5199 (#demo: an in-memory demo vault)
-pnpm dev:desktop     # Electron app; asks for a vault folder (or set PUMICE_VAULT=/path)
-pnpm screenshot     # the README's screenshot from the demo vault (docs/demo); --phone: as on Android
+npm install
+npm run build:excalidraw     # builds the fork once (a few minutes; again after updating it)
+npm test                     # unit + integration tests (parsers, index, links, collaboration, plugins…)
+npm run typecheck
+npm run dev:web              # the web app → http://localhost:5199 (#demo: an in-memory demo vault)
+npm run dev:desktop          # Electron app; asks for a vault folder (or set PUMICE_VAULT=/path)
+npm run screenshot           # the README's screenshot from the demo vault (docs/demo); --phone: as on Android
 ```
 
 In the demo vault, `window.pumice` exposes the kernel and the in-memory file system
@@ -76,10 +76,17 @@ In the demo vault, `window.pumice` exposes the kernel and the in-memory file sys
 ### Collaboration server
 
 ```sh
+npm run serve -- ~/notes         # serve a folder as a shared vault, http://localhost:8787
 cd apps/server
-PUMICE_DEV_LOGIN=1 pnpm start    # http://localhost:8787, data in ./data (SQLite + blobs)
+PUMICE_DEV_LOGIN=1 npm start     # or a server for vaults shared from the app, data in ./data
 docker compose up                # or: the Docker image with a data volume
 ```
+
+Serving a folder: what is written into it (by hand, a program, an agent) reaches everyone in
+the vault, and what they edit is written into it; what they delete goes into its `.trash`. The
+server keeps its data in `~/.local/share/pumice-server` (`PUMICE_DATA`) and prints the vault's link on start. The
+server also serves the web app: opening its address (or the invite link) in a browser is Pumice,
+using that server.
 
 `PUMICE_DEV_LOGIN=1` shows login codes in the app instead of emailing them (wire SMTP into
 `sendLoginCode` in `apps/server/src/server.ts` for production). In the app: **Settings →
@@ -88,8 +95,8 @@ Collaboration** → sign in → **Share this vault**, then create an invite link
 ### Packaging
 
 ```sh
-pnpm --filter @pumice/desktop package       # dmg/zip, nsis, AppImage/deb in apps/desktop/release
-pnpm --filter @pumice/mobile ios|android    # needs Xcode / Android Studio; see apps/mobile/README.md
+npm run package -w @pumice/desktop          # dmg/zip, nsis, AppImage/deb in apps/desktop/release
+npm run ios|android -w @pumice/mobile       # needs Xcode / Android Studio; see apps/mobile/README.md
 ```
 
 Signing and notarization read `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`,
@@ -101,7 +108,7 @@ from GitHub releases (or `PUMICE_UPDATE_URL`).
 ```sh
 npx pumice-plugin init my-plugin --id me.my-plugin
 npx pumice-plugin dev my-plugin --vault /path/to/vault   # live reload into the running app
-pnpm docs:api                                             # API reference → docs/api
+npm run docs:api                                          # API reference → docs/api
 ```
 
 Start with the [plugin guide](docs/plugins/README.md) and the plugins in `examples/`.
@@ -112,7 +119,7 @@ Electron's postinstall can stop half-way while unzipping on very new Node versio
 `electron` reports "failed to install correctly", extract the cached zip by hand:
 
 ```sh
-cd node_modules/.pnpm/electron@*/node_modules/electron
+cd node_modules/electron
 rm -rf dist && mkdir dist
 ditto -x -k ~/Library/Caches/electron/*/electron-v*-darwin-*.zip dist   # macOS; use unzip elsewhere
 printf 'Electron.app/Contents/MacOS/Electron' > path.txt                 # Linux: electron, Windows: electron.exe

@@ -67,7 +67,8 @@ export class CollabClient {
     return (raw ? new Uint8Array(await res.arrayBuffer()) : await res.json()) as T;
   }
 
-  requestCode(email: string): Promise<{ sent: boolean; code?: string }> {
+  /** `where: 'log'`: the code is printed where the server runs, not sent. */
+  requestCode(email: string): Promise<{ sent: boolean; code?: string; where?: 'log' }> {
     return this.api('POST', '/api/auth/request', { email });
   }
 

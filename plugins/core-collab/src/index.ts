@@ -9,7 +9,7 @@ import {
   type PluginModule,
 } from '@pumice/api';
 import type { PublicUser, Role } from '@pumice/collab-protocol';
-import { button, h, select, settingItem, textInput } from '@pumice/ui';
+import { button, h, settingItem } from '@pumice/ui';
 import manifestJson from '../manifest.json';
 import { CollabClient } from './client';
 import { SharedVault, type Presence } from './shared-vault';
@@ -48,7 +48,19 @@ export const plugin = definePlugin({
     const vault = ctx.use(Vault);
     const documents = ctx.use(Documents);
     const workspace = ctx.use(Workspace);
-    let link = await readLink(ctx);
+    // A shared vault (docs/plan/10): what to keep in step comes with the vault; else a folder
+    // linked to one from these settings (before vaults could be shared ones).
+    const sharedVault = ctx.tryUse(PlatformService)?.shared;
+    let link: Link = sharedVault
+      ? {
+          server: sharedVault.server,
+          token: sharedVault.token,
+          user: sharedVault.user,
+          vaultId: sharedVault.vaultId,
+          vaultName: sharedVault.vaultName,
+          role: sharedVault.role,
+        }
+      : await readLink(ctx);
     let client: CollabClient | undefined;
     let shared: SharedVault | undefined;
     let providerReg: { dispose(): void } | undefined;
@@ -60,6 +72,7 @@ export const plugin = definePlugin({
     };
 
     const status = ctx.register(workspace.addStatusBarItem(20));
+    status.setOnClick(() => void showVault(), 'Who is here, and the vault’s link');
     const updateStatus = () => {
       if (!shared || !client) return status.setText('');
       const others = shared.presence();
@@ -127,34 +140,55 @@ export const plugin = definePlugin({
       );
     }
 
-    const accountClient = () => new CollabClient(link.server, link.token);
-
-    const share = async () => {
-      const c = accountClient();
-      const name = await workspace.showPrompt({
-        title: 'Name of the shared vault',
-        value: vault.name,
-      });
-      if (!name) return;
-      const info = await c.createVault(name);
-      link = { ...link, vaultId: info.id, vaultName: info.name, role: info.role };
-      await saveLink();
-      await start({ seed: true });
-      workspace.notify(`“${info.name}” is shared. Invite people from Settings → Collaboration.`);
+    /** The vault's link (a served folder's; whoever has it can do everything), if there is one. */
+    const vaultLink = async (): Promise<string | undefined> => {
+      if (!link.vaultId || !link.token) return undefined;
+      const r = await fetch(`${link.server}/api/vaults/${link.vaultId}/link`, {
+        headers: { Authorization: `Bearer ${link.token}` },
+      }).catch(() => undefined);
+      if (!r?.ok) return undefined;
+      const { key } = (await r.json()) as { key: string };
+      return `${link.server}/#open=${link.vaultId}&key=${key}`;
     };
 
-    const join = async (vaultId: string, vaultName: string, role: Role) => {
-      if (vault.files().length > 0) {
-        const ok = await workspace.confirm(
-          'Joining works best with an empty folder: files already here would be added to the shared vault. Join anyway?',
-          { confirmLabel: 'Join', danger: true },
-        );
-        if (!ok) return;
-      }
-      link = { ...link, vaultId, vaultName, role };
-      await saveLink();
-      await start({ seed: true });
-      workspace.notify(`Joined “${vaultName}”. Files arrive in the background.`);
+    /** The status bar's vault: its connection, who is here, and its link. */
+    const showVault = async () => {
+      if (!shared || !client) return;
+      const state =
+        client.state === 'online'
+          ? 'connected'
+          : client.state === 'connecting'
+            ? 'connecting…'
+            : 'offline, changes go out when back';
+      const others = shared.presence();
+      const shareable = await vaultLink();
+      type Item = { label: string; detail?: string; run: () => unknown };
+      const items: Item[] = [
+        ...(shareable
+          ? [
+              {
+                label: 'Copy the vault’s link',
+                detail: 'Whoever has it can open and edit the vault, and run its agents',
+                run: async () => {
+                  await navigator.clipboard.writeText(shareable);
+                  workspace.notify('Link copied.');
+                },
+              },
+            ]
+          : []),
+        ...others.map((p: Presence) => ({
+          label: p.user.name,
+          detail: p.file ? `in ${p.file}` : 'no note open',
+          run: async () => {
+            if (p.file && vault.get(p.file)) await workspace.openFile(p.file);
+          },
+        })),
+      ];
+      const picked = await workspace.showQuickPick({
+        placeholder: `${link.vaultName ?? 'Shared vault'}: ${state} · ${others.length ? `${others.length} here besides you` : 'nobody else here'}`,
+        items,
+      });
+      await picked?.run();
     };
 
     const showPresence = async () => {
@@ -223,13 +257,6 @@ export const plugin = definePlugin({
         }
       },
     });
-    ctx.commands.register({
-      id: 'collab.share',
-      title: 'Share this vault',
-      category: 'Collaboration',
-      when: () => !!link.token && !link.vaultId,
-      run: share,
-    });
 
     const settingsUi = ctx.tryUse(SettingsUi);
     if (!settingsUi) return;
@@ -239,8 +266,6 @@ export const plugin = definePlugin({
         title: 'Collaboration',
         order: 40,
         render(container) {
-          let email = link.user?.email ?? '';
-          let codeSent = false;
           const error = h('div', { class: 'pm-plugin-error' });
           const run = async (task: () => Promise<unknown>) => {
             error.textContent = '';
@@ -260,284 +285,65 @@ export const plugin = definePlugin({
                 'Edit notes and drawings together in real time. The folder stays plain files on every device; a Pumice server relays changes and keeps history.',
               ),
             ];
-            if (!link.token) {
+            if (!link.vaultId) {
               parts.push(
-                settingItem(
-                  'Server',
-                  'Address of your Pumice server.',
-                  textInput(
-                    link.server,
-                    (v) => ((link.server = v.trim() || DEFAULT_SERVER), void saveLink()),
-                  ),
+                h(
+                  'p',
+                  { class: 'pm-setting-desc' },
+                  'This vault is not shared. To open a shared vault, paste its link into the vault switcher (click the vault’s name, top left).',
                 ),
               );
-              const emailInput = textInput(email, (v) => (email = v.trim()), {
-                placeholder: 'you@example.com',
-                label: 'Email',
-              });
+            } else {
+              const state = client?.state ?? 'offline';
               parts.push(
+                h('h3', {}, 'This vault'),
                 settingItem(
-                  'Sign in',
-                  'We email you a one-time code.',
-                  h(
-                    'div',
-                    { class: 'pm-row-actions' },
-                    emailInput,
-                    button(
-                      'Send code',
-                      () =>
-                        void run(async () => {
-                          email = emailInput.value.trim();
-                          const r = await accountClient().requestCode(email);
-                          codeSent = true;
-                          if (r.code)
-                            workspace.notify(`Development server: your code is ${r.code}`, {
-                              timeout: 15000,
-                            });
-                        }),
-                    ),
-                  ),
-                ),
-              );
-              if (codeSent) {
-                const codeInput = textInput('', () => undefined, {
-                  placeholder: '123456',
-                  label: 'Code',
-                });
-                const nameInput = textInput('', () => undefined, {
-                  placeholder: 'Your name (new accounts)',
-                  label: 'Name',
-                });
-                parts.push(
-                  settingItem(
-                    'Code',
-                    `Sent to ${email}.`,
-                    h(
-                      'div',
-                      { class: 'pm-row-actions' },
-                      codeInput,
-                      nameInput,
-                      button(
-                        'Sign in',
+                  link.vaultName ?? 'Shared vault',
+                  `${state === 'online' ? 'Connected' : state === 'connecting' ? 'Connecting…' : 'Offline — changes sync when the connection is back'} · your role: ${shared?.role ?? link.role}`,
+                  // (A shared vault is removed from the list instead; a folder kept in step
+                  // with one, from before, stops here.)
+                  sharedVault
+                    ? null
+                    : button(
+                        'Stop syncing this folder',
                         () =>
                           void run(async () => {
-                            const c = accountClient();
-                            const r = await c.verify(
-                              email,
-                              codeInput.value.trim(),
-                              nameInput.value.trim() || undefined,
-                              navigator.userAgent.slice(0, 80),
-                            );
-                            link = { ...link, token: r.token, user: r.user };
+                            if (
+                              !(await workspace.confirm(
+                                'Stop syncing this folder? Files stay here; the shared vault stays on the server.',
+                                { confirmLabel: 'Stop syncing' },
+                              ))
+                            )
+                              return;
+                            stop();
+                            link = { server: link.server, token: link.token, user: link.user };
                             await saveLink();
                           }),
-                        { kind: 'primary' },
                       ),
-                    ),
-                  ),
-                );
-              }
-            } else {
+                ),
+              );
+              const others = shared?.presence() ?? [];
               parts.push(
                 settingItem(
-                  `Signed in as ${link.user?.name ?? ''}`,
-                  `${link.user?.email ?? ''} on ${link.server}`,
-                  button(
-                    'Sign out',
-                    () =>
-                      void run(async () => {
-                        stop();
-                        link = { server: link.server };
-                        await saveLink();
-                      }),
+                  'Here now',
+                  others.length ? null : 'Nobody else right now.',
+                  h(
+                    'div',
+                    { class: 'pm-presence' },
+                    ...others.map((p) =>
+                      h(
+                        'span',
+                        {
+                          class: 'pm-avatar',
+                          style: `background:${p.user.color}`,
+                          title: `${p.user.name}${p.file ? ` — ${p.file}` : ''}`,
+                        },
+                        p.user.name.slice(0, 1).toUpperCase(),
+                      ),
+                    ),
                   ),
                 ),
               );
-              if (!link.vaultId) {
-                parts.push(
-                  h('h3', {}, 'This vault'),
-                  settingItem(
-                    'Share this vault',
-                    'Upload it to the server and invite others. Every note gets an ID.',
-                    button('Share…', () => void run(share), { kind: 'primary' }),
-                  ),
-                );
-                const inviteInput = textInput('', () => undefined, {
-                  placeholder: 'Invite link or code',
-                  label: 'Invite',
-                });
-                parts.push(
-                  settingItem(
-                    'Join with an invite',
-                    'Paste the invite link someone sent you. Use an empty folder as the vault.',
-                    h(
-                      'div',
-                      { class: 'pm-row-actions' },
-                      inviteInput,
-                      button(
-                        'Join',
-                        () =>
-                          void run(async () => {
-                            const token = inviteInput.value.trim().split('/').pop() ?? '';
-                            const info = await accountClient().acceptInvite(token);
-                            await join(info.id, info.name, info.role);
-                          }),
-                      ),
-                    ),
-                  ),
-                );
-                const list = h(
-                  'div',
-                  {},
-                  h('p', { class: 'pm-setting-desc' }, 'Loading your shared vaults…'),
-                );
-                parts.push(h('h3', {}, 'Your shared vaults'), list);
-                void accountClient()
-                  .me()
-                  .then(({ vaults }) => {
-                    list.replaceChildren(
-                      ...(vaults.length
-                        ? vaults.map((v) =>
-                            settingItem(
-                              v.name,
-                              `${v.role} · since ${new Date(v.createdAt).toLocaleDateString()}`,
-                              button(
-                                'Use this folder',
-                                () => void run(() => join(v.id, v.name, v.role)),
-                              ),
-                            ),
-                          )
-                        : [h('p', { class: 'pm-setting-desc' }, 'None yet.')]),
-                    );
-                  })
-                  .catch((e: Error) =>
-                    list.replaceChildren(h('p', { class: 'pm-plugin-error' }, e.message)),
-                  );
-              } else {
-                const state = client?.state ?? 'offline';
-                parts.push(
-                  h('h3', {}, 'This vault'),
-                  settingItem(
-                    link.vaultName ?? 'Shared vault',
-                    `${state === 'online' ? 'Connected' : state === 'connecting' ? 'Connecting…' : 'Offline — changes sync when the connection is back'} · your role: ${shared?.role ?? link.role}`,
-                    button(
-                      'Stop syncing this folder',
-                      () =>
-                        void run(async () => {
-                          if (
-                            !(await workspace.confirm(
-                              'Stop syncing this folder? Files stay here; the shared vault stays on the server.',
-                              { confirmLabel: 'Stop syncing' },
-                            ))
-                          )
-                            return;
-                          stop();
-                          link = { server: link.server, token: link.token, user: link.user };
-                          await saveLink();
-                        }),
-                    ),
-                  ),
-                );
-                const others = shared?.presence() ?? [];
-                parts.push(
-                  settingItem(
-                    'Here now',
-                    others.length ? null : 'Nobody else right now.',
-                    h(
-                      'div',
-                      { class: 'pm-presence' },
-                      ...others.map((p) =>
-                        h(
-                          'span',
-                          {
-                            class: 'pm-avatar',
-                            style: `background:${p.user.color}`,
-                            title: `${p.user.name}${p.file ? ` — ${p.file}` : ''}`,
-                          },
-                          p.user.name.slice(0, 1).toUpperCase(),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-                if ((shared?.role ?? link.role) === 'owner') {
-                  let inviteRole: Role = 'editor';
-                  const out = h('div', { class: 'pm-setting-desc pm-invite-out' });
-                  parts.push(
-                    settingItem(
-                      'Invite someone',
-                      out,
-                      h(
-                        'div',
-                        { class: 'pm-row-actions' },
-                        select<Role>(
-                          'editor',
-                          [
-                            ['editor', 'Can edit'],
-                            ['viewer', 'Can view'],
-                          ],
-                          (r) => (inviteRole = r),
-                          'Role',
-                        ),
-                        button(
-                          'Create invite link',
-                          () =>
-                            void accountClient()
-                              .invite(link.vaultId!, inviteRole)
-                              .then((inv) => {
-                                out.textContent = `Send this link (valid 7 days): ${inv.url.startsWith('/') ? `${link.server}${inv.url}` : inv.url}`;
-                              })
-                              .catch((e: Error) => (out.textContent = e.message)),
-                        ),
-                      ),
-                    ),
-                  );
-                  const members = h('div', {});
-                  parts.push(h('h3', {}, 'Members'), members);
-                  void accountClient()
-                    .members(link.vaultId!)
-                    .then((list) =>
-                      members.replaceChildren(
-                        ...list.map((m) =>
-                          settingItem(
-                            m.user.name,
-                            m.user.email,
-                            m.user.id === link.user?.id
-                              ? h('span', { class: 'pm-setting-desc' }, 'owner (you)')
-                              : h(
-                                  'div',
-                                  { class: 'pm-row-actions' },
-                                  select<Role>(
-                                    m.role,
-                                    [
-                                      ['owner', 'Owner'],
-                                      ['editor', 'Can edit'],
-                                      ['viewer', 'Can view'],
-                                    ],
-                                    (r) =>
-                                      void run(() =>
-                                        accountClient().setRole(link.vaultId!, m.user.id, r),
-                                      ),
-                                    'Role',
-                                  ),
-                                  button(
-                                    'Remove',
-                                    () =>
-                                      void run(() =>
-                                        accountClient().removeMember(link.vaultId!, m.user.id),
-                                      ),
-                                    { kind: 'danger' },
-                                  ),
-                                ),
-                          ),
-                        ),
-                      ),
-                    )
-                    .catch((e: Error) =>
-                      members.replaceChildren(h('p', { class: 'pm-plugin-error' }, e.message)),
-                    );
-                }
-              }
             }
             parts.push(error);
             container.replaceChildren(...parts.filter((p): p is Node => p !== null));

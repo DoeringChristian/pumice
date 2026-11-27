@@ -413,9 +413,21 @@ function EmptyState({ model }: { model: WorkspaceModel }) {
 function StatusBar({ model }: { model: WorkspaceModel }) {
   return (
     <footer className="pm-statusbar">
-      {model.statusItems.map((item) => (
-        <span key={item.id}>{item.text}</span>
-      ))}
+      {model.statusItems.map((item) =>
+        item.onClick && item.text ? (
+          <button
+            key={item.id}
+            type="button"
+            className="pm-status-button"
+            title={item.title}
+            onClick={item.onClick}
+          >
+            {item.text}
+          </button>
+        ) : (
+          <span key={item.id}>{item.text}</span>
+        ),
+      )}
     </footer>
   );
 }

@@ -43,6 +43,7 @@ const host: PumiceHost = {
   },
   openExternal: (url) => invoke('shell.openExternal', url),
   revealInFileManager: (p) => invoke('shell.reveal', p),
+  copyFile: (p) => invoke('shell.copyFile', p),
   printToPdf: (html, pdf) => invoke('export.pdf', html, pdf),
   saveFile: (name, data) => invoke('save.file', name, data),
   saveFolder: (name, files) => invoke('save.folder', name, files),
@@ -69,6 +70,7 @@ const host: PumiceHost = {
     pick: (newWindow) => invoke('vaults.pick', newWindow),
     forget: (path) => invoke('vaults.forget', path),
     manage: () => invoke('vaults.manage'),
+    add: (link, newWindow) => invoke('vaults.add', link, newWindow),
   },
   frames: {
     open: (folder, files, inject, network, remote) =>
@@ -116,6 +118,7 @@ const launcher: LauncherHost = {
   list: () => launch('list'),
   open: (path) => launch('open', path),
   pick: () => launch('pick'),
+  openShared: (link) => launch('openShared', link),
   chooseFolder: () => launch('chooseFolder'),
   create: (name, parent) => launch('create', name, parent),
   forget: (path) => launch('forget', path),

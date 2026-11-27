@@ -2,7 +2,7 @@
 
 Everything in Pumice — the editor, the file explorer, search, backlinks, Excalidraw — is a
 plugin built on the same API you use: `@pumice/api`. This guide gets you from zero to a working
-plugin; the [API reference](../api/index.html) (generated with `pnpm docs:api`) lists every type.
+plugin; the [API reference](../api/index.html) (generated with `npm run docs:api`) lists every type.
 
 ## Quick start
 

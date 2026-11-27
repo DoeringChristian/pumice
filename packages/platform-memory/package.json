@@ -7,6 +7,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@pumice/platform": "workspace:*"
+    "@pumice/platform": "*"
   }
 }

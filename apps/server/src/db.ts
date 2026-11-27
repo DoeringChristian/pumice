@@ -164,6 +164,12 @@ export class Store {
     return rows.map(({ role, ...user }) => ({ user: { ...user }, role }));
   }
 
+  addMember(vaultId: string, userId: string, role: Role): void {
+    this.db
+      .prepare('INSERT OR IGNORE INTO members (vault_id, user_id, role) VALUES (?, ?, ?)')
+      .run(vaultId, userId, role);
+  }
+
   setRole(vaultId: string, userId: string, role: Role): void {
     this.db
       .prepare('UPDATE members SET role = ? WHERE vault_id = ? AND user_id = ?')

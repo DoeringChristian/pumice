@@ -5,11 +5,20 @@ import {
   ndJsonStream,
   type ClientConnection,
   type ContentBlock,
+  type McpServer,
+  type SessionConfigOption,
   type PermissionOption,
   type RequestPermissionResponse,
   type SessionNotification,
   type ToolCallContent,
 } from '@agentclientprotocol/sdk';
+import {
+  McpOverAcpProvider,
+  type McpMessageParams,
+  type McpServerAcpDeclaration,
+} from '@agentclientprotocol/sdk/unstable';
+import { NOTE_TOOLS, noteTools, toolsGuidance } from './note-tools';
+import type { VaultToolContext } from './vault-tools';
 import { Emitter, type ChildProcessHandle, type ProcessHost, type VaultPath } from '@pumice/api';
 
 /** A configured agent command (docs/plan/09). */
@@ -22,6 +31,8 @@ export interface AgentConfig {
   setupHint?: string;
   /** `chatgpt`: the built-in assistant on the user's ChatGPT plan (no program to run). */
   kind?: 'acp' | 'chatgpt';
+  /** It runs on the vault's server, in chats the server keeps (docs/plan/11). */
+  server?: boolean;
 }
 
 export interface SlashCommand {
@@ -45,6 +56,10 @@ export interface ChatSession {
   /** Models to choose from (empty: the agent decides). */
   models: Array<{ id: string; name: string }>;
   currentModel: string | undefined;
+  /** How hard the model thinks, where it can be chosen (absent or empty: it cannot). */
+  efforts?: Array<{ id: string; name: string }>;
+  currentEffort?: string | undefined;
+  setEffort?(effortId: string): Promise<void>;
   readonly onDidChange: (listener: () => void) => { dispose(): void };
   /** Slash commands the agent understands (typed as `/name` at the start of a message). */
   commands: SlashCommand[];
@@ -54,7 +69,14 @@ export interface ChatSession {
   authenticate(methodId: string): Promise<void>;
   setMode(modeId: string): Promise<void>;
   setModel(modelId: string): Promise<void>;
-  prompt(text: string, context?: ContentBlock[], contextLabel?: string): Promise<void>;
+  /**
+   * Whether the chat answers the agent's questions itself with "allow" (absent: it cannot).
+   * Agents of the built-in kind have their own modes for it.
+   */
+  autoApprove?: boolean;
+  setAutoApprove?(on: boolean): void;
+  /** `by`: who sent it, where several people prompt one chat (a server's). */
+  prompt(text: string, context?: ContentBlock[], contextLabel?: string, by?: string): Promise<void>;
   cancel(): void;
   dispose(): void;
 }
@@ -99,13 +121,18 @@ export interface AgentFiles {
   /** Absolute vault folder (agents speak absolute paths). */
   root: string;
   read(path: VaultPath): Promise<string>;
-  write(path: VaultPath, content: string): Promise<void>;
+  /**
+   * Writes `content`. With `base` (what the writer read before), it is merged with what
+   * changed since (three versions); a change at the same place is refused (StaleEditError).
+   * Resolves with the text now there.
+   */
+  write(path: VaultPath, content: string, base?: string): Promise<string | void>;
 }
 
 // ---- transcript ------------------------------------------------------------------------------
 
 export type TranscriptItem =
-  | { kind: 'user'; id: number; text: string; context?: string }
+  | { kind: 'user'; id: number; text: string; context?: string; by?: string }
   | { kind: 'agent'; id: number; text: string }
   | { kind: 'thought'; id: number; text: string }
   | {
@@ -151,9 +178,69 @@ let nextItemId = 1;
 
 /** One running agent and its conversation. */
 export class AgentSession implements ChatSession {
+  /** Chosen through the agent's configuration options (ACP), where it has them for these. */
   models: Array<{ id: string; name: string }> = [];
   currentModel: string | undefined;
-  async setModel(): Promise<void> {}
+  efforts: Array<{ id: string; name: string }> = [];
+  currentEffort: string | undefined;
+  /** The ids of the agent's options for the model and the effort. */
+  private modelOption: string | undefined;
+  private effortOption: string | undefined;
+
+  async setModel(modelId: string): Promise<void> {
+    await this.setOption(this.modelOption, modelId);
+  }
+
+  async setEffort(effortId: string): Promise<void> {
+    await this.setOption(this.effortOption, effortId);
+  }
+
+  private async setOption(configId: string | undefined, value: string): Promise<void> {
+    if (!this.conn || !this.sessionId || !configId) return;
+    const res = await this.conn.agent.request('session/set_config_option', {
+      sessionId: this.sessionId,
+      configId,
+      value,
+    });
+    this.applyOptions(res.configOptions);
+  }
+
+  /** The agent's configuration options: its model and effort, where it has them. */
+  private applyOptions(options: SessionConfigOption[] | null | undefined): void {
+    if (!options) return;
+    const select = (category: string) => {
+      const o = options.find((c) => c.category === category && c.type === 'select');
+      if (!o || o.type !== 'select') return undefined;
+      const values = o.options.flatMap((v) => ('group' in v ? v.options : [v]));
+      return {
+        id: o.id,
+        current: o.currentValue,
+        values: values.map((v) => ({ id: v.value, name: v.name })),
+      };
+    };
+    const model = select('model');
+    const effort = select('thought_level');
+    this.modelOption = model?.id;
+    this.models = model?.values ?? [];
+    this.currentModel = model?.current;
+    this.effortOption = effort?.id;
+    this.efforts = effort?.values ?? [];
+    this.currentEffort = effort?.current;
+    this.changed.fire();
+  }
+
+  /** What was chosen in the chat before, again (an agent starts with its defaults). */
+  private async restoreChoices(): Promise<void> {
+    const { model, effort } = this.saved ?? {};
+    try {
+      if (model && model !== this.currentModel && this.models.some((m) => m.id === model))
+        await this.setModel(model);
+      if (effort && effort !== this.currentEffort && this.efforts.some((e) => e.id === effort))
+        await this.setEffort(effort);
+    } catch {
+      // (Its own defaults, then.)
+    }
+  }
   /** Announced by the agent (`available_commands_update`); sent to it as ordinary prompts. */
   commands: SlashCommand[] = [];
 
@@ -169,6 +256,8 @@ export class AgentSession implements ChatSession {
   private readonly changed = new Emitter<void>();
   readonly onDidChange = this.changed.event;
   private authMethods: Array<{ id: string; name: string; description?: string | null }> = [];
+  /** Pumice's note tools, where the agent takes MCP servers over ACP (note-tools.ts). */
+  private tools: { declaration: McpServerAcpDeclaration; dispose(): void } | undefined;
 
   constructor(
     readonly config: AgentConfig,
@@ -178,12 +267,20 @@ export class AgentSession implements ChatSession {
     private readonly guidance: () => string = () => '',
     /** A conversation to pick up again. */
     private readonly saved?: SavedChat,
+    /** The id of a new chat (made by whoever keeps it). */
+    chatId?: string,
+    /**
+     * The vault, its index and drawings, for the vault's tools offered to the agent (MCP over ACP,
+     * note-tools.ts); absent: none are offered.
+     */
+    private readonly vaultContext?: () => Omit<VaultToolContext, 'files'>,
   ) {
-    this.chatId = saved?.id ?? newChatId();
+    this.chatId = saved?.id ?? chatId ?? newChatId();
     if (saved) {
       for (const item of saved.items) this.items.push({ ...item, id: nextItemId++ });
       // The agent was told about the app when the conversation began.
       this.briefed = true;
+      this.autoApprove = !!saved.autoApprove;
     }
   }
 
@@ -192,7 +289,26 @@ export class AgentSession implements ChatSession {
   private replaying = false;
 
   snapshot(): ChatSnapshot {
-    return { items: this.items, ...(this.sessionId ? { sessionId: this.sessionId } : {}) };
+    return {
+      items: this.items,
+      ...(this.sessionId ? { sessionId: this.sessionId } : {}),
+      ...(this.autoApprove ? { autoApprove: true } : {}),
+      ...(this.currentModel ? { model: this.currentModel } : {}),
+      ...(this.currentEffort ? { effort: this.currentEffort } : {}),
+    };
+  }
+
+  autoApprove = false;
+  setAutoApprove(on: boolean): void {
+    this.autoApprove = on;
+    // A question waiting now is answered too.
+    if (on)
+      for (const item of this.items)
+        if (item.kind === 'permission' && !item.chosen) {
+          const allow = allowOption(item.options);
+          if (allow) item.respond?.(allow);
+        }
+    this.changed.fire();
   }
 
   private briefed = false;
@@ -215,7 +331,13 @@ export class AgentSession implements ChatSession {
     try {
       this.proc = await this.host.spawn(this.config.command, this.config.args);
     } catch (e) {
+      if (this.disposed) return;
       this.fail(e);
+      return;
+    }
+    // Disposed while the program started: it goes again at once.
+    if (this.disposed) {
+      this.proc.kill();
       return;
     }
     this.proc.onStderr((t) => {
@@ -230,7 +352,10 @@ export class AgentSession implements ChatSession {
       this.setStatus('closed');
     });
 
+    const mcp = new McpOverAcpProvider();
     const app = acpClient({ name: 'pumice' })
+      // (Pumice's note tools: MCP over this connection. The provider checks the envelope.)
+      .onRequest('mcp/message', (params) => params as McpMessageParams, mcp.handleRequest)
       .onNotification('session/update', ({ params }) => this.onUpdate(params))
       .onRequest('session/request_permission', ({ params }) =>
         this.askPermission(params.toolCall.title ?? 'The agent wants to continue', params.options),
@@ -257,6 +382,22 @@ export class AgentSession implements ChatSession {
         clientInfo: { name: 'Pumice', version: '0.1.0' },
       });
       this.authMethods = init.authMethods ?? [];
+      // Notes through Pumice, for an agent that takes tools over this connection.
+      const capabilities = init.agentCapabilities?.mcpCapabilities as { acp?: boolean } | undefined;
+      if (capabilities?.acp && this.vaultContext) {
+        const adapter = noteTools(this.toolContext);
+        const registration = mcp.registerServer(this.conn.agent, {
+          name: NOTE_TOOLS,
+          handler: adapter.handler,
+        });
+        this.tools = {
+          declaration: registration.declaration,
+          dispose: () => {
+            void registration.dispose();
+            void adapter.close();
+          },
+        };
+      }
       if (this.saved?.forkedFrom && !this.saved.sessionId) {
         // A fork: the agent starts anew and is told what was said, with the next message.
         this.earlier = transcriptText(this.saved.items);
@@ -269,6 +410,7 @@ export class AgentSession implements ChatSession {
         this.briefed = false;
       }
       if (!this.sessionId) await this.newSession();
+      if (this.sessionId) await this.restoreChoices();
     } catch (e) {
       this.fail(e);
     }
@@ -282,11 +424,12 @@ export class AgentSession implements ChatSession {
       const res = await this.conn!.agent.request('session/load', {
         sessionId: this.saved.sessionId,
         cwd: this.files.root,
-        mcpServers: [],
+        mcpServers: this.mcpServers(),
       });
       this.sessionId = this.saved.sessionId;
       this.modes = res?.modes?.availableModes.map((m) => ({ id: m.id, name: m.name })) ?? [];
       this.currentMode = res?.modes?.currentModeId;
+      this.applyOptions(res?.configOptions);
       this.setStatus('ready');
       return true;
     } catch {
@@ -300,11 +443,12 @@ export class AgentSession implements ChatSession {
     try {
       const res = await this.conn!.agent.request('session/new', {
         cwd: this.files.root,
-        mcpServers: [],
+        mcpServers: this.mcpServers(),
       });
       this.sessionId = res.sessionId;
       this.modes = res.modes?.availableModes.map((m) => ({ id: m.id, name: m.name })) ?? [];
       this.currentMode = res.modes?.currentModeId;
+      this.applyOptions(res.configOptions);
       this.setStatus('ready');
     } catch (e) {
       if (isAuthRequired(e) && this.authMethods.length) {
@@ -317,6 +461,16 @@ export class AgentSession implements ChatSession {
       }
       throw e;
     }
+  }
+
+  /** (An `acp` server is newer than the stable schema's list of kinds.) */
+  private readonly toolContext = (): VaultToolContext => ({
+    ...this.vaultContext!(),
+    files: this.files,
+  });
+
+  private mcpServers(): McpServer[] {
+    return this.tools ? [this.tools.declaration as unknown as McpServer] : [];
   }
 
   /** Sign-in methods the agent offers (after an auth error). */
@@ -343,11 +497,25 @@ export class AgentSession implements ChatSession {
   }
 
   /** Sends a prompt; resolves when the agent's turn ends. */
-  async prompt(text: string, context: ContentBlock[] = [], contextLabel?: string): Promise<void> {
+  async prompt(
+    text: string,
+    context: ContentBlock[] = [],
+    contextLabel?: string,
+    by?: string,
+  ): Promise<void> {
     if (!this.conn || !this.sessionId || this.status === 'working') return;
-    this.push({ kind: 'user', text, ...(contextLabel ? { context: contextLabel } : {}) });
+    this.push({
+      kind: 'user',
+      text,
+      ...(contextLabel ? { context: contextLabel } : {}),
+      ...(by ? { by } : {}),
+    });
     this.setStatus('working');
-    const about = this.briefed ? '' : this.guidance();
+    const about = this.briefed
+      ? ''
+      : [this.tools ? toolsGuidance(this.toolContext()) : '', this.guidance()]
+          .filter(Boolean)
+          .join('\n\n');
     this.briefed = true;
     const earlier = this.earlier;
     this.earlier = '';
@@ -393,8 +561,12 @@ export class AgentSession implements ChatSession {
     }
   }
 
+  private disposed = false;
+
   dispose(): void {
+    this.disposed = true;
     this.status = 'closed';
+    this.tools?.dispose();
     this.conn?.close();
     this.proc?.kill();
     this.changed.dispose();
@@ -409,6 +581,12 @@ export class AgentSession implements ChatSession {
     title: string,
     options: PermissionOption[],
   ): Promise<RequestPermissionResponse> {
+    const allow = this.autoApprove ? allowOption(options) : undefined;
+    if (allow) {
+      // Answered by the chat itself: shown as answered.
+      this.push({ kind: 'permission', title, options, chosen: allow });
+      return Promise.resolve({ outcome: { outcome: 'selected', optionId: allow } });
+    }
     return new Promise((resolve) => {
       // The answer callback must exist before listeners hear about the prompt.
       let item: Extract<TranscriptItem, { kind: 'permission' }> | undefined;
@@ -439,7 +617,8 @@ export class AgentSession implements ChatSession {
     if (
       this.replaying &&
       u.sessionUpdate !== 'available_commands_update' &&
-      u.sessionUpdate !== 'current_mode_update'
+      u.sessionUpdate !== 'current_mode_update' &&
+      u.sessionUpdate !== 'config_option_update'
     )
       return;
     switch (u.sessionUpdate) {
@@ -501,6 +680,9 @@ export class AgentSession implements ChatSession {
           ...(c.input && 'hint' in c.input && c.input.hint ? { hint: c.input.hint } : {}),
         }));
         break;
+      case 'config_option_update':
+        this.applyOptions(u.configOptions);
+        break;
       case 'current_mode_update':
         this.currentMode = u.currentModeId;
         break;
@@ -509,6 +691,16 @@ export class AgentSession implements ChatSession {
     }
     this.changed.fire();
   }
+}
+
+/**
+ * The option that allows what the agent asks, this once (an "always" may become a rule of the
+ * agent's beyond this chat).
+ */
+export function allowOption(options: PermissionOption[]): string | undefined {
+  return (
+    options.find((o) => o.kind === 'allow_once') ?? options.find((o) => o.kind === 'allow_always')
+  )?.optionId;
 }
 
 function isAuthRequired(e: unknown): boolean {

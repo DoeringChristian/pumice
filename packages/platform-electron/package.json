@@ -8,6 +8,7 @@
     "./host": "./src/host.ts"
   },
   "dependencies": {
-    "@pumice/platform": "workspace:*"
+    "@pumice/platform": "*",
+    "@pumice/platform-web": "*"
   }
 }

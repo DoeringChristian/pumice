@@ -94,6 +94,11 @@ export interface EditorShared {
     path: string,
     at: { x: number; y: number },
   ) => void;
+  /** Copies an embedded picture of the vault itself (see `PreviewDeps.pictureCopier`). */
+  pictureCopier: (
+    target: string,
+    notePath: string,
+  ) => ((text: string) => Promise<void>) | undefined;
   /** The menu of a rendered block (a frame block). */
   blockMenu: (
     view: EditorView,
@@ -656,6 +661,10 @@ export class MarkdownView implements ViewInstance {
             if (path !== undefined) shared.embedMenu(v, host, path, at);
           },
           blockMenu: (v, block, at) => shared.blockMenu(v, block, at),
+          pictureCopier: (target) => {
+            const path = this.handle?.path;
+            return path !== undefined ? shared.pictureCopier(target, path) : undefined;
+          },
           fieldExtensions: () => shared.fieldExtensions(),
           captionExtensions: (note) => shared.captionExtensions(note),
           links: () => shared.links(),

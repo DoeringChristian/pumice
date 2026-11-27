@@ -73,6 +73,8 @@ export interface StatusItem {
   id: number;
   order: number;
   text: string;
+  onClick?: () => void;
+  title?: string;
 }
 
 interface SavedLayout {
@@ -197,6 +199,12 @@ export class WorkspaceModel implements WorkspaceApi {
     return {
       setText: (text: string) => {
         item.text = text;
+        this.statusItems = [...this.statusItems];
+        this.update();
+      },
+      setOnClick: (run: (() => void) | undefined, title?: string) => {
+        item.onClick = run;
+        item.title = title;
         this.statusItems = [...this.statusItems];
         this.update();
       },

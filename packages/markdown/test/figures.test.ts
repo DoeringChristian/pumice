@@ -10,7 +10,8 @@ import {
   renameLabelChanges,
   validLabel,
 } from '../src/figures';
-import { embedCaption, isFigureTarget } from '../src/media';
+import { parseEmbedSize, withAliasSize } from '../src/links';
+import { embedCaption, isFigureTarget, mediaIn } from '../src/media';
 
 const NOTE = `---
 title: x
@@ -116,6 +117,14 @@ describe('captions and targets', () => {
     expect(embedCaption('400')).toBeUndefined();
     expect(embedCaption('400x200')).toBeUndefined();
     expect(embedCaption(undefined)).toBeUndefined();
+    // An empty size: what is before it is the caption, though it reads as a size.
+    expect(embedCaption('2024|')).toBe('2024');
+    expect(embedCaption('2024|300')).toBe('2024');
+    expect(parseEmbedSize('2024|')).toEqual({});
+    expect(withAliasSize('2024|', '300')).toBe('2024|300');
+    const [media] = mediaIn('![[a.png|2024|]]');
+    expect(media).toMatchObject({ caption: '2024', size: {} });
+    expect('![[a.png|2024|]]'.slice(media!.captionFrom, media!.captionTo)).toBe('2024');
   });
   it('tells figures from embedded notes', () => {
     expect(isFigureTarget('plot.png')).toBe(true);

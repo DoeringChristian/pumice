@@ -1,21 +1,28 @@
 {
   "name": "pumice",
   "private": true,
+  "workspaces": [
+    "packages/*",
+    "plugins/*",
+    "apps/*",
+    "examples/*"
+  ],
   "type": "module",
-  "packageManager": "pnpm@10.18.0",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
+    "postinstall": "node scripts/link-excalidraw.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev:web": "pnpm --filter @pumice/web dev",
-    "dev:desktop": "pnpm --filter @pumice/desktop dev",
-    "build:desktop": "pnpm --filter @pumice/desktop build",
+    "dev:web": "npm run dev -w @pumice/web",
+    "dev:desktop": "npm run dev -w @pumice/desktop",
+    "build:desktop": "npm run build -w @pumice/desktop",
     "format": "prettier --write .",
     "docs:api": "typedoc",
-    "screenshot": "pnpm --filter @pumice/desktop exec electron-vite build && node scripts/screenshot.mjs",
+    "screenshot": "npm exec -w @pumice/desktop -- electron-vite build && node scripts/screenshot.mjs",
+    "serve": "npm run build -w @pumice/server -w @pumice/web && node apps/server/dist/main.js",
     "build:excalidraw": "cd vendor/excalidraw && npx -y yarn@1.22.22 install --frozen-lockfile --ignore-engines && npx -y yarn@1.22.22 build:packages"
   },
   "devDependencies": {
@@ -27,5 +34,12 @@
     "typedoc": "~0.26.11",
     "typescript": "^5.6.3",
     "vitest": "^2.1.4"
+  },
+  "allowScripts": {
+    "electron": true,
+    "esbuild": true,
+    "fsevents": true,
+    "@parcel/watcher": false,
+    "core-js": false
   }
 }

@@ -1,5 +1,6 @@
 import { EditorSelection, type Extension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import { copyPicture, isPicture } from './copy-picture';
 import { indentLess, indentMore } from '@codemirror/commands';
 import { yUndoManagerKeymap } from 'y-codemirror.next';
 
@@ -219,6 +220,13 @@ export const plugin = definePlugin({
               run: (command, arg) => void ctx.commands.execute(command, arg).catch(() => undefined),
               embedMenu: (v, host, path, at) => showEmbedMenu(v, host, path, at),
               blockMenu: (v, block, at) => showBlockMenu(v, block, at),
+              pictureCopier: (target, notePath) => {
+                const file =
+                  ctx.tryUse(MetadataIndex)?.resolve(target, notePath)?.file.path ??
+                  (vault.get(target)?.kind === 'file' ? target : undefined);
+                if (!file || !isPicture(file)) return undefined;
+                return (text) => copyPicture(file, () => vault.readBinary(file), text);
+              },
               toolbarActions: () =>
                 [...toolbarActions].sort((a, b) => (a.order ?? 50) - (b.order ?? 50)),
               touch: () =>
@@ -461,6 +469,32 @@ export const plugin = definePlugin({
                 run: () => workspace.openFile(file, { newTab: true }),
               },
               'separator' as const,
+            ]
+          : []),
+        ...(file && isPicture(file)
+          ? [
+              {
+                // The picture itself: for other programs (or another vault).
+                label: 'Copy image',
+                icon: 'image',
+                run: () =>
+                  copyPicture(file, () => vault.readBinary(file)).catch((e: unknown) =>
+                    workspace.notify(
+                      `The picture could not be copied: ${e instanceof Error ? e.message : String(e)}`,
+                      { kind: 'warning' },
+                    ),
+                  ),
+              },
+            ]
+          : []),
+        ...(file && shell.copyFile
+          ? [
+              {
+                // The file as it is (a JPEG stays one), for the file manager and other programs.
+                label: 'Copy file',
+                icon: 'file',
+                run: () => shell.copyFile!(file),
+              },
             ]
           : []),
         {

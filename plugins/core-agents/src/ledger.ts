@@ -1,4 +1,5 @@
 import { Emitter, type PlatformFs, type VaultPath } from '@pumice/api';
+import { merge3 } from '@pumice/core-documents';
 import { CHATS_DIR } from './chats';
 import type { AgentFiles } from './session';
 
@@ -180,9 +181,31 @@ export class Ledger {
 export class StaleEditError extends Error {}
 
 /**
- * A chat's own view of the files. A file that changed since the chat last saw it (another
- * chat's edit, or the user's) is not overwritten: the chat is told to read it again. What it
- * does write is noted in the ledger.
+ * What a write of `content` makes of a text that is `now`, by a writer that read `base` (its
+ * last read): `content` where nothing changed since; else both changes, merged (three versions),
+ * where they are at different places. At the same place it is refused: the writer is told to
+ * read again (StaleEditError).
+ */
+export function mergedWrite(
+  path: string,
+  now: string,
+  content: string,
+  base: string | undefined,
+): string {
+  if (base === undefined || now === base) return content;
+  const merged = merge3(base, now, content);
+  if (!merged.clean)
+    throw new StaleEditError(
+      `${path} has changed since you last read it, where you changed it too (someone else edited it). Read it again and make your change on the current text.`,
+    );
+  return merged.text;
+}
+
+/**
+ * A chat's own view of the files. What changed in a file since the chat last read it (another
+ * chat's edit, or the user's) is kept: the chat's write is merged with it, and refused only where
+ * both changed the same place (the chat is told to read it again). What it does write is noted
+ * in the ledger.
  */
 export function trackedFiles(
   base: AgentFiles,
@@ -200,17 +223,26 @@ export function trackedFiles(
     async write(path, content) {
       const current = await base.read(path).catch(() => undefined);
       const known = seen.get(path);
-      if (current !== undefined && known !== undefined && known !== current) {
+      let written: string | void;
+      try {
+        // (Merged with what changed since it read the file, at the moment it is written.)
+        written = await base.write(path, content, known);
+      } catch (e) {
         // Refused once: the next write counts as made on the text as it is now.
-        seen.set(path, current);
-        throw new StaleEditError(
-          `${path} has changed since you last read it (someone else edited it). Read it again and make your change on the current text.`,
-        );
+        if (e instanceof StaleEditError && current !== undefined) seen.set(path, current);
+        throw e;
       }
-      await base.write(path, content);
+      // What the chat knows of the file is what it wrote (the others' changes it has not read).
       seen.set(path, content);
       const { id, name } = chat();
-      if (/\.(md|markdown|txt)$/i.test(path)) ledger.record(path, id, name, current ?? '', content);
+      if (/\.(md|markdown|txt)$/i.test(path))
+        ledger.record(
+          path,
+          id,
+          name,
+          current ?? '',
+          typeof written === 'string' ? written : content,
+        );
     },
   };
 }

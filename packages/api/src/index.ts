@@ -24,6 +24,7 @@ export type {
   ChatGptHost,
   FrameHost,
   ChildProcessHandle,
+  SharedVaultSession,
 } from '@pumice/platform';
 export { normalizePath, dirname, basename, joinPath } from '@pumice/platform';
 export * from './services/markdown';

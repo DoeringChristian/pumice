@@ -662,6 +662,8 @@ export function attachMenuButton(
     comment?: () => void;
     /** The text in the note that shows this: a button copies it, for another note. */
     copy?: () => string;
+    /** A picture: the button copies the picture itself, with that text beside it. */
+    copyPicture?: () => Promise<void>;
     /**
      * Also when nothing in `host` is a picture, video or frame (a frame block that could not
      * be shown, a diagram): the buttons then stand in the corner of `host` itself. Such a
@@ -703,15 +705,24 @@ export function attachMenuButton(
     host.append(b);
     buttons.push(b);
   };
-  const { edit, comment, copy } = opts;
+  const { edit, comment, copy, copyPicture } = opts;
   if (copy)
-    extra('copy', 'Copy as text for a note', 'copy', (b) => {
-      void navigator.clipboard.writeText(copy()).then(() => {
-        // Shows for a moment that it did.
-        b.replaceChildren(createIcon('check', 14));
-        setTimeout(() => b.replaceChildren(createIcon('copy', 14)), 1200);
-      });
-    });
+    extra(
+      'copy',
+      copyPicture ? 'Copy the picture (a note pastes it as its text)' : 'Copy as text for a note',
+      'copy',
+      (b) => {
+        void (copyPicture ? copyPicture() : navigator.clipboard.writeText(copy())).then(
+          () => {
+            // Shows for a moment that it did.
+            b.replaceChildren(createIcon('check', 14));
+            setTimeout(() => b.replaceChildren(createIcon('copy', 14)), 1200);
+          },
+          // (The picture could not be read or drawn: its text, at least.)
+          () => void navigator.clipboard.writeText(copy()).catch(() => undefined),
+        );
+      },
+    );
   if (edit) extra('edit', 'Edit the source', 'code', edit);
   if (comment) extra('comment', 'Add a comment', 'message-square-plus', comment);
   const place = () => {

@@ -7,14 +7,14 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@pumice/api": "workspace:*",
-    "@pumice/platform": "workspace:*",
+    "@pumice/api": "*",
+    "@pumice/platform": "*",
     "fast-diff": "^1.3.0",
     "node-diff3": "^3.1.2",
     "yjs": "^13.6.20"
   },
   "devDependencies": {
-    "@pumice/core-vault": "workspace:*",
-    "@pumice/platform-memory": "workspace:*"
+    "@pumice/core-vault": "*",
+    "@pumice/platform-memory": "*"
   }
 }

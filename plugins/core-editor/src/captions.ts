@@ -1,13 +1,14 @@
 import {
+  ChangeSet,
   EditorSelection,
   EditorState,
   Prec,
   Transaction,
-  type ChangeSet,
   type Extension,
+  type Text,
 } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
-import { isFigureTarget, mediaIn, type MediaText } from '@pumice/api';
+import { isEmbedSize, isFigureTarget, mediaIn, type MediaText } from '@pumice/api';
 
 /**
  * The caption of a figure is text of the note, written under the picture where it is read: only
@@ -164,11 +165,16 @@ function inTable({ doc }: Written, pos: number): boolean {
   return false;
 }
 
+/** Where a position of the note goes with a change (`assoc` as in `ChangeSet.mapPos`). */
+type Mapping = (pos: number, assoc: -1 | 1) => number;
+
 /** Whether the figure is still the same one, with its caption where it should be. */
-function stillWhole(place: CaptionPlace, changes: ChangeSet, after: Written): boolean {
-  const from = changes.mapPos(place.from, 1);
-  const captionFrom = changes.mapPos(place.captionFrom, -1);
-  const captionTo = changes.mapPos(place.captionTo, 1);
+function stillWhole(place: CaptionPlace, changes: ChangeSet | Mapping, after: Written): boolean {
+  const map: Mapping =
+    typeof changes === 'function' ? changes : (pos, assoc) => changes.mapPos(pos, assoc);
+  const from = map(place.from, 1);
+  const captionFrom = map(place.captionFrom, -1);
+  const captionTo = map(place.captionTo, 1);
   // In a table a bar would end the cell.
   if (
     inTable(after, captionFrom) &&
@@ -183,7 +189,7 @@ function stillWhole(place: CaptionPlace, changes: ChangeSet, after: Written): bo
         (!p.media && /^[ \t]*$/.test(after.doc.sliceString(captionFrom, p.captionFrom)))) &&
       p.captionTo === captionTo &&
       (place.media === undefined ||
-        p.to === changes.mapPos(place.to, place.to === place.captionTo ? 1 : -1)) &&
+        p.to === map(place.to, place.to === place.captionTo ? 1 : -1)) &&
       p.media?.target === place.media?.target,
   );
 }
@@ -219,21 +225,28 @@ export const captionGuard = (shownAsSource: ShownAsSource) =>
       made.push({ from, to, insert: inserted.toString(), ...(within ? { place: within } : {}) });
     }, true);
     if (refused) return [];
-    const whole = (changes: ChangeSet, after: Written) =>
+    if (!edited.size) return tr;
+    const whole = (changes: ChangeSet | Mapping, after: Written) =>
       [...edited.values()].every((p) => stillWhole(p, changes, after));
-    if (!edited.size || whole(tr.changes, { doc: tr.newDoc })) return tr;
+    const asTyped = sizeSlots(tr.changes, tr.newDoc, edited);
+    if (asTyped.empty && whole(tr.changes, { doc: tr.newDoc })) return tr;
     // Only what goes into a caption is made to fit; everything else is written as it was.
-    const changes = state.changes(
+    const typed = state.changes(
       made.map(({ from, to, insert, place }) => ({
         from,
         to,
         insert: place ? captionText(insert, place, state) : insert,
       })),
     );
-    if (changes.empty || !whole(changes, { doc: changes.apply(state.doc) })) return [];
+    const typedDoc = typed.apply(state.doc);
+    const slots = sizeSlots(typed, typedDoc, edited);
+    const changes = typed.compose(slots);
+    // (An empty size goes behind its caption: positions stay in front of it.)
+    const map: Mapping = (pos, assoc) => slots.mapPos(typed.mapPos(pos, assoc), -1);
+    if (changes.empty || !whole(map, { doc: slots.apply(typedDoc) })) return [];
     // Every cursor where it was going to be: behind what was written, say.
     const back = tr.changes.invertedDesc;
-    const place = (pos: number) => changes.mapPos(back.mapPos(pos, 1), 1);
+    const place = (pos: number) => map(back.mapPos(pos, 1), 1);
     return {
       changes,
       selection: EditorSelection.create(
@@ -244,6 +257,28 @@ export const captionGuard = (shownAsSource: ShownAsSource) =>
       annotations: Transaction.userEvent.of(tr.annotation(Transaction.userEvent) ?? 'input'),
     };
   });
+
+/**
+ * A caption that reads as a size (`2024`, `3x2`) would be taken for one (`![[a.png|2024]]` is a
+ * picture 2024 wide): it gets an empty size behind it (`![[a.png|2024|]]`, see embedCaption),
+ * which goes again once the caption no longer reads as one. The changes, after `changes`.
+ */
+function sizeSlots(changes: ChangeSet, doc: Text, edited: Map<number, CaptionPlace>): ChangeSet {
+  const slots: Array<{ from: number; to?: number; insert?: string }> = [];
+  for (const place of edited.values()) {
+    if (!place.media) continue;
+    const from = changes.mapPos(place.captionFrom, -1);
+    const to = changes.mapPos(place.captionTo, 1);
+    const caption = doc.sliceString(from, to);
+    const after = doc.sliceString(to, Math.min(doc.length, to + 4));
+    const bar = /^\\?\|/.exec(after)?.[0];
+    if (isEmbedSize(caption) && !bar)
+      slots.push({ from: to, insert: inTable({ doc }, to) ? '\\|' : '|' });
+    else if (bar && !isEmbedSize(caption) && /^\\?\|\]/.test(after))
+      slots.push({ from: to, to: to + bar.length });
+  }
+  return ChangeSet.of(slots, doc.length);
+}
 
 /** At the ends of a caption nothing more is deleted: what stands beside it is not text. */
 const stopAt = (edge: 'captionFrom' | 'captionTo', shown: ShownAsSource) => (view: EditorView) => {

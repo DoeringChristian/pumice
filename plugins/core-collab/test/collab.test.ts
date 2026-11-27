@@ -173,6 +173,25 @@ describe('shared vaults', () => {
     b.shared.dispose();
   }, 20_000);
 
+  it('brings notes created after a device joined to it', async () => {
+    const a = await device(
+      'eve@example.com',
+      { 'First.md': 'first\n' },
+      async (c) => (await c.createVault('Later notes')).id,
+      { seed: true },
+    );
+    const inv = await a.client.invite(a.vaultId, 'editor');
+    const fay = await signIn('fay@example.com');
+    await fay.client.acceptInvite(inv.token);
+    const b = await device('fay@example.com', {}, a.vaultId, { signedIn: fay });
+    await waitFor(() => b.read('First.md') === 'first\n', 'initial');
+
+    a.platform.fs.external.write('Second.md', 'second\n');
+    await waitFor(() => b.read('Second.md') === 'second\n', 'a note created after joining');
+    await b.vault.create('Third.md', 'third\n');
+    await waitFor(() => a.read('Third.md') === 'third\n', 'and the other way');
+  });
+
   it('merges concurrent offline edits when devices reconnect', async () => {
     const a = await device(
       'cy@example.com',

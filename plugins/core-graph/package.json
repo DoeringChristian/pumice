@@ -7,8 +7,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@pumice/api": "workspace:*",
-    "@pumice/ui": "workspace:*",
+    "@pumice/api": "*",
+    "@pumice/ui": "*",
     "@types/d3-force": "^3.0.10",
     "d3-force": "^3.0.0"
   }

@@ -1,5 +1,4 @@
 import {
-  AuthoredChange,
   Documents,
   Drawings,
   Agents,
@@ -13,8 +12,6 @@ import {
   Vault,
   Workspace,
   definePlugin,
-  markdownText,
-  type AuthorPresence,
   type ChangeAuthor,
   type ChatGptHost,
   type PluginModule,
@@ -22,10 +19,11 @@ import {
 } from '@pumice/api';
 import { button, h, settingItem, textInput, toggle } from '@pumice/ui';
 import '@pumice/ui/panel.css';
-import { applyTextDiff, applyTextDiffAs } from '@pumice/core-documents';
 import manifestJson from '../manifest.json';
 import { ChatStore, newChatId, storableItems, type SavedChat } from './chats';
 import { Ledger, revertChange, trackedFiles, type AgentChange } from './ledger';
+import { noteWriter } from './write';
+import { RemoteSession, ServerChats, type Joining } from './remote';
 import { ChatManager, chatName, mentionOf, type OpenChat } from './manager';
 import { AgentPanelState, renderAgentPanel, type Attachment } from './panel';
 import { offsetOf, type WrittenPlace } from './references';
@@ -105,6 +103,9 @@ export const plugin = definePlugin({
     const drawingsNow = () => ctx.tryUse(Drawings);
     const host = platform.process;
     const root = platform.vaultRoot ?? '';
+    // A served folder: its agents run on its server, in chats the server keeps (docs/plan/11).
+    const remote = platform.shared?.folder ? new ServerChats(platform.shared) : undefined;
+    if (remote) ctx.register(() => remote.dispose());
 
     // What an answer refers to: a file by its path, also as the system has it, or by its name.
     const placeOf = (place: WrittenPlace): VaultPath | undefined => {
@@ -128,15 +129,17 @@ export const plugin = definePlugin({
       const usable = DEFAULT_AGENTS.filter((a) =>
         a.kind === 'chatgpt' ? !!platform.chatgpt : !!host,
       );
-      return usable.map((a) => {
+      const here = usable.map((a) => {
         const line = a.kind === 'chatgpt' ? undefined : overrides[a.id]?.trim();
         if (!line) return a;
         const [command, ...args] = splitCommand(line);
         return { ...a, command: command!, args };
       });
+      // The server's first: they are where the folder is.
+      return remote ? [...remote.agents, ...here] : here;
     };
     const currentAgent = () => {
-      const id = ctx.settings.get('agent', 'chatgpt');
+      const id = ctx.settings.get('agent', remote?.agents[0]?.id ?? 'chatgpt');
       return agents().some((a) => a.id === id) ? id : agents()[0]!.id;
     };
 
@@ -146,64 +149,10 @@ export const plugin = definePlugin({
       name: config.name.replace(/\s*\(.*\)$/, ''),
       color: AGENT_COLOR,
     });
-    /**
-     * The Yjs client each assistant edits as, one per assistant in this window: its changes are
-     * its own in the document (collaborators see them as its, not as the person's who runs it).
-     */
-    const agentClients = new Map<string, number>();
-    const clientOf = (name: string) => {
-      let id = agentClients.get(name);
-      if (id === undefined) {
-        id = crypto.getRandomValues(new Uint32Array(1))[0]!;
-        agentClients.set(name, id);
-      }
-      return id;
-    };
-    /**
-     * Writes a note through its document, so the change merges live with the editor and with
-     * collaborators: in small steps (only what changed), under `author` (an assistant's own name
-     * and colour; none for what the user asked for, like taking a change back).
-     */
-    const writeNote = async (path: VaultPath, content: string, author?: ChangeAuthor) => {
-      if (!vault.get(path) || !/\.(md|markdown|txt)$/i.test(path)) {
-        await vault.write(path, content);
-        return;
-      }
-      const handle = await documents.open(path);
-      try {
-        const doc = handle.doc;
-        const ytext = markdownText(doc);
-        if (ytext.toString() === content) return;
-        if (!author) {
-          doc.transact(() => applyTextDiff(ytext, content), 'agent-undo');
-          return;
-        }
-        const client = clientOf(author.name);
-        // In a shared vault the others learn whose that client is.
-        const presence = handle.awareness as
-          | {
-              getLocalState(): AuthorPresence | null;
-              setLocalStateField(field: string, value: unknown): void;
-            }
-          | undefined;
-        const listed = presence?.getLocalState()?.agents ?? [];
-        if (presence && !listed.some((a) => a.client === client))
-          presence.setLocalStateField('agents', [
-            ...listed,
-            { client, name: author.name, color: author.color },
-          ]);
-        // Made as the assistant's own Yjs client: its text is its own in the document.
-        applyTextDiffAs(doc, 'content', content, client, new AuthoredChange(author));
-      } finally {
-        handle.dispose();
-      }
-    };
-    /** Agent file access: open notes are edited in their documents, so changes merge live. */
-    const filesAs = (author: ChangeAuthor): AgentFiles => ({
-      root,
-      read: async (path) => documents.peek(path) ?? (await vault.read(path)),
-      write: (path, content) => writeNote(path, content, author),
-    });
+    // Notes are written through their documents (merged live, as the assistant).
+    const writer = noteWriter(documents, vault);
+    const writeNote = writer.write;
+    const filesAs = (author: ChangeAuthor): AgentFiles => writer.filesAs(root, author);
     const files = filesAs({ kind: 'agent', name: 'Assistant', color: AGENT_COLOR });
 
     // How features of the app are used, contributed by other plugins (frames, …).
@@ -214,8 +163,25 @@ export const plugin = definePlugin({
         .filter(Boolean)
         .join('\n\n');
 
-    // Conversations are saved as they go, and can be picked up again from the panel.
-    const chats = new ChatStore(platform.fs);
+    // Conversations are saved as they go, and can be picked up again from the panel (the
+    // server's chats: by the server).
+    const here = new ChatStore(platform.fs);
+    const chats = {
+      list: async () =>
+        remote
+          ? [...remote.summaries(), ...(await here.list())].sort((a, b) =>
+              b.updated.localeCompare(a.updated),
+            )
+          : here.list(),
+      load: async (id: string): Promise<SavedChat | undefined> => {
+        const there = remote?.find(id);
+        if (!there) return here.load(id);
+        // (Its transcript comes when the chat is followed.)
+        return { version: 1, ...remote!.summaries().find((c) => c.id === id)!, items: [] };
+      },
+      remove: (id: string) =>
+        remote?.find(id) ? (remote.send({ t: 'delete', id }), Promise.resolve()) : here.remove(id),
+    };
     // Which chat changed what, and which chat answers which comment thread.
     const ledger = new Ledger(platform.fs);
     void ledger.load();
@@ -223,6 +189,21 @@ export const plugin = definePlugin({
 
     const createSession = (agentId: string, saved?: SavedChat): ChatSession => {
       const config = agents().find((a) => a.id === agentId) ?? agents()[0]!;
+      if (config.server && remote) {
+        const there = saved && remote.find(saved.id);
+        const joining: Joining = !saved
+          ? { kind: 'new' }
+          : !there
+            ? {
+                kind: 'new',
+                ...(saved.forkedFrom ? { fork: saved.forkedFrom } : {}),
+                ...(saved.name ? { name: saved.name } : {}),
+              }
+            : there.open
+              ? { kind: 'follow' }
+              : { kind: 'open' };
+        return new RemoteSession(remote, config, joining, saved?.id, guidance);
+      }
       // Each chat has its own view of the files: it does not overwrite what it has not seen.
       const ref = { id: saved?.id ?? '' };
       // Its changes are shown under its own name.
@@ -256,7 +237,10 @@ export const plugin = definePlugin({
               },
               saved,
             )
-          : new AgentSession(config, host!, own, guidance, saved);
+          : new AgentSession(config, host!, own, guidance, saved, undefined, () => {
+              const drawings = drawingsNow();
+              return { vault, index: ctx.use(MetadataIndex), ...(drawings ? { drawings } : {}) };
+            });
       ref.id = s.chatId;
       return s;
     };
@@ -269,7 +253,9 @@ export const plugin = definePlugin({
       const s = chat.session;
       clearTimeout(saveTimers.get(s.chatId));
       saveTimers.delete(s.chatId);
-      void chats
+      // (The server saves its chats; from here, only their names.)
+      if (s instanceof RemoteSession) return s.rename(chat.name ?? '');
+      void here
         .save(s.chatId, s.config.id, s.snapshot(), chat.name)
         .catch((e: unknown) => console.error('[pumice] could not save the chat', e));
     };
@@ -278,6 +264,7 @@ export const plugin = definePlugin({
       if (known) return known;
       const chat = manager.start(agentId, saved);
       const s = chat.session;
+      if (s instanceof RemoteSession) return chat;
       s.onDidChange(() => {
         if (!s.items.some((i) => i.kind === 'user')) return;
         clearTimeout(saveTimers.get(s.chatId));
@@ -330,8 +317,32 @@ export const plugin = definePlugin({
       const chat = manager.get(id);
       // Write what is pending before the conversation goes.
       if (chat && saveTimers.has(id)) saveNow(chat);
+      // A server's chat: its agent ends there, for every window.
+      if (chat?.session instanceof RemoteSession) chat.session.end();
       manager.close(id);
     };
+    if (remote) {
+      // The server's open chats are this window's open chats too.
+      const sync = () => {
+        for (const c of remote.chats) {
+          if (!c.open) continue;
+          const open = manager.get(c.id);
+          if (open?.session instanceof RemoteSession) open.session.confirmed = true;
+          else if (!open && remote.agents.some((a) => a.id === c.agent)) {
+            // (It is in the server's list: from now on that list says whether it is open.)
+            const joined = openChat(c.agent, { version: 1, ...c, items: [] }).session;
+            if (joined instanceof RemoteSession) joined.confirmed = true;
+          }
+          if (open && c.name !== open.name) manager.rename(c.id, c.name ?? '');
+        }
+        for (const chat of [...manager.open]) {
+          const s = chat.session;
+          if (!(s instanceof RemoteSession) || !s.confirmed) continue;
+          if (!remote.find(s.chatId)?.open) manager.close(s.chatId);
+        }
+      };
+      ctx.register(remote.onDidChange(sync));
+    }
 
     /** Takes back one change an agent made to a note, if the text is still as it left it. */
     const undoChange = async (change: AgentChange) => {
@@ -373,7 +384,7 @@ export const plugin = definePlugin({
                 openExternal: (url) => void ctx.tryUse(ShellService)?.openExternal(url),
               },
               agents,
-              available: (!!host || !!platform.chatgpt) && !!root,
+              available: (!!host || !!platform.chatgpt || !!remote) && !!root,
               root,
               manager,
               newChat: (agentId) => openChat(agentId),
@@ -764,7 +775,19 @@ export const plugin = definePlugin({
                     ),
                   ]
                 : []),
-              ...(host ? rows : [h('p', {}, 'Agents need the desktop app.')]),
+              ...(host
+                ? rows
+                : remote
+                  ? [
+                      h(
+                        'p',
+                        {},
+                        remote.agents.length
+                          ? `On this vault's server: ${remote.agents.map((a) => a.name.replace(/\s*\(.*\)$/, '')).join(', ')}. They run there, in its folder, and their chats are kept there: they go on when this window closes.`
+                          : 'No agents run on this vault’s server.',
+                      ),
+                    ]
+                  : [h('p', {}, 'Agents need the desktop app.')]),
               settingItem(
                 'Reset commands',
                 'Go back to the default command for every agent.',

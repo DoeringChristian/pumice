@@ -12,6 +12,10 @@ link to where they are worked out.
 
 ## Hosting and sharing ([05](05-collaboration.md))
 
+- **Served folders, next steps** (`pumice-server <folder>` serves the folder, the web app, a key
+  link and the agents): a link that edits but does not run agents (to share); "new key" to
+  shut out the old link; the ChatGPT assistant on the server (its sign-in held there); the
+  Docker image with the web app.
 - **Browser vaults without a server**: create and open vaults kept only in the browser (the
   GitHub Pages app on its own), download a vault as a zip and import one.
 - **The server serves the web app** (one program: hosted mode), finding its server by itself.
@@ -45,10 +49,16 @@ link to where they are worked out.
 - Sending sign-in codes by email (SMTP): not wanted for now.
 - Frames from the server (on a domain of their own), PDF export in the browser.
 
+## Agents
+
+- **Effort for the ChatGPT assistant**: its model list does not say which reasoning levels a
+  model takes; the agents' chats have model and effort (their ACP options).
+- **Server chats, what is left** (docs/plan/11): "what the chats changed" and taking a change
+  back for chats on the server (their ledger is in the folder, the panel reads this window's);
+  this device's agents in a shared vault beside the server's (step 4); private chats.
+
 ## Media
 
-- **Lightbox: flick through pictures** with the left and right arrow keys (and swiping on
-  touch screens): the pictures of the note, in order.
 
 ## Open questions
 

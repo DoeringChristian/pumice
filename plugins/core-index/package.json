@@ -7,14 +7,14 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@pumice/api": "workspace:*",
-    "@pumice/markdown": "workspace:*",
+    "@pumice/api": "*",
+    "@pumice/markdown": "*",
     "minisearch": "^7.2.0"
   },
   "devDependencies": {
-    "@pumice/core-documents": "workspace:*",
-    "@pumice/core-markdown": "workspace:*",
-    "@pumice/core-vault": "workspace:*",
-    "@pumice/platform-memory": "workspace:*"
+    "@pumice/core-documents": "*",
+    "@pumice/core-markdown": "*",
+    "@pumice/core-vault": "*",
+    "@pumice/platform-memory": "*"
   }
 }

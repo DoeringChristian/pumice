@@ -449,6 +449,8 @@ export class SharedVault {
       }
     }
     if (entry.kind === 'attachment') await this.ensureBlob(id);
+    // A note or drawing new to this device: its content is asked for (and written when it comes).
+    else if (!this.replicas.has(id)) this.replica(id);
     else await this.project(id);
   }
 

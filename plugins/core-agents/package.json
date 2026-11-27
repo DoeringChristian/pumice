@@ -4,12 +4,19 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./session": "./src/session.ts",
+    "./chats": "./src/chats.ts",
+    "./ledger": "./src/ledger.ts",
+    "./write": "./src/write.ts",
+    "./wire": "./src/wire.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "2.8.0",
-    "@pumice/api": "workspace:*",
-    "@pumice/core-documents": "workspace:*",
-    "@pumice/ui": "workspace:*"
+    "@modelcontextprotocol/server": "^2.4.0",
+    "@pumice/api": "*",
+    "@pumice/core-documents": "*",
+    "@pumice/ui": "*",
+    "zod": "^4.6.7"
   }
 }

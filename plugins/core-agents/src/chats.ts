@@ -13,6 +13,11 @@ export interface ChatSnapshot {
   input?: unknown[];
   /** An external agent's own id for the conversation. */
   sessionId?: string;
+  /** The chat answers the agent's questions itself ("allow everything in this chat"). */
+  autoApprove?: boolean;
+  /** The model and the reasoning effort chosen in the chat (an external agent's). */
+  model?: string;
+  effort?: string;
 }
 
 export interface SavedChat extends ChatSnapshot {
@@ -25,6 +30,13 @@ export interface SavedChat extends ChatSnapshot {
   name?: string;
   /** The chat this one was forked from: it starts with that conversation. */
   forkedFrom?: string;
+  /** Who started it (a server's chats: the user there). */
+  by?: { id: string; name: string };
+  /**
+   * Who sees it: absent, everyone in the vault. (`private`: only `by`; not yet offered, see
+   * docs/plan/11.)
+   */
+  visibility?: 'private';
   /** ISO timestamps. */
   created: string;
   updated: string;
@@ -32,7 +44,7 @@ export interface SavedChat extends ChatSnapshot {
 
 export type ChatSummary = Pick<
   SavedChat,
-  'id' | 'agent' | 'title' | 'name' | 'created' | 'updated'
+  'id' | 'agent' | 'title' | 'name' | 'created' | 'updated' | 'by' | 'visibility'
 >;
 
 export const CHATS_DIR = '.pumice/chats';
@@ -104,7 +116,8 @@ export class ChatStore {
   constructor(private readonly fs: PlatformFs) {}
 
   private file(id: string): string {
-    if (!/^[\w-]+$/.test(id)) throw new Error('Not a chat id');
+    // (The folder's own files are not chats: `index.json`, `ledger.json`, `open.json`.)
+    if (!/^[\w-]+$/.test(id) || /^(index|ledger|open)$/i.test(id)) throw new Error('Not a chat id');
     return `${CHATS_DIR}/${id}.json`;
   }
 
@@ -144,7 +157,13 @@ export class ChatStore {
   }
 
   /** Writes a conversation (one without a message from the user is not kept). */
-  save(id: string, agent: string, snapshot: ChatSnapshot, name?: string): Promise<void> {
+  save(
+    id: string,
+    agent: string,
+    snapshot: ChatSnapshot,
+    name?: string,
+    more?: Pick<SavedChat, 'by' | 'visibility' | 'forkedFrom'>,
+  ): Promise<void> {
     return this.serial(async () => {
       if (!snapshot.items.some((i) => i.kind === 'user')) return;
       const index = await this.readIndex();
@@ -161,9 +180,23 @@ export class ChatStore {
         items: storableItems(snapshot.items),
         ...(snapshot.input ? { input: snapshot.input } : {}),
         ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
+        ...(snapshot.autoApprove ? { autoApprove: true } : {}),
+        ...(snapshot.model ? { model: snapshot.model } : {}),
+        ...(snapshot.effort ? { effort: snapshot.effort } : {}),
+        ...more,
       };
       await this.fs.write(this.file(id), `${JSON.stringify(chat)}\n`);
-      const { items: _items, input: _input, sessionId: _sessionId, version: _v, ...summary } = chat;
+      const {
+        items: _items,
+        input: _input,
+        sessionId: _sessionId,
+        autoApprove: _auto,
+        model: _model,
+        effort: _effort,
+        forkedFrom: _fork,
+        version: _v,
+        ...summary
+      } = chat;
       if (known) {
         if (!name) delete known.name;
         Object.assign(known, summary);

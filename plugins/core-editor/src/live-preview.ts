@@ -125,6 +125,11 @@ export interface PreviewDeps {
   links?(): LinksApi | undefined;
   /** Runs a command of the app (of another plugin, which may not be there). */
   run?(command: string, arg?: unknown): void;
+  /**
+   * For an embedded picture of the vault: copies the picture itself, with `text` (how the note
+   * shows it) beside it on the clipboard. Absent for what is not such a picture.
+   */
+  pictureCopier?(target: string): ((text: string) => Promise<void>) | undefined;
 }
 
 export const previewDeps = Facet.define<PreviewDeps, PreviewDeps | undefined>({
@@ -1199,6 +1204,9 @@ class EmbedWidget extends WidgetType {
       });
     }
     const reader = view.state.facet(previewDeps)?.reader;
+    // A picture of the vault is copied as itself (and as its text, for a note).
+    const copier = view.state.facet(previewDeps)?.pictureCopier?.(this.target);
+    const picture = copier ? { copyPicture: () => copier(sourceText()) } : {};
     // Events inside the widget do not reach the editor's own handlers.
     el.addEventListener('contextmenu', (e) => {
       if (!el.querySelector('.pm-embed-media, audio, iframe')) return;
@@ -1268,7 +1276,12 @@ class EmbedWidget extends WidgetType {
             view.requestMeasure();
             caption();
             attachResizeHandle(view, el, resize);
-            attachMenuButton(el, menuAt, { edit: editSource, comment, copy: sourceText });
+            attachMenuButton(el, menuAt, {
+              edit: editSource,
+              comment,
+              copy: sourceText,
+              ...picture,
+            });
           },
         })
         .then((d) => {
@@ -1276,7 +1289,7 @@ class EmbedWidget extends WidgetType {
           view.requestMeasure();
           caption();
           attachResizeHandle(view, el, resize);
-          attachMenuButton(el, menuAt, { edit: editSource, comment, copy: sourceText });
+          attachMenuButton(el, menuAt, { edit: editSource, comment, copy: sourceText, ...picture });
         });
       holdRoom(el, known, drawn);
     }

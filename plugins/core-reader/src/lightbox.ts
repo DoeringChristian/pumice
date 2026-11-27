@@ -1,12 +1,42 @@
 import { createVideoControls } from '@pumice/ui';
 
+/** The address of a picture in a note (once it is there; until then what holds its place). */
+const addressOf = (img: HTMLImageElement) => img.dataset.full || img.src;
+
+/**
+ * The pictures of the note `img` is in, in order (those drawn: a long note in the editor draws
+ * what is near the screen), and where `img` is among them.
+ */
+function picturesAround(img: HTMLImageElement): { pictures: HTMLImageElement[]; at: number } {
+  let note: HTMLElement | null = img.closest('.pm-markdown-page');
+  for (let el = img.parentElement; !note && el; el = el.parentElement) {
+    const { overflowY } = getComputedStyle(el);
+    if (overflowY === 'auto' || overflowY === 'scroll') note = el;
+  }
+  const pictures = [
+    ...(note ?? document.body).querySelectorAll<HTMLImageElement>('img.pm-zoomable'),
+  ];
+  return { pictures, at: Math.max(0, pictures.indexOf(img)) };
+}
+
+/** Enlarges a picture of a note; the arrow keys (or a swipe) go to the note's others. */
+export function showPicture(img: HTMLImageElement): void {
+  showLightbox(addressOf(img), img.alt, undefined, picturesAround(img));
+}
+
 /**
  * A picture or a video enlarged over the whole window. A click, Escape or scrolling away
  * closes it; the wheel (with Ctrl/Cmd, or a pinch) zooms in on the pointer. A video has its
  * controls along the bottom and goes on from where the one in the note was; only its play
- * button plays it.
+ * button plays it. With `around`, the left and right arrow keys, or a swipe, show the picture
+ * before or after it, zoomed in on the same place.
  */
-export function showLightbox(src: string, alt = '', from?: HTMLVideoElement): void {
+export function showLightbox(
+  src: string,
+  alt = '',
+  from?: HTMLVideoElement,
+  around?: { pictures: HTMLImageElement[]; at: number },
+): void {
   document.querySelector('.pm-lightbox')?.remove();
   const overlay = document.createElement('div');
   overlay.className = 'pm-lightbox';
@@ -52,6 +82,18 @@ export function showLightbox(src: string, alt = '', from?: HTMLVideoElement): vo
     overlay.classList.toggle('is-zoomed', scale > 1);
   };
   const previous = document.activeElement as HTMLElement | null;
+  let at = around?.at ?? 0;
+  /** The picture before (-1) or after (1), at the same zoom and place. */
+  const step = (by: -1 | 1): boolean => {
+    const next = around?.pictures[at + by];
+    if (!next || !(img instanceof HTMLImageElement)) return false;
+    at += by;
+    img.src = addressOf(next);
+    img.alt = next.alt;
+    overlay.setAttribute('aria-label', next.alt || 'Picture');
+    // Zoomed in and moved as the one before: the same place in each, to compare them.
+    return true;
+  };
   const close = () => {
     // The video in the note is where this one got to.
     if (from && img instanceof HTMLVideoElement) {
@@ -62,6 +104,9 @@ export function showLightbox(src: string, alt = '', from?: HTMLVideoElement): vo
     overlay.remove();
     document.removeEventListener('keydown', onKey, true);
     previous?.focus?.();
+    // Back in the note at the picture looked at last.
+    if (around && at !== around.at)
+      around.pictures[at]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === ' ' && img instanceof HTMLVideoElement && !controls?.contains(e.target as Node)) {
@@ -69,6 +114,12 @@ export function showLightbox(src: string, alt = '', from?: HTMLVideoElement): vo
       e.stopPropagation();
       if (img.paused || img.ended) void img.play().catch(() => undefined);
       else img.pause();
+      return;
+    }
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && around) {
+      e.preventDefault();
+      e.stopPropagation();
+      step(e.key === 'ArrowLeft' ? -1 : 1);
       return;
     }
     if (e.key !== 'Escape') return;
@@ -113,7 +164,12 @@ export function showLightbox(src: string, alt = '', from?: HTMLVideoElement): vo
   overlay.addEventListener('pointerup', (e) => {
     if (!drag) return;
     const moved = drag.moved;
+    // Not zoomed in: a swipe to the side goes to the picture before or after.
+    const dx = e.clientX - drag.x;
+    const swiped =
+      scale === 1 && Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(e.clientY - drag.y);
     drag = undefined;
+    if (swiped) step(dx > 0 ? -1 : 1);
     if (overlay.hasPointerCapture(e.pointerId)) overlay.releasePointerCapture(e.pointerId);
     if (!moved) close();
   });

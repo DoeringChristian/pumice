@@ -243,7 +243,9 @@ export function isEmbedSize(text: string): boolean {
 /** An alias with a size put at its end (replacing one that is there). */
 export function withAliasSize(alias: string | undefined, size: string): string {
   const parts = alias ? alias.split('|') : [];
-  if (parts.length && isEmbedSize(parts[parts.length - 1]!)) parts.pop();
+  const last = parts[parts.length - 1];
+  // (An empty size, `2024|`, is replaced too.)
+  if (last !== undefined && (isEmbedSize(last) || (parts.length > 1 && !last.trim()))) parts.pop();
   return [...parts, size].join('|');
 }
 

@@ -3,6 +3,29 @@ import { Readable, Writable } from 'node:stream';
 import { agent, ndJsonStream, PROTOCOL_VERSION } from '@agentclientprotocol/sdk';
 
 let cwd = '';
+// The model and the effort, as configuration options (models in groups, as ACP allows).
+const chosen = { model: 'fast', effort: 'medium' };
+const configOptions = () => [
+  {
+    id: 'model',
+    name: 'Model',
+    category: 'model',
+    type: 'select',
+    currentValue: chosen.model,
+    options: [
+      { group: 'small', name: 'Small', options: [{ value: 'fast', name: 'Fast' }] },
+      { group: 'large', name: 'Large', options: [{ value: 'deep', name: 'Deep' }] },
+    ],
+  },
+  {
+    id: 'effort',
+    name: 'Effort',
+    category: 'thought_level',
+    type: 'select',
+    currentValue: chosen.effort,
+    options: ['low', 'medium', 'high'].map((v) => ({ value: v, name: v })),
+  },
+];
 const app = agent({ name: 'mock' })
   .onRequest('initialize', () => ({
     protocolVersion: PROTOCOL_VERSION,
@@ -13,6 +36,7 @@ const app = agent({ name: 'mock' })
     cwd = params.cwd;
     return {
       sessionId: 's1',
+      configOptions: configOptions(),
       modes: {
         currentModeId: 'default',
         availableModes: [
@@ -30,7 +54,12 @@ const app = agent({ name: 'mock' })
       sessionId: 's1',
       update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'REPLAYED' } },
     });
-    return {};
+    return { configOptions: configOptions() };
+  })
+  .onRequest('session/set_config_option', ({ params }) => {
+    if (!(params.configId in chosen)) throw new Error('no such option');
+    chosen[params.configId] = params.value;
+    return { configOptions: configOptions() };
   })
   .onRequest('session/set_mode', () => ({}))
   .onRequest('session/prompt', async ({ params, client }) => {

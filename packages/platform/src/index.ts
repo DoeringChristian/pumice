@@ -54,6 +54,11 @@ export interface Lifecycle {
 export interface Shell {
   openExternal(url: string): Promise<void>;
   revealInFileManager?(path: VaultPath): Promise<void>;
+  /**
+   * Puts a file of the vault on the clipboard as a file, as the system's file manager copies one
+   * (desktop, a vault that is a folder here).
+   */
+  copyFile?(path: VaultPath): Promise<void>;
   /** The spelling checker that marks words in text fields (absent where there is none to ask). */
   spelling?: {
     /**
@@ -164,6 +169,22 @@ export interface FrameAccess {
   dispose(): void;
 }
 
+/** A shared vault as the device that opened it knows it (see `Platform.shared`). */
+export interface SharedVaultSession {
+  server: string;
+  vaultId: string;
+  vaultName: string;
+  role: 'owner' | 'editor' | 'viewer';
+  /** This device's session on the server (it has a name of its own there). */
+  token: string;
+  user: { id: string; name: string; email: string; color: string };
+  /**
+   * A served folder's path on its server (for its owners): its agents run there, in chats the
+   * server keeps (docs/plan/11).
+   */
+  folder?: string;
+}
+
 /** Choosing and switching vaults; absent where there is only one (web demo). */
 export interface VaultSwitcher {
   list(): Promise<KnownVault[]>;
@@ -177,6 +198,11 @@ export interface VaultSwitcher {
   forget(id: string): Promise<void>;
   /** Opens the shell's own vault manager, if it has one (desktop). */
   manage?(): Promise<void>;
+  /**
+   * Opens a shared vault by its link (`<server>/#open=<vault>&key=<key>`) and puts it in the
+   * list (docs/plan/10).
+   */
+  add?(link: string, opts?: { newWindow?: boolean }): Promise<void>;
 }
 
 export interface Platform {
@@ -216,6 +242,12 @@ export interface Platform {
     /** A folder called `name` with these files (by their path in it), in a folder chosen. */
     folder(name: string, files: Record<string, string | Uint8Array>): Promise<string | null>;
   };
+  /**
+   * The open vault is a shared vault (docs/plan/10): its server, its id there, and this device's
+   * session on that server. The collaboration plugin keeps it in step; its files are the copy
+   * in `fs` (this device's storage, no folder of its own).
+   */
+  readonly shared?: SharedVaultSession;
   /** Absent where programs can't be started (web, mobile). */
   readonly process?: ProcessHost;
 }

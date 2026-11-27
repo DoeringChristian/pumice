@@ -1,55 +1,29 @@
 import { startApp } from '@pumice/app';
-import { createWebPlatform, deleteWebVault } from '@pumice/platform-web';
-import type { VaultSwitcher } from '@pumice/platform';
-import {
-  account,
-  forgetVault,
-  openedVaults,
-  vaultHash,
-  vaultKey,
-  type OpenedVault,
-} from './accounts';
+import { createWebPlatform, withServedFolder } from '@pumice/platform-web';
+import type { SharedVaultSession } from '@pumice/platform';
+import { account, vaultKey, type OpenedVault } from './accounts';
+import { vaultSwitcher } from './switcher';
 
-/** One vault to a page: going to another starts over. */
-function go(hash: string): void {
-  location.hash = hash;
-  location.reload();
-}
-
-/** Opens a shared vault on its copy in this browser, kept in sync by the collaboration plugin. */
+/** Opens a shared vault on its copy in this browser, kept in step by the collaboration plugin. */
 export async function startVault(root: HTMLElement, vault: OpenedVault): Promise<void> {
   const key = vaultKey(vault);
   const signedIn = account(vault.server);
-  if (!signedIn) throw new Error('Sign in to open this vault.');
-  const vaults: VaultSwitcher = {
-    list: async () =>
-      openedVaults().map((v) => ({
-        id: vaultKey(v),
-        name: v.name,
-        location: v.server,
-        current: vaultKey(v) === key,
-        lastOpened: v.lastOpened,
-      })),
-    open: async (id) => go(vaultHash(id)),
-    pick: async () => (go(''), true),
-    forget: async (id) => {
-      await deleteWebVault(id);
-      forgetVault(id);
-    },
+  if (!signedIn) throw new Error('Open this vault with its link.');
+  const shared: SharedVaultSession = {
+    server: vault.server,
+    vaultId: vault.id,
+    vaultName: vault.name,
+    role: vault.role,
+    token: signedIn.token,
+    user: signedIn.user,
   };
-  const platform = await createWebPlatform({ id: key, name: vault.name, vaults });
-  // Tells the collaboration plugin which shared vault this is, and as whom.
-  await platform.storage.set(
-    'plugin:core.collab:link',
-    JSON.stringify({
-      server: vault.server,
-      token: signedIn.token,
-      user: signedIn.user,
-      vaultId: vault.id,
-      vaultName: vault.name,
-      role: vault.role,
-    }),
-  );
+  const platform = await createWebPlatform({
+    id: key,
+    name: vault.name,
+    vaults: vaultSwitcher(key),
+    // (A served folder's agents run on its server: where the folder is there.)
+    shared: await withServedFolder(shared),
+  });
   root.replaceChildren();
   root.className = '';
   await startApp({ platform, root });

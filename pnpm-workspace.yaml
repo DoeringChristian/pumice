@@ -1,9 +1,0 @@
-packages:
-  - packages/*
-  - plugins/*
-  - apps/*
-  - examples/*
-onlyBuiltDependencies:
-  - electron
-  - esbuild
-autoInstallPeers: true

@@ -28,7 +28,7 @@ import { PreambleStore } from './preamble';
 import { mediaSize, placeholder } from './media-header';
 import { createIcon, createVideoPlayer } from '@pumice/ui';
 import { numberRendered, setEmbedCaption, splitFigureLines } from './figures';
-import { showLightbox } from './lightbox';
+import { showLightbox, showPicture } from './lightbox';
 import { renderTex } from './math';
 
 /** Note embeds deeper than this show a link instead (stops cycles like A embeds B embeds A). */
@@ -605,7 +605,7 @@ export class ReaderImpl implements ReaderApi {
       e.preventDefault();
       e.stopPropagation();
       if (e.metaKey || e.ctrlKey) of.open();
-      else showLightbox(img.src, img.alt);
+      else showPicture(img);
     });
     const url = await of.url();
     img.addEventListener('load', () => {
@@ -619,6 +619,8 @@ export class ReaderImpl implements ReaderApi {
       missing.textContent = `“${img.alt}” could not be shown.`;
       img.replaceWith(missing);
     });
+    // (Where the lightbox finds it, also while it is not loaded yet.)
+    img.dataset.full = url;
     img.src = url;
   }
 

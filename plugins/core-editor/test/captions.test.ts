@@ -72,6 +72,28 @@ describe('writing into a caption', () => {
     );
   });
 
+  it('starts a caption with a number, which is not taken for a size', () => {
+    // Typed into an empty caption: an empty size behind it says it is not one.
+    const two = edit('![[a.png|]]\n', [{ at: '|', insert: '2' }], 'input.type');
+    expect(two.text).toBe('![[a.png|2|]]\n');
+    expect(two.cursors).toEqual([10]);
+    // Once it reads as words, the empty size goes.
+    expect(edit(two.text, [{ at: '|2', insert: ' bodies' }], 'input.type').text).toBe(
+      '![[a.png|2 bodies]]\n',
+    );
+    // Deleting back to a number brings it again.
+    expect(edit('![[a.png|2x]]\n', [{ at: '|2', insert: '', del: 1 }], 'delete').text).toBe(
+      '![[a.png|2|]]\n',
+    );
+    // Before a size that is there: the bar is the one in front of the size.
+    expect(edit('![[a.png|300]]\n', [{ at: '|', insert: '2' }], 'input.type').text).toBe(
+      '![[a.png|2|300]]\n',
+    );
+    expect(edit('![](a.png){#fig-a}\n', [{ at: '![', insert: '3' }], 'input.type').text).toBe(
+      '![3|](a.png){#fig-a}\n',
+    );
+  });
+
   it('leaves a figure at the end of the note writable', () => {
     expect(edit('![[a.png|]]', [{ at: '|', insert: 'N' }], 'input.type').text).toBe('![[a.png|N]]');
     expect(edit('![](a.png)', [{ at: '![', insert: 'N' }], 'input.type').text).toBe('![N](a.png)');

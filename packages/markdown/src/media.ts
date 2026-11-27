@@ -49,11 +49,15 @@ export interface MediaText {
   id?: string;
 }
 
-/** The caption in an alias: everything but a size at its end (`Caption|300`). */
+/**
+ * The caption in an alias: everything but a size at its end (`Caption|300`). An empty size
+ * (`2024|`) says there is none: what is before it is the caption, though it reads as a size.
+ */
 export function embedCaption(alias: string | undefined): string | undefined {
   if (!alias) return undefined;
   const parts = alias.split(/\\?\|/);
-  if (isEmbedSize(parts[parts.length - 1]!)) parts.pop();
+  const last = parts[parts.length - 1]!;
+  if (isEmbedSize(last) || (parts.length > 1 && !last.trim())) parts.pop();
   return parts.join('|').trim() || undefined;
 }
 
@@ -80,7 +84,9 @@ export function mediaIn(line: string): MediaText[] {
     const caption = embedCaption(full);
     const raw = text.slice(aliasFrom, aliasTo);
     const last = /(^|\\?\|)([^|]*)$/.exec(raw);
-    const sized = last && isEmbedSize(last[2]!) ? last.index : raw.length;
+    // (Up to a size, or to an empty one: see embedCaption.)
+    const sized =
+      last && (isEmbedSize(last[2]!) || (last[1] && !last[2]!.trim())) ? last.index : raw.length;
     found.push({
       spelling,
       from: m.index!,

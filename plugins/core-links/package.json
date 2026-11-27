@@ -11,14 +11,14 @@
     "@codemirror/language": "^6.10.3",
     "@codemirror/state": "^6.4.1",
     "@codemirror/view": "^6.34.1",
-    "@pumice/api": "workspace:*",
-    "@pumice/ui": "workspace:*"
+    "@pumice/api": "*",
+    "@pumice/ui": "*"
   },
   "devDependencies": {
-    "@pumice/core-documents": "workspace:*",
-    "@pumice/core-index": "workspace:*",
-    "@pumice/core-markdown": "workspace:*",
-    "@pumice/core-vault": "workspace:*",
-    "@pumice/platform-memory": "workspace:*"
+    "@pumice/core-documents": "*",
+    "@pumice/core-index": "*",
+    "@pumice/core-markdown": "*",
+    "@pumice/core-vault": "*",
+    "@pumice/platform-memory": "*"
   }
 }

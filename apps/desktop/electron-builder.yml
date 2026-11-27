@@ -11,6 +11,9 @@ files:
   - out/**
   - package.json
 asarUnpack: []
+# No native modules to build. (With npm workspaces, the install it would run for that prunes the
+# repository's shared node_modules down to the app's production dependencies.)
+npmRebuild: false
 # The name inside the packaged app (Linux package managers take theirs from it).
 extraMetadata:
   name: pumice

@@ -4,20 +4,21 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./codec": "./src/codec.ts",
+    "./drawings": "./src/drawings.ts"
   },
   "dependencies": {
-    "@excalidraw/excalidraw": "link:../../vendor/excalidraw/packages/excalidraw",
-    "@pumice/api": "workspace:*",
-    "@pumice/ui": "workspace:*",
+    "@pumice/api": "*",
+    "@pumice/ui": "*",
     "lz-string": "^1.5.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "yjs": "^13.6.33"
   },
   "devDependencies": {
-    "@pumice/core-documents": "workspace:*",
-    "@pumice/core-vault": "workspace:*",
-    "@pumice/platform-memory": "workspace:*"
+    "@pumice/core-documents": "*",
+    "@pumice/core-vault": "*",
+    "@pumice/platform-memory": "*"
   }
 }

@@ -7,8 +7,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@pumice/api": "workspace:*",
-    "@pumice/ui": "workspace:*",
+    "@pumice/api": "*",
+    "@pumice/ui": "*",
     "plotly.js-strict-dist-min": "4.2.0"
   }
 }

@@ -7,8 +7,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@pumice/markdown": "workspace:*",
-    "@pumice/platform": "workspace:*",
+    "@pumice/markdown": "*",
+    "@pumice/platform": "*",
     "@types/mdast": "^4.0.4",
     "mdast-util-from-markdown": "^2.1.0",
     "micromark-util-types": "^2.0.3",

@@ -4,20 +4,22 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./shared-vault": "./src/shared-vault.ts"
   },
   "dependencies": {
-    "@pumice/api": "workspace:*",
-    "@pumice/collab-protocol": "workspace:*",
-    "@pumice/ui": "workspace:*",
+    "@pumice/api": "*",
+    "@pumice/collab-protocol": "*",
+    "@pumice/ui": "*",
     "lib0": "^0.2.99",
     "y-protocols": "^1.0.6",
     "yjs": "^13.6.20"
   },
   "devDependencies": {
-    "@pumice/core-documents": "workspace:*",
-    "@pumice/core-vault": "workspace:*",
-    "@pumice/platform-memory": "workspace:*",
-    "@pumice/server": "workspace:*"
+    "@pumice/core-documents": "*",
+    "@pumice/core-vault": "*",
+    "@pumice/platform-memory": "*",
+    "@pumice/server": "*"
   }
 }

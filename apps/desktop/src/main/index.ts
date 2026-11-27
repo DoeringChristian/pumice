@@ -5,6 +5,7 @@ import {
   BrowserWindow,
   Menu,
   app,
+  clipboard,
   dialog,
   ipcMain,
   net,
@@ -72,7 +73,26 @@ interface AppConfig {
   lastVault?: string;
   /** Vaults opened before, most recent first. */
   recent?: Array<{ path: string; opened: number }>;
+  /** Shared vaults opened by their links (docs/plan/10), most recent first. */
+  sharedVaults?: SharedEntry[];
+  /** The name this app has on each server whose vaults it opened by link (its session). */
+  servers?: Record<string, { token: string; user: unknown }>;
 }
+
+/** A shared vault in the list: no folder here, its copy is the window's own storage. */
+interface SharedEntry {
+  server: string;
+  vaultId: string;
+  name: string;
+  role: string;
+  opened: number;
+}
+
+/** A shared vault's id in the list of vaults (folders are known by their path). */
+const sharedId = (e: { server: string; vaultId: string }) => `shared:${e.server}|${e.vaultId}`;
+const isSharedId = (id: unknown): id is string =>
+  typeof id === 'string' && id.startsWith('shared:');
+const hostOf = (server: string) => server.replace(/^https?:\/\//, '');
 
 const MAX_RECENT = 15;
 
@@ -87,6 +107,16 @@ async function rememberVault(root: string): Promise<void> {
   if (OS !== 'linux') app.addRecentDocument(root);
 }
 
+async function rememberShared(entry: SharedEntry): Promise<void> {
+  const config = await readConfig();
+  const sharedVaults = [
+    { ...entry, opened: Date.now() },
+    ...(config.sharedVaults ?? []).filter((v) => sharedId(v) !== sharedId(entry)),
+  ];
+  await writeConfig({ ...config, lastVault: sharedId(entry), sharedVaults });
+}
+
+/** Folders and shared vaults, most recently opened first; `current`: the asking window's. */
 async function knownVaults(current: string) {
   const config = await readConfig();
   const out = [];
@@ -100,20 +130,97 @@ async function knownVaults(current: string) {
       lastOpened: v.opened,
     });
   }
-  return out;
+  for (const v of config.sharedVaults ?? [])
+    out.push({
+      id: sharedId(v),
+      name: v.name,
+      location: hostOf(v.server),
+      current: sharedId(v) === current,
+      lastOpened: v.opened,
+    });
+  return out.sort((a, b) => b.lastOpened - a.lastOpened);
 }
 
-/** Opens a vault in a new window, or in place of `replace` (the old window closes after). */
-async function switchVault(root: string, replace?: BrowserWindow): Promise<void> {
-  const existing = [...sessions.values()].find((s) => s.root === root);
+/**
+ * Opens a vault (a folder's path, or a shared vault's id) in a new window, or in place of
+ * `replace` (the old window closes after).
+ */
+async function switchVault(id: string, replace?: BrowserWindow): Promise<void> {
+  const existing = [...sessions.values()].find((s) => s.listId === id);
   if (existing) {
     existing.window.focus();
     return;
   }
-  if (!(await fs.stat(root).catch(() => null))?.isDirectory())
-    throw new Error(`The folder ${root} is not available.`);
-  await openVault(root);
+  if (isSharedId(id)) {
+    const entry = (await readConfig()).sharedVaults?.find((v) => sharedId(v) === id);
+    if (!entry) throw new Error('That shared vault is not in the list.');
+    await openVault('', entry);
+  } else {
+    if (!(await fs.stat(id).catch(() => null))?.isDirectory())
+      throw new Error(`The folder ${id} is not available.`);
+    await openVault(id);
+  }
   replace?.close();
+}
+
+/**
+ * Opens a shared vault by its link (`<server>/#open=<vault>&key=<key>`, as a served folder's
+ * server prints them) and puts it in the list: its window keeps its copy in its own storage.
+ */
+async function openSharedVault(text: unknown, replace?: BrowserWindow): Promise<void> {
+  let url: URL;
+  try {
+    url = new URL(String(text).trim());
+  } catch {
+    throw new Error('That is not a link to a vault.');
+  }
+  const params = new URLSearchParams(url.hash.replace(/^#/, ''));
+  const vaultId = params.get('open') ?? '';
+  const key = params.get('key') ?? '';
+  if (!/^https?:$/.test(url.protocol) || !/^[\w-]+$/.test(vaultId) || !/^[\w-]+$/.test(key))
+    throw new Error('That is not a link to a vault (it has #open=…&key=… in it).');
+  const server = `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+  const config = await readConfig();
+  const known = config.servers?.[server];
+  const res = await fetch(`${server}/api/open`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(known ? { Authorization: `Bearer ${known.token}` } : {}),
+    },
+    body: JSON.stringify({ vault: vaultId, key, device: `Pumice ${app.getVersion()}` }),
+  }).catch(() => {
+    throw new Error(`Could not reach ${server}.`);
+  });
+  const body = (await res.json().catch(() => ({}))) as {
+    token?: string;
+    user?: unknown;
+    vault?: { id: string; name: string; role: string };
+    error?: string;
+  };
+  if (res.status === 401 && known) {
+    // (That name's session ended: a new one.)
+    const { [server]: _gone, ...servers } = config.servers ?? {};
+    await writeConfig({ ...config, servers });
+    return openSharedVault(text, replace);
+  }
+  if (!res.ok || !body.token || !body.vault) throw new Error(body.error ?? `${res.status}`);
+  const entry: SharedEntry = {
+    server,
+    vaultId: body.vault.id,
+    name: body.vault.name,
+    role: body.vault.role,
+    opened: Date.now(),
+  };
+  await writeConfig({
+    ...config,
+    servers: { ...config.servers, [server]: { token: body.token, user: body.user } },
+    sharedVaults: [
+      entry,
+      ...(config.sharedVaults ?? []).filter((v) => sharedId(v) !== sharedId(entry)),
+    ],
+  });
+  await switchVault(sharedId(entry), replace);
 }
 
 async function readConfig(): Promise<AppConfig> {
@@ -141,13 +248,24 @@ class VaultSession {
   constructor(
     readonly root: string,
     readonly window: BrowserWindow,
+    /** A shared vault (no folder: `root` is empty, files are the window's own storage). */
+    readonly shared?: SharedEntry,
   ) {
-    this.id = createHash('sha256').update(root).digest('hex').slice(0, 16);
+    this.id = createHash('sha256')
+      .update(shared ? sharedId(shared) : root)
+      .digest('hex')
+      .slice(0, 16);
     this.processes = new ProcessManager(root, window);
+  }
+
+  /** The vault's id in the list: its folder, or the shared vault's id. */
+  get listId(): string {
+    return this.shared ? sharedId(this.shared) : this.root;
   }
 
   /** Maps a vault-relative path to an absolute one, refusing anything outside the vault. */
   abs(path: unknown): string {
+    if (this.shared) throw new Error('A shared vault has no folder here.');
     if (typeof path !== 'string') throw new Error('Path must be a string');
     const full = resolve(this.root, path);
     if (full !== this.root && !full.startsWith(this.root + sep))
@@ -318,7 +436,25 @@ async function saveFolder(): Promise<string> {
 }
 
 const handlers: Record<string, Handler> = {
-  info: (s) => ({ vaultName: basename(s.root), vaultPath: s.root, os: OS, vaultId: s.id }),
+  info: async (s) => {
+    if (!s.shared) return { vaultName: basename(s.root), vaultPath: s.root, os: OS, vaultId: s.id };
+    const login = (await readConfig()).servers?.[s.shared.server];
+    return {
+      vaultName: s.shared.name,
+      os: OS,
+      vaultId: s.id,
+      // (The window connects with this: the session this app has on that server.)
+      shared: {
+        id: sharedId(s.shared),
+        server: s.shared.server,
+        vaultId: s.shared.vaultId,
+        vaultName: s.shared.name,
+        role: s.shared.role,
+        token: login?.token ?? '',
+        user: login?.user,
+      },
+    };
+  },
   'fs.list': (s) => s.list(),
   'fs.stat': (s, p) => s.stat(String(p)),
   'fs.readText': (s, p) => fs.readFile(s.abs(p), 'utf8'),
@@ -366,6 +502,23 @@ const handlers: Record<string, Handler> = {
     return shell.openExternal(url);
   },
   'shell.reveal': (s, p) => shell.showItemInFolder(s.abs(p)),
+  // The file itself on the clipboard, as the system's file manager copies one: it pastes into
+  // the file manager, mail and chat programs as the file.
+  'shell.copyFile': (s, p) => {
+    const file = s.abs(p);
+    const url = pathToFileURL(file).href;
+    if (process.platform === 'darwin')
+      clipboard.writeBuffer(
+        'NSFilenamesPboardType',
+        Buffer.from(
+          `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><array><string>${file.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</string></array></plist>`,
+        ),
+      );
+    else if (process.platform === 'win32')
+      clipboard.writeBuffer('FileNameW', Buffer.from(`${file}\0`, 'ucs2'));
+    // (One format: each write replaces the clipboard. File managers and most programs take it.)
+    else clipboard.writeBuffer('text/uri-list', Buffer.from(`${url}\r\n`));
+  },
   // Saving to where the user says, in the system's dialog. Only what the dialog gave back is
   // written to: the page cannot name a place itself.
   'save.file': async (s, name, data) => {
@@ -497,15 +650,19 @@ const handlers: Record<string, Handler> = {
       throw new Error('Not a word');
     return electronSession.defaultSession.addWordToSpellCheckerDictionary(word);
   },
-  'vaults.list': (s) => knownVaults(s.root),
+  'vaults.list': (s) => knownVaults(s.listId),
   'vaults.open': async (s, path, newWindow) => {
-    // The renderer can only reopen folders the user picked before.
-    const known = (await readConfig()).recent?.some((v) => v.path === path);
+    // The renderer can only reopen vaults in the list (folders the user picked before).
+    const config = await readConfig();
+    const known = isSharedId(path)
+      ? config.sharedVaults?.some((v) => sharedId(v) === path)
+      : config.recent?.some((v) => v.path === path);
     if (typeof path !== 'string' || !known) throw new Error('Unknown vault');
     await switchVault(path, newWindow ? undefined : s.window);
   },
   'vaults.pick': (s, newWindow) => pickAndOpenVault(newWindow ? undefined : s.window),
   'vaults.manage': () => openLauncher(),
+  'vaults.add': (s, link, newWindow) => openSharedVault(link, newWindow ? undefined : s.window),
   'frames.open': (s, folder, files, inject, network, remote) =>
     frames.open({
       owner: s.window.webContents.id,
@@ -525,6 +682,11 @@ const handlers: Record<string, Handler> = {
   'frames.close': (s, token) => frames.close(String(token), s.window.webContents.id),
   'vaults.forget': async (_s, path) => {
     const config = await readConfig();
+    if (isSharedId(path)) {
+      // (Its copy, the window's storage, is deleted by the page that asked.)
+      const sharedVaults = (config.sharedVaults ?? []).filter((v) => sharedId(v) !== path);
+      return writeConfig({ ...config, sharedVaults });
+    }
     const recent = (config.recent ?? []).filter((v) => v.path !== path);
     await writeConfig({ ...config, recent });
     buildMenu(recent.map((v) => v.path));
@@ -594,13 +756,14 @@ ipcMain.handle(IPC.invoke, async (event, op: unknown, ...args: unknown[]) => {
   return handler(sessionFor(event), ...args);
 });
 
-async function openVault(root: string): Promise<void> {
+/** Opens a window on a folder, or on a shared vault (`root` empty, see SharedEntry). */
+async function openVault(root: string, shared?: SharedEntry): Promise<void> {
   const window = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 480,
     minHeight: 360,
-    title: basename(root),
+    title: shared ? shared.name : basename(root),
     backgroundColor: '#1c1a18',
     titleBarStyle: OS === 'macos' ? 'hiddenInset' : 'default',
     show: false,
@@ -611,9 +774,9 @@ async function openVault(root: string): Promise<void> {
       nodeIntegration: false,
     },
   });
-  const session = new VaultSession(root, window);
+  const session = new VaultSession(root, window, shared);
   sessions.set(window.webContents.id, session);
-  session.startWatching();
+  if (!shared) session.startWatching();
 
   // Links never navigate the app window.
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -687,7 +850,8 @@ async function openVault(root: string): Promise<void> {
   if (process.env.ELECTRON_RENDERER_URL) await window.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await window.loadURL(`${APP_ORIGIN}/index.html`);
 
-  await rememberVault(root);
+  if (shared) await rememberShared(shared);
+  else await rememberVault(root);
 }
 
 async function pickAndOpenVault(replace?: BrowserWindow): Promise<boolean> {
@@ -750,25 +914,42 @@ const closeLauncher = () => {
 };
 
 async function launcherVaults() {
+  const config = await readConfig();
   const out = [];
-  for (const v of (await readConfig()).recent ?? []) {
+  for (const v of config.recent ?? []) {
     const missing = !(await fs.stat(v.path).catch(() => null))?.isDirectory();
-    out.push({ path: v.path, name: basename(v.path), missing });
+    out.push({ path: v.path, name: basename(v.path), missing, opened: v.opened });
   }
-  return out;
+  // Shared vaults: their server where a folder shows its path.
+  for (const v of config.sharedVaults ?? [])
+    out.push({
+      path: sharedId(v),
+      name: v.name,
+      missing: false,
+      opened: v.opened,
+      server: hostOf(v.server),
+    });
+  return out.sort((a, b) => b.opened - a.opened).map(({ opened: _o, ...v }) => v);
 }
 
 const launcherHandlers: Record<string, (...args: unknown[]) => unknown> = {
   info: () => ({ version: app.getVersion(), defaultLocation: app.getPath('documents') }),
   list: () => launcherVaults(),
   open: async (path) => {
-    const known = (await readConfig()).recent?.some((v) => v.path === path);
+    const config = await readConfig();
+    const known = isSharedId(path)
+      ? config.sharedVaults?.some((v) => sharedId(v) === path)
+      : config.recent?.some((v) => v.path === path);
     if (typeof path !== 'string' || !known) throw new Error('Unknown vault');
     await switchVault(path);
     closeLauncher();
   },
   pick: async () => {
     if (await pickAndOpenVault()) closeLauncher();
+  },
+  openShared: async (link) => {
+    await openSharedVault(link);
+    closeLauncher();
   },
   chooseFolder: async () => {
     const options: Electron.OpenDialogOptions = {
@@ -797,6 +978,10 @@ const launcherHandlers: Record<string, (...args: unknown[]) => unknown> = {
   },
   forget: async (path) => {
     const config = await readConfig();
+    if (isSharedId(path)) {
+      const sharedVaults = (config.sharedVaults ?? []).filter((v) => sharedId(v) !== path);
+      return writeConfig({ ...config, sharedVaults });
+    }
     const recent = (config.recent ?? []).filter((v) => v.path !== path);
     await writeConfig({ ...config, recent });
     buildMenu(recent.map((v) => v.path));
@@ -817,8 +1002,11 @@ ipcMain.handle(IPC.launcher, async (event, op: unknown, ...args: unknown[]) => {
 
 /** What a start (or a click on the Dock icon) shows: the last vault, else the selector. */
 async function openLastVaultOrLauncher(): Promise<void> {
-  const last = (await readConfig()).lastVault;
-  if (last && (await fs.stat(last).catch(() => null))?.isDirectory()) await openVault(last);
+  const config = await readConfig();
+  const last = config.lastVault;
+  const shared = config.sharedVaults?.find((v) => sharedId(v) === last);
+  if (shared) await openVault('', shared);
+  else if (last && (await fs.stat(last).catch(() => null))?.isDirectory()) await openVault(last);
   else await openLauncher();
 }
 
@@ -876,7 +1064,7 @@ app.whenReady().then(async () => {
   serveRenderer();
   buildMenu(((await readConfig()).recent ?? []).map((v) => v.path));
   void checkForUpdates();
-  // A vault path on the command line wins (handy for development: `pnpm dev -- /path/to/vault`).
+  // A vault path on the command line wins (handy for development: `npm run dev -- /path/to/vault`).
   const fromArgs = process.argv.slice(1).find(
     (a) =>
       !a.startsWith('-') &&

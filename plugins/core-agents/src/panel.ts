@@ -165,14 +165,24 @@ export function renderAgentPanel(
     let options: Array<{ id: string; name: string }> = [];
     let current: string | undefined;
     let pick: (id: string) => void = () => undefined;
+    /** A switch below the choices (on or off by itself). */
+    let toggle: { label: string; on: boolean; run(): void } | undefined;
     button.addEventListener('click', () => {
       const r = button.getBoundingClientRect();
       workspace.showContextMenu(
-        options.map((o) => ({
-          label: o.name,
-          checked: o.id === current,
-          run: () => pick(o.id),
-        })),
+        [
+          ...options.map((o) => ({
+            label: o.name,
+            checked: o.id === current,
+            run: () => pick(o.id),
+          })),
+          ...(toggle
+            ? [
+                ...(options.length ? ['separator' as const] : []),
+                { label: toggle.label, checked: toggle.on, run: toggle.run },
+              ]
+            : []),
+        ],
         { x: r.left, y: r.bottom + 4 },
       );
     });
@@ -182,18 +192,24 @@ export function renderAgentPanel(
         opts: Array<{ id: string; name: string }>,
         value: string | undefined,
         onPick: (id: string) => void,
+        extra?: { label: string; on: boolean; run(): void; shown: string },
       ) {
         options = opts;
         current = value;
         pick = onPick;
-        const name = opts.find((o) => o.id === value)?.name ?? label;
+        toggle = extra;
+        const chosen = opts.find((o) => o.id === value)?.name;
+        // (The switch, while it is on, shows too.)
+        const name =
+          [chosen, extra?.on ? extra.shown : undefined].filter(Boolean).join(' · ') || label;
         text.textContent = name;
         button.title = `${label}: ${name}`;
-        button.hidden = opts.length === 0;
+        button.hidden = opts.length === 0 && !extra;
       },
     };
   };
   const modelPill = pill('Model', undefined);
+  const effortPill = pill('Effort', undefined);
   const modePill = pill('Mode', undefined);
   // The chat on screen: its name opens the list of all chats.
   const chatDot = h('span', { class: 'pm-agent-dot' });
@@ -265,6 +281,7 @@ export function renderAgentPanel(
         'div',
         { class: 'pm-agent-composer-actions' },
         modelPill.button,
+        effortPill.button,
         modePill.button,
         h('span', { class: 'pm-agent-composer-spacer' }),
         stop,
@@ -1064,7 +1081,24 @@ export function renderAgentPanel(
     renderQueue();
     renderBar();
     modelPill.set(session?.models ?? [], session?.currentModel, (id) => void session?.setModel(id));
-    modePill.set(session?.modes ?? [], session?.currentMode, (id) => void session?.setMode(id));
+    effortPill.set(
+      session?.efforts ?? [],
+      session?.currentEffort,
+      (id) => void session?.setEffort?.(id),
+    );
+    modePill.set(
+      session?.modes ?? [],
+      session?.currentMode,
+      (id) => void session?.setMode(id),
+      session?.setAutoApprove
+        ? {
+            label: 'Allow everything in this chat',
+            shown: 'Allows everything',
+            on: !!session.autoApprove,
+            run: () => session?.setAutoApprove?.(!session.autoApprove),
+          }
+        : undefined,
+    );
     const items = session?.items ?? [];
     if (!items.length) {
       transcript.replaceChildren(

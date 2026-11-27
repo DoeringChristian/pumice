@@ -332,6 +332,20 @@
           </div>
           <button class="btn" id="open-folder">Open</button>
         </div>
+        <form class="action" id="shared">
+          <div class="action-text">
+            <div class="action-title">Open a shared vault</div>
+            <input
+              type="text"
+              id="shared-link"
+              placeholder="Its link: http://…/#open=…&amp;key=…"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <div class="error" id="shared-error" role="alert"></div>
+          </div>
+          <button type="submit" class="btn" id="open-shared">Open</button>
+        </form>
       </div>
       <form id="create" hidden>
         <button type="button" class="back" id="back">‹ Back</button>

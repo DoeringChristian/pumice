@@ -5,7 +5,7 @@
 | Concern       | Choice                                                                                        |
 | ------------- | --------------------------------------------------------------------------------------------- |
 | Language      | TypeScript (strict)                                                                           |
-| Monorepo      | pnpm workspaces, Turborepo (or plain pnpm scripts)                                            |
+| Monorepo      | npm workspaces (plain npm scripts; pnpm until 0.2.25)                                         |
 | Bundling      | Vite (app), `electron-vite` (desktop), esbuild (plugins)                                      |
 | Desktop shell | Electron, `contextIsolation: true`, no `nodeIntegration` in renderers                         |
 | Mobile shell  | Capacitor (iOS, Android)                                                                      |

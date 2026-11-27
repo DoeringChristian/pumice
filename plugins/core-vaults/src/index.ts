@@ -20,6 +20,18 @@ const ago = (ms: number) => {
   return days < 30 ? `${days} days ago` : new Date(ms).toLocaleDateString();
 };
 
+/** The server of a shared vault's link (`<server>/#open=<vault>&key=<key>`), or nothing. */
+function sharedLink(text: string): string | undefined {
+  try {
+    const url = new URL(text);
+    const params = new URLSearchParams(url.hash.slice(1));
+    if (!/^https?:$/.test(url.protocol) || !params.get('open') || !params.get('key')) return;
+    return url.host;
+  } catch {
+    return undefined;
+  }
+}
+
 export const plugin = definePlugin({
   activate(ctx) {
     const workspace = ctx.use(Workspace);
@@ -92,12 +104,27 @@ export const plugin = definePlugin({
       return items;
     };
 
+    /** The vault switcher; a shared vault's link pasted into it opens that vault. */
     const switchVault = async () => {
       const items = await choices('open');
       const current = (await vaults.list()).find((v) => v.current);
-      const picked = await workspace.showQuickPick({
-        placeholder: `Switch vault (current: ${current?.name ?? platform.vaultName})`,
-        items,
+      const picked = await workspace.showQuickPick<Choice>({
+        placeholder: vaults.add
+          ? `Switch vault (current: ${current?.name ?? platform.vaultName}), or paste a shared vault’s link`
+          : `Switch vault (current: ${current?.name ?? platform.vaultName})`,
+        items: (query) => {
+          const text = query.trim();
+          const link = vaults.add ? sharedLink(text) : undefined;
+          if (link)
+            return [
+              { label: 'Open this shared vault', detail: link, run: () => vaults.add!(text) },
+            ];
+          const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+          return items.filter((i) => {
+            const said = `${i.label} ${i.detail ?? ''}`.toLowerCase();
+            return words.every((w) => said.includes(w));
+          });
+        },
       });
       await picked?.run().catch(fail);
     };
@@ -119,6 +146,14 @@ export const plugin = definePlugin({
       category: 'Vault',
       run: () => vaults.pick().catch(fail),
     });
+    if (vaults.add) {
+      ctx.commands.register({
+        id: 'vaults.open-shared',
+        title: 'Open a shared vault (paste its link)…',
+        category: 'Vault',
+        run: switchVault,
+      });
+    }
     if (vaults.create) {
       ctx.commands.register({
         id: 'vaults.create',

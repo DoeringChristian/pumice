@@ -81,3 +81,18 @@ export function forgetVault(key: string): void {
     openedVaults().filter((v) => vaultKey(v) !== key),
   );
 }
+
+/**
+ * The Pumice server the page came from (rather than GitHub Pages or a folder), if any; `open`:
+ * its vaults open with their links (served folders), there are no accounts.
+ */
+export async function servingServer(): Promise<{ open?: boolean } | undefined> {
+  if (location.protocol !== 'http:' && location.protocol !== 'https:') return undefined;
+  try {
+    const r = await fetch(`${location.origin}/api/info`, { signal: AbortSignal.timeout(1500) });
+    const info = r.ok ? ((await r.json()) as { pumice?: boolean; open?: boolean }) : {};
+    return info.pumice === true ? info : undefined;
+  } catch {
+    return undefined;
+  }
+}

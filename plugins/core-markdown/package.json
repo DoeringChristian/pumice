@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@pumice/api": "workspace:*",
-    "@pumice/markdown": "workspace:*"
+    "@pumice/api": "*",
+    "@pumice/markdown": "*"
   }
 }

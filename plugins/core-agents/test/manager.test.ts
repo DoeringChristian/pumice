@@ -1,6 +1,13 @@
 import { Emitter } from '@pumice/api';
 import { describe, expect, it } from 'vitest';
-import { Ledger, locateChange, revertChange, StaleEditError, trackedFiles } from '../src/ledger';
+import {
+  Ledger,
+  locateChange,
+  mergedWrite,
+  revertChange,
+  StaleEditError,
+  trackedFiles,
+} from '../src/ledger';
 import { ChatManager, chatName, chatState, mentionOf } from '../src/manager';
 import type { AgentFiles, ChatSession, SessionStatus, TranscriptItem } from '../src/session';
 
@@ -170,12 +177,17 @@ function vaultFiles(initial: Record<string, string>): AgentFiles & { text: Map<s
       if (!text.has(p)) throw new Error('no such file');
       return text.get(p)!;
     },
-    write: async (p, c) => void text.set(p, c),
+    // (As the app writes notes: merged with what changed since the writer's read.)
+    write: async (p, c, base) => {
+      const merged = text.has(p) ? mergedWrite(p, text.get(p)!, c, base) : c;
+      text.set(p, merged);
+      return merged;
+    },
   };
 }
 
 describe('edits by several chats', () => {
-  it('refuses to overwrite what a chat has not seen, once', async () => {
+  it('keeps what a chat has not seen: merged elsewhere, refused at the same place, once', async () => {
     const base = vaultFiles({ 'report.md': 'one\ntwo\n' });
     const ledger = new Ledger(memoryFs().fs);
     const a = trackedFiles(base, ledger, () => ({ id: 'a', name: 'A' }));
@@ -183,14 +195,28 @@ describe('edits by several chats', () => {
     const seenByA = await a.read('report.md');
     await b.read('report.md');
     await b.write('report.md', 'one\ntwo\nthree\n');
-    // A still has the old text: its version would drop B's line.
-    await expect(a.write('report.md', seenByA.replace('one', 'ONE'))).rejects.toThrow(
+    // A still has the old text; its change is elsewhere: B's line stays, A's change goes in.
+    await a.write('report.md', seenByA.replace('one', 'ONE'));
+    expect(base.text.get('report.md')).toBe('ONE\ntwo\nthree\n');
+    // B changes the same line A had: refused (B reads again), then made on the current text.
+    await expect(b.write('report.md', 'uno\ntwo\nthree\n')).rejects.toThrow(StaleEditError);
+    expect(base.text.get('report.md')).toBe('ONE\ntwo\nthree\n');
+    await b.write('report.md', 'ONE (uno)\ntwo\nthree\n');
+    expect(base.text.get('report.md')).toBe('ONE (uno)\ntwo\nthree\n');
+  });
+
+  it('merges a write with typing since the read, in the same line too', () => {
+    const read = 'The period is roughly 2 s.\n';
+    const typed = 'The period is roughly 2 s (measured).\n';
+    const written = 'The period is close to 2 s.\n';
+    expect(mergedWrite('n.md', typed, written, read)).toBe(
+      'The period is close to 2 s (measured).\n',
+    );
+    expect(mergedWrite('n.md', read, written, read)).toBe(written);
+    expect(mergedWrite('n.md', typed, written, undefined)).toBe(written);
+    expect(() => mergedWrite('n.md', 'The period is 3 s.\n', written, read)).toThrow(
       StaleEditError,
     );
-    expect(base.text.get('report.md')).toBe('one\ntwo\nthree\n');
-    const fresh = await a.read('report.md');
-    await a.write('report.md', fresh.replace('one', 'ONE'));
-    expect(base.text.get('report.md')).toBe('ONE\ntwo\nthree\n');
   });
 
   it('lets a chat create files and write what it wrote itself', async () => {

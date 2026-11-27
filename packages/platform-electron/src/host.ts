@@ -1,11 +1,25 @@
-import type { FileStat, FsWatchEvent, KnownVault, PlatformOs } from '@pumice/platform';
+import type {
+  FileStat,
+  FsWatchEvent,
+  KnownVault,
+  PlatformOs,
+  SharedVaultSession,
+} from '@pumice/platform';
 
 /**
  * The API the preload script exposes as `window.pumiceHost`. Every call is validated in the
  * main process; paths are vault-relative and can't escape the vault root.
  */
 export interface PumiceHost {
-  info(): Promise<{ vaultName: string; vaultPath: string; os: PlatformOs; vaultId: string }>;
+  info(): Promise<{
+    vaultName: string;
+    /** Absent for a shared vault (no folder here). */
+    vaultPath?: string;
+    os: PlatformOs;
+    vaultId: string;
+    /** A shared vault: what the window connects with (its copy is the window's storage). */
+    shared?: SharedVaultSession & { id: string };
+  }>;
   fs: {
     list(): Promise<FileStat[]>;
     stat(path: string): Promise<FileStat | null>;
@@ -27,6 +41,8 @@ export interface PumiceHost {
   onBeforeClose(listener: () => Promise<void>): () => void;
   openExternal(url: string): Promise<void>;
   revealInFileManager(path: string): Promise<void>;
+  /** Puts a file of the vault on the clipboard as a file (as the file manager copies it). */
+  copyFile(path: string): Promise<void>;
   /** Prints one HTML page (an exported note, by its path in the vault folder) into a PDF. */
   printToPdf(html: string, pdf: string): Promise<void>;
   /** Save dialogs: where it was saved, or null when cancelled. */
@@ -46,6 +62,8 @@ export interface PumiceHost {
     forget(path: string): Promise<void>;
     /** Opens the vault selector window. */
     manage(): Promise<void>;
+    /** Opens a shared vault by its link and puts it in the list. */
+    add(link: string, newWindow: boolean): Promise<void>;
   };
   frames: {
     /** Returns the token of `app://frame.<token>/<vault path>`. */
@@ -90,6 +108,8 @@ export interface LauncherVault {
   name: string;
   /** The folder is gone (deleted, or on a drive that isn't connected). */
   missing: boolean;
+  /** A shared vault (no folder here): its server. */
+  server?: string;
 }
 
 /** The API of the vault selector window (`window.pumiceLauncher`). */
@@ -101,6 +121,8 @@ export interface LauncherHost {
   open(path: string): Promise<void>;
   /** Folder dialog, then opens the chosen folder as vault. */
   pick(): Promise<void>;
+  /** Opens a shared vault by its link and puts it in the list. */
+  openShared(link: string): Promise<void>;
   /** Folder dialog for where to create a vault; resolves with the chosen folder. */
   chooseFolder(): Promise<string | null>;
   /** Creates `parent/name` and opens it. */

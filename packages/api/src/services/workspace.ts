@@ -118,6 +118,8 @@ export type MenuEntry = MenuItem | 'separator';
 
 export interface StatusBarItem extends Disposable {
   setText(text: string): void;
+  /** What a click on it does (it shows as a button then); undefined: nothing. */
+  setOnClick(run: (() => void) | undefined, title?: string): void;
 }
 
 /** Screen class: `phone` uses one pane with drawers and a bottom bar. */

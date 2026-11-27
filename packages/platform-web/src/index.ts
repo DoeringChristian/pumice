@@ -13,6 +13,7 @@ import {
   type Platform,
   type PlatformFs,
   type PlatformOs,
+  type SharedVaultSession,
   type VaultPath,
   type VaultSwitcher,
 } from '@pumice/platform';
@@ -229,7 +230,11 @@ export interface WebPlatformOptions {
   id: string;
   name: string;
   vaults?: VaultSwitcher;
+  /** A shared vault (docs/plan/10): the collaboration plugin keeps this copy in step. */
+  shared?: SharedVaultSession;
 }
+
+export { withServedFolder } from './served-folder';
 
 export function browserOs(): PlatformOs {
   const ua = navigator.userAgent;
@@ -272,6 +277,9 @@ export async function createWebPlatform(opts: WebPlatformOptions): Promise<Platf
         },
       },
       ...(opts.vaults ? { vaults: opts.vaults } : {}),
+      // A served folder: its agents speak of its files by their path on its server.
+      ...(opts.shared?.folder ? { vaultRoot: opts.shared.folder } : {}),
+      ...(opts.shared ? { shared: opts.shared } : {}),
     };
   } catch (e) {
     release();

@@ -8,7 +8,7 @@
     "dev": "pumice-plugin dev --vault"
   },
   "devDependencies": {
-    "@pumice/api": "workspace:*",
-    "@pumice/plugin-cli": "workspace:*"
+    "@pumice/api": "*",
+    "@pumice/plugin-cli": "*"
   }
 }

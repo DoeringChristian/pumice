@@ -7,10 +7,10 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@pumice/api": "workspace:*",
+    "@pumice/api": "*",
     "@types/katex": "^0.16.8",
     "katex": "^0.19.1",
     "mermaid": "^12.2.0",
-    "@pumice/ui": "workspace:*"
+    "@pumice/ui": "*"
   }
 }

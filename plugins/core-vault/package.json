@@ -7,11 +7,11 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@pumice/api": "workspace:*",
-    "@pumice/platform": "workspace:*"
+    "@pumice/api": "*",
+    "@pumice/platform": "*"
   },
   "devDependencies": {
-    "@pumice/platform-memory": "workspace:*",
-    "@pumice/kernel": "workspace:*"
+    "@pumice/platform-memory": "*",
+    "@pumice/kernel": "*"
   }
 }

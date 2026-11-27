@@ -4,12 +4,14 @@ import {
   FileLocations,
   Frames,
   Links,
+  MetadataIndex,
   Reader,
   PlatformService,
   SettingsUi,
   Vault,
   Workspace,
   definePlugin,
+  mediaIn,
   type FolderRule,
   type PluginModule,
   type VaultPath,
@@ -169,6 +171,22 @@ export const plugin = definePlugin({
         kind: 'error',
       });
 
+    /** Text that only shows files this vault does not have (copied from another vault). */
+    const elsewhere = (text: string, source: VaultPath): boolean => {
+      const lines = text.trim().split('\n');
+      if (lines.length > 3) return false;
+      const media = lines.flatMap((line) => mediaIn(line));
+      const rest = lines.map((l) =>
+        l.replace(/!\[\[[^\]]*\]\](\{[^}]*\})?|!\[[^\]]*\]\([^)]*\)(\{[^}]*\})?/g, ''),
+      );
+      if (!media.length || rest.some((l) => l.trim())) return false;
+      const index = ctx.tryUse(MetadataIndex);
+      return media.every(
+        (m) =>
+          !/^https?:/i.test(m.target) && !index?.resolve(m.target, source) && !vault.get(m.target),
+      );
+    };
+
     const editor = ctx.tryUse(Editor);
     if (editor) {
       ctx.register(
@@ -177,9 +195,12 @@ export const plugin = definePlugin({
             paste(event, view) {
               const source = ectx.path();
               const files = [...(event.clipboardData?.files ?? [])];
-              // Text copied together with a picture (from a web page, say) pastes as text.
+              // Text copied together with a picture (from a web page, say) pastes as text; but
+              // a picture copied in another vault (with its text there, which shows nothing
+              // here) pastes as the picture.
               if (!files.length || source === undefined || view.state.readOnly) return false;
-              if (event.clipboardData?.getData('text/plain')) return false;
+              const text = event.clipboardData?.getData('text/plain') ?? '';
+              if (text && !elsewhere(text, source)) return false;
               event.preventDefault();
               void addFiles(view, source, files).catch(report);
               return true;
