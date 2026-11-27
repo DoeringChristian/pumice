@@ -1,5 +1,6 @@
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
+import { changeMarks, type ChangeTracker } from './changes';
 import { sectionFolding } from './folding';
 import { listEditing } from './lists';
 import { texHighlighting } from './tex';
@@ -108,6 +109,8 @@ export interface EditorShared {
   toolbarActions: () => EditorToolbarAction[];
   /** Extensions for the text fields inside a note (`Editor.registerFieldExtension`). */
   fieldExtensions: () => Extension[];
+  /** Changes not typed here, to mark. */
+  changes: ChangeTracker;
   /** Extensions for the field a caption is written in (`Editor.registerCaptionExtension`). */
   captionExtensions: (note: EditorView) => Extension[];
   /** Starts a comment on a range of the note (absent without the comments plugin). */
@@ -613,6 +616,12 @@ export class MarkdownView implements ViewInstance {
       extensions: [
         yCollab(ytext, (handle.awareness as Parameters<typeof yCollab>[1]) ?? null, {
           undoManager,
+        }),
+        changeMarks({
+          tracker: shared.changes,
+          doc: handle.doc,
+          path: () => handle.path,
+          notify: (message) => shared.workspace.notify(message, { timeout: 4000 }),
         }),
         // In front of the document's own: reading never changes it.
         this.readCompartment.of(this.readingExtension()),

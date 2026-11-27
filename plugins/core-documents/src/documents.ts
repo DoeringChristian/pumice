@@ -9,6 +9,7 @@ import {
   type DocumentHandle,
   type DocumentProvider,
   type DocumentsApi,
+  type OpenedDocument,
   type VaultApi,
   type VaultChange,
   type VaultPath,
@@ -127,6 +128,8 @@ export class DocumentsImpl implements DocumentsApi, Disposable {
   private readonly now: () => Date;
   readonly changed = new Emitter<VaultPath>();
   readonly onDidChange = this.changed.event;
+  private readonly opened = new Emitter<OpenedDocument>();
+  readonly onDidOpen = this.opened.event;
 
   constructor(
     readonly vault: VaultApi,
@@ -204,6 +207,7 @@ export class DocumentsImpl implements DocumentsApi, Disposable {
   dispose(): void {
     this.subscription.dispose();
     this.changed.dispose();
+    this.opened.dispose();
     for (const doc of this.open_.values()) doc.dispose();
     this.open_.clear();
   }
@@ -241,6 +245,19 @@ export class DocumentsImpl implements DocumentsApi, Disposable {
     }
     if (provider) doc.attachment = provider.attach(doc.doc, () => doc.path);
     this.open_.set(path, doc);
+    this.opened.fire({
+      doc: doc.doc,
+      codec: doc.codec,
+      get path() {
+        return doc.path;
+      },
+      get awareness() {
+        return doc.attachment?.awareness;
+      },
+      get synced() {
+        return doc.attachment?.synced;
+      },
+    });
     if (loaded && content !== loaded.projected) await doc.run(() => doc.mergeDisk(content));
     return doc;
   }

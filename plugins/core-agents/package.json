@@ -9,6 +9,7 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "2.8.0",
     "@pumice/api": "workspace:*",
+    "@pumice/core-documents": "workspace:*",
     "@pumice/ui": "workspace:*"
   }
 }

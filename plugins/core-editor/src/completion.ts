@@ -7,6 +7,7 @@ import {
   type CompletionResult,
 } from '@codemirror/autocomplete';
 import { syntaxTree } from '@codemirror/language';
+import type { SyntaxNode } from '@lezer/common';
 import { EditorState, Prec, type Extension } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { editorCompletions } from '@pumice/api';
@@ -267,6 +268,17 @@ function mathSource(context: CompletionContext): CompletionResult | null {
 }
 
 /** Enter after an opening ``` or `$$`: the block is closed, the cursor stays inside. */
+/** Whether `pos` is at the end of the `$$` that closes a formula block of the note. */
+function closesFormula(state: EditorState, pos: number): boolean {
+  for (
+    let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, -1);
+    node;
+    node = node.parent
+  )
+    if (node.name === 'MathBlock') return node.to === pos && node.from < pos - 2;
+  return false;
+}
+
 const closeBlockOnEnter = Prec.high(
   keymap.of([
     {
@@ -295,14 +307,20 @@ const closeBlockOnEnter = Prec.high(
         let closing: string | undefined;
         const fence = /^\s*(`{3,}|~{3,})[^`~]*$/.exec(typed);
         if (fence && fenceOpenAt(state, line.number)) closing = fence[1]!;
-        else if (/^\s*\$\$\s*$/.test(typed) && sel.head === line.to) {
-          // An opening `$$`: an odd number of them up to here.
+        else if (
+          /^\s*\$\$\s*$/.test(typed) &&
+          sel.head === line.to &&
+          !closesFormula(state, sel.head)
+        ) {
+          // An opening `$$`: an odd number of them up to here (a closing one may have its
+          // label behind it, `$$ {#eq-energy}`).
+          const mark = /^\s*\$\$\s*(?:\{#[A-Za-z0-9-]+\}\s*)?$/;
           let count = 0;
           for (let n = Math.max(1, line.number - 2000); n <= line.number; n++)
-            if (/^\s*\$\$\s*$/.test(state.doc.line(n).text)) count++;
+            if (mark.test(state.doc.line(n).text)) count++;
           let below = 0;
           for (let n = line.number + 1; n <= Math.min(state.doc.lines, line.number + 2000); n++)
-            if (/^\s*\$\$\s*$/.test(state.doc.line(n).text)) below++;
+            if (mark.test(state.doc.line(n).text)) below++;
           if (count % 2 === 1 && below % 2 === 0) closing = '$$';
         }
         if (!closing) return false;

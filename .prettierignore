@@ -1,5 +1,7 @@
 packages/markdown-spec/corpus/
 docs/api/
+# The demo vault behind the screenshots: notes and a drawing as they are written.
+docs/demo/
 node_modules/
 dist/
 out/

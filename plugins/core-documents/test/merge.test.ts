@@ -57,3 +57,27 @@ describe('applyTextDiff', () => {
     expect(text.toString()).toBe('a 😃 b 🎉');
   });
 });
+
+describe('applyTextDiffAs', () => {
+  it('writes as another client, leaving the document its own id', async () => {
+    const Y = await import('yjs');
+    const { applyTextDiffAs } = await import('../src/merge');
+    const doc = new Y.Doc();
+    const own = doc.clientID;
+    doc.getText('content').insert(0, 'Hello world.');
+    const seen: number[] = [];
+    doc.getText('content').observe(() => seen.push(doc.clientID));
+    const origin = { by: 'assistant' };
+    let gotOrigin: unknown;
+    doc.on('afterTransaction', (tr: { origin: unknown }) => (gotOrigin = tr.origin));
+    applyTextDiffAs(doc, 'content', 'Hello brave world.', 777, origin);
+    applyTextDiffAs(doc, 'content', 'Hello brave new world.', 777, origin);
+    expect(doc.getText('content').toString()).toBe('Hello brave new world.');
+    expect(seen).toEqual([own, own]);
+    expect(doc.clientID).toBe(own);
+    expect(gotOrigin).toBe(origin);
+    // Both steps are the assistant's, under the one id (not renamed as a collision).
+    const clients = [...Y.decodeStateVector(Y.encodeStateVector(doc)).keys()].sort();
+    expect(clients).toEqual([own, 777].sort());
+  });
+});

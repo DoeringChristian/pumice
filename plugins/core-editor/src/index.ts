@@ -29,6 +29,7 @@ import {
 } from '@pumice/api';
 import { h, settingItem, toggle } from '@pumice/ui';
 import manifestJson from '../manifest.json';
+import { ChangeTracker } from './changes';
 import { drawnHeights } from './heights';
 import { embedAt } from './resize';
 import './editor.css';
@@ -142,6 +143,14 @@ export const plugin = definePlugin({
     const vault = ctx.use(Vault);
     const shell = ctx.use(ShellService);
     const syntax = ctx.use(MarkdownSyntax);
+    // Changes not typed here (an assistant's, another program's), to flash or keep for review.
+    const changes = new ChangeTracker(documents, () => ctx.settings.get('reviewChanges', false));
+    ctx.register(changes);
+    ctx.register(
+      vault.onDidChange((list) => {
+        for (const c of list) if (c.type === 'rename') changes.rename(c.oldPath, c.entry.path);
+      }),
+    );
 
     const views = new Set<MarkdownView>();
     const toolbarActions: EditorToolbarAction[] = [];
@@ -195,6 +204,7 @@ export const plugin = definePlugin({
               contributed: () =>
                 factories.map((f) => f({ path: () => view?.path, sourceMode: () => sourceMode })),
               fieldExtensions: () => fieldFactories.map((f) => f()),
+              changes,
               captionExtensions: (note) => captionFactories.map((f) => f(note)),
               sourceMode: () => sourceMode,
               setSourceMode: (on) => setSourceMode(on),
@@ -653,6 +663,15 @@ export const plugin = definePlugin({
                   ctx.settings.get('closeLeft', true),
                   (on) => void ctx.settings.set('closeLeft', on),
                   { label: 'Close \\left with \\right' },
+                ),
+              ),
+              settingItem(
+                'Keep changes marked until reviewed',
+                'Changes an assistant or another program makes to a note light up briefly in their colour, with who made them. With this, they stay marked until you keep or undo them.',
+                toggle(
+                  ctx.settings.get('reviewChanges', false),
+                  (on) => void ctx.settings.set('reviewChanges', on),
+                  { label: 'Keep changes marked until reviewed' },
                 ),
               ),
             );

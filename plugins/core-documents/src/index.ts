@@ -5,7 +5,7 @@ import { markdownCodec } from './markdown-codec';
 
 export { DocumentsImpl } from './documents';
 export { markdownCodec } from './markdown-codec';
-export { applyTextDiff, merge3 } from './merge';
+export { applyTextDiff, applyTextDiffAs, merge3 } from './merge';
 
 export const manifest = manifestJson;
 

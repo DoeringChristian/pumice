@@ -109,9 +109,13 @@ export function semanticFromLezer(tree: Tree, text: string): SemanticNode[] {
       else if (name === 'Frontmatter') out.push({ kind: 'frontmatter', from, to });
       else if (name === 'Comment' || name === 'CommentBlock')
         out.push({ kind: 'comment', from, to });
-      else if (name === 'InlineMath' || name === 'InlineMathDisplay' || name === 'MathBlock')
+      else if (name === 'InlineMath' || name === 'InlineMathDisplay')
         out.push({ kind: 'math', from, to });
-      else if (name === 'Highlight') out.push({ kind: 'highlight', from, to });
+      else if (name === 'MathBlock') {
+        // Up to its closing mark (a label may stand behind it, in the block).
+        const marks = ref.node.getChildren('MathMark');
+        out.push({ kind: 'math', from, to: marks.length > 1 ? marks[marks.length - 1]!.to : to });
+      } else if (name === 'Highlight') out.push({ kind: 'highlight', from, to });
       else if (name === 'Blockquote') {
         const type = calloutTypeAt(text, from);
         if (type) out.push({ kind: 'callout', from, to, type });

@@ -150,10 +150,8 @@ export function insertReference(
   form: 'at' | 'link',
 ): void {
   const { id, change } = labelOf(view.state, item);
-  // A space behind `@fig-a`, to go on writing (unless something stands there already).
-  const next = view.state.doc.sliceString(range.to, range.to + 1);
-  const space = form === 'at' && !/[ \t.,;:!?)\]}]/.test(next) ? ' ' : '';
-  const text = (form === 'at' ? `@${id}` : `[[#^${id}]]`) + space;
+  // Nothing behind it: what follows may well be a full stop.
+  const text = form === 'at' ? `@${id}` : `[[#^${id}]]`;
   // The label goes behind the item: before or after the reference.
   const before =
     change && change.from < range.from ? change.insert.length - (change.to - change.from) : 0;
@@ -239,9 +237,7 @@ export function captionReferences(note: EditorView): Extension {
     (field, item, range, form) => {
       const { id, change } = labelOf(note.state, item);
       if (change) note.dispatch({ changes: change, userEvent: 'input.reference' });
-      const next = field.state.doc.sliceString(range.to, range.to + 1);
-      const space = form === 'at' && !/[ \t.,;:!?)\]}]/.test(next) ? ' ' : '';
-      const text = (form === 'at' ? `@${id}` : `[[#^${id}]]`) + space;
+      const text = form === 'at' ? `@${id}` : `[[#^${id}]]`;
       field.dispatch({
         changes: { ...range, insert: text },
         selection: { anchor: range.from + text.length },

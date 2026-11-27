@@ -1,4 +1,5 @@
 import {
+  AuthoredChange,
   Documents,
   Drawings,
   Agents,
@@ -13,15 +14,18 @@ import {
   Workspace,
   definePlugin,
   markdownText,
+  type AuthorPresence,
+  type ChangeAuthor,
   type ChatGptHost,
   type PluginModule,
   type VaultPath,
 } from '@pumice/api';
 import { button, h, settingItem, textInput, toggle } from '@pumice/ui';
 import '@pumice/ui/panel.css';
+import { applyTextDiff, applyTextDiffAs } from '@pumice/core-documents';
 import manifestJson from '../manifest.json';
 import { ChatStore, newChatId, storableItems, type SavedChat } from './chats';
-import { Ledger, revertChange, trackedFiles, minimalChange, type AgentChange } from './ledger';
+import { Ledger, revertChange, trackedFiles, type AgentChange } from './ledger';
 import { ChatManager, chatName, mentionOf, type OpenChat } from './manager';
 import { AgentPanelState, renderAgentPanel, type Attachment } from './panel';
 import { offsetOf, type WrittenPlace } from './references';
@@ -38,6 +42,9 @@ import './agents.css';
 
 export const manifest = manifestJson;
 export { AgentSession, DEFAULT_AGENTS } from './session';
+
+/** The colour an assistant's changes and name are shown in. */
+const AGENT_COLOR = '#8b5cf6';
 
 /** Splits a command line into words (double quotes group). */
 export function splitCommand(line: string): string[] {
@@ -133,31 +140,71 @@ export const plugin = definePlugin({
       return agents().some((a) => a.id === id) ? id : agents()[0]!.id;
     };
 
+    /** Who an assistant is, where its changes are shown (in the colour of assistants). */
+    const authorOf = (config: AgentConfig): ChangeAuthor => ({
+      kind: 'agent',
+      name: config.name.replace(/\s*\(.*\)$/, ''),
+      color: AGENT_COLOR,
+    });
+    /**
+     * The Yjs client each assistant edits as, one per assistant in this window: its changes are
+     * its own in the document (collaborators see them as its, not as the person's who runs it).
+     */
+    const agentClients = new Map<string, number>();
+    const clientOf = (name: string) => {
+      let id = agentClients.get(name);
+      if (id === undefined) {
+        id = crypto.getRandomValues(new Uint32Array(1))[0]!;
+        agentClients.set(name, id);
+      }
+      return id;
+    };
+    /**
+     * Writes a note through its document, so the change merges live with the editor and with
+     * collaborators: in small steps (only what changed), under `author` (an assistant's own name
+     * and colour; none for what the user asked for, like taking a change back).
+     */
+    const writeNote = async (path: VaultPath, content: string, author?: ChangeAuthor) => {
+      if (!vault.get(path) || !/\.(md|markdown|txt)$/i.test(path)) {
+        await vault.write(path, content);
+        return;
+      }
+      const handle = await documents.open(path);
+      try {
+        const doc = handle.doc;
+        const ytext = markdownText(doc);
+        if (ytext.toString() === content) return;
+        if (!author) {
+          doc.transact(() => applyTextDiff(ytext, content), 'agent-undo');
+          return;
+        }
+        const client = clientOf(author.name);
+        // In a shared vault the others learn whose that client is.
+        const presence = handle.awareness as
+          | {
+              getLocalState(): AuthorPresence | null;
+              setLocalStateField(field: string, value: unknown): void;
+            }
+          | undefined;
+        const listed = presence?.getLocalState()?.agents ?? [];
+        if (presence && !listed.some((a) => a.client === client))
+          presence.setLocalStateField('agents', [
+            ...listed,
+            { client, name: author.name, color: author.color },
+          ]);
+        // Made as the assistant's own Yjs client: its text is its own in the document.
+        applyTextDiffAs(doc, 'content', content, client, new AuthoredChange(author));
+      } finally {
+        handle.dispose();
+      }
+    };
     /** Agent file access: open notes are edited in their documents, so changes merge live. */
-    const files: AgentFiles = {
+    const filesAs = (author: ChangeAuthor): AgentFiles => ({
       root,
       read: async (path) => documents.peek(path) ?? (await vault.read(path)),
-      async write(path, content) {
-        const exists = !!vault.get(path);
-        if (exists && /\.(md|markdown|txt)$/i.test(path)) {
-          const handle = await documents.open(path);
-          try {
-            const ytext = markdownText(handle.doc);
-            const change = minimalChange(ytext.toString(), content);
-            if (change) {
-              handle.doc.transact(() => {
-                if (change.to > change.from) ytext.delete(change.from, change.to - change.from);
-                if (change.insert) ytext.insert(change.from, change.insert);
-              }, 'agent');
-            }
-          } finally {
-            handle.dispose();
-          }
-        } else {
-          await vault.write(path, content);
-        }
-      },
-    };
+      write: (path, content) => writeNote(path, content, author),
+    });
+    const files = filesAs({ kind: 'agent', name: 'Assistant', color: AGENT_COLOR });
 
     // How features of the app are used, contributed by other plugins (frames, …).
     const guidanceSources = new Set<() => string>();
@@ -178,7 +225,8 @@ export const plugin = definePlugin({
       const config = agents().find((a) => a.id === agentId) ?? agents()[0]!;
       // Each chat has its own view of the files: it does not overwrite what it has not seen.
       const ref = { id: saved?.id ?? '' };
-      const own = trackedFiles(files, ledger, () => {
+      // Its changes are shown under its own name.
+      const own = trackedFiles(filesAs(authorOf(config)), ledger, () => {
         const chat = manager.get(ref.id);
         return { id: ref.id, name: chat ? chatName(chat) : config.name };
       });
@@ -295,7 +343,7 @@ export const plugin = definePlugin({
         });
         return;
       }
-      await files.write(change.path, next);
+      await writeNote(change.path, next);
       ledger.forget(change);
     };
 

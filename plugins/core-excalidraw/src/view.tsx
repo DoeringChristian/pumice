@@ -8,6 +8,7 @@ import {
   ensureSubtypesLoadedForElements,
   exportScene,
   registerMathSubtype,
+  restoreElements,
   useMathSubtype,
 } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
@@ -69,9 +70,15 @@ const exportData = (o: ExportInput) => ({
 });
 
 /** SVG of a scene, after loading the subtypes (MathJax) its elements use. */
+/** The elements with their texts laid out again (after the subtypes are loaded). */
+const remeasured = (elements: readonly ExcalidrawElement[]): readonly ExcalidrawElement[] =>
+  restoreElements(elements as ExcalidrawElement[], null, { refreshDimensions: true });
+
 async function exportToSvg(o: ExportInput): Promise<SVGSVGElement> {
   await ensureSubtypesLoadedForElements(o.elements);
-  return exportScene({
+  // Texts measured as drawn (a formula's own size, which its file may not know), not as saved.
+  o = { ...o, elements: remeasured(o.elements) };
+  const svg = await exportScene({
     type: 'svg',
     data: exportData(o),
     config: {
@@ -79,10 +86,16 @@ async function exportToSvg(o: ExportInput): Promise<SVGSVGElement> {
       ...(o.background !== undefined ? { canvasBackgroundColor: o.background } : {}),
     },
   });
+  // Each formula is drawn in a box of its own, which cuts off what reaches past it: the text
+  // of a label beside a formula is a little wider than measured, and lost at its end.
+  for (const inner of svg.querySelectorAll('svg')) inner.setAttribute('overflow', 'visible');
+  return svg;
 }
 
 async function exportToPng(o: ExportInput): Promise<Blob> {
   await ensureSubtypesLoadedForElements(o.elements);
+  // Texts measured as drawn (a formula's own size, which its file may not know), not as saved.
+  o = { ...o, elements: remeasured(o.elements) };
   return exportScene({
     type: 'png',
     data: exportData(o),

@@ -66,6 +66,7 @@ pnpm test            # unit + integration tests (parsers, index, links, collabor
 pnpm typecheck
 pnpm dev:web         # the web app → http://localhost:5199 (#demo: an in-memory demo vault)
 pnpm dev:desktop     # Electron app; asks for a vault folder (or set PUMICE_VAULT=/path)
+pnpm screenshot     # the README's screenshot from the demo vault (docs/demo); --phone: as on Android
 ```
 
 In the demo vault, `window.pumice` exposes the kernel and the in-memory file system

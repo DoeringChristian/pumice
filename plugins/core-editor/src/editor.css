@@ -496,14 +496,19 @@
 .pm-markdown-page .cm-line:has(> .pm-embed-box ~ .pm-embed-box) > .cm-widgetBuffer {
   display: none;
 }
-/* Neither does what stands for the hidden space between two embeds (it would add a gap), but
-   it stays in the page: the cursor's place between the two is tied to it. */
-.pm-markdown-page .cm-line:has(> .pm-embed-box ~ .pm-embed-box) {
+/* The editor finds what a click is on by the boxes of what a line holds, in their order: one
+   that ends above the click is taken to come before it in the text. So in a row each figure is
+   as tall as the row (a click under a shorter one, on the caption of a taller one before it,
+   would otherwise be taken to lie behind both), and what stands for the hidden space between
+   two embeds stands between them, as tall as the row, taking no room (its gap is taken back). */
+/* (Over the reader's rule for rows, which the editor shares and which comes later.) */
+.pm-markdown-page .cm-content > .cm-line:has(> .pm-embed-box ~ .pm-embed-box) {
   position: relative;
+  align-items: stretch;
 }
 .pm-markdown-page .cm-line:has(> .pm-embed-box ~ .pm-embed-box) > :not(.pm-embed-box):empty {
-  position: absolute;
   width: 0;
+  margin-left: -12px;
 }
 
 /* The label of a figure, beside its caption while the pointer is on the figure */
@@ -1507,4 +1512,187 @@ input.cm-pm-caption-id.is-editing {
 .cm-editor .cm-searchMatch-selected {
   background: var(--accent-soft);
   outline: 1.5px solid var(--accent);
+}
+
+/* ---- changes not typed here (changes.ts) ------------------------------------------------- */
+/* An assistant's or another program's change lights up in its author's colour and fades; kept
+   for review, it stays marked. Where it ends: a caret with the author's name. */
+.pm-markdown-view {
+  --pm-change-neutral: var(--text-muted);
+}
+.pm-change {
+  border-radius: 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.pm-change.pm-change-flash {
+  animation: pm-change-glow 2.6s ease-in forwards;
+}
+.pm-change.pm-change-review {
+  background: color-mix(in srgb, var(--pm-change-color) 16%, transparent);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--pm-change-color) 55%, transparent);
+}
+@keyframes pm-change-glow {
+  0%,
+  40% {
+    background: color-mix(in srgb, var(--pm-change-color) 30%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+@keyframes pm-change-fade {
+  0%,
+  40% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.pm-change-removed {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  margin: 0 -1px;
+  vertical-align: text-bottom;
+  background: var(--pm-change-color);
+  border-radius: 1px;
+}
+.pm-change-removed.pm-change-flash,
+.pm-change-caret:not(.pm-change-caret-review),
+.pm-change-tick.pm-change-flash {
+  animation: pm-change-fade 2.6s ease-in forwards;
+}
+.pm-change-removed.pm-change-review {
+  opacity: 0.7;
+}
+.pm-change-caret {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 1.15em;
+  margin-left: -1px;
+  vertical-align: text-bottom;
+  border-left: 2px solid var(--pm-change-color);
+}
+.pm-change-tag {
+  position: absolute;
+  left: -2px;
+  bottom: 100%;
+  z-index: 5;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 0 5px;
+  border-radius: 4px 4px 4px 0;
+  background: var(--pm-change-color);
+  color: #fff;
+  font: 600 11px/17px var(--font-ui);
+  white-space: nowrap;
+  user-select: none;
+}
+.pm-change-caret-review .pm-change-tag {
+  padding-right: 2px;
+}
+/* Kept for review and the cursor elsewhere: a dot over the end of the change, which opens to the
+   name and the buttons when pointed at (the text above stays readable). */
+.pm-change-caret-review:not(.pm-change-active) .pm-change-tag {
+  bottom: calc(100% - 3px);
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.pm-change-caret-review:not(.pm-change-active) .pm-change-tag > * {
+  visibility: hidden;
+}
+.pm-change-caret-review:not(.pm-change-active) .pm-change-tag:hover {
+  bottom: 100%;
+  left: -2px;
+  width: auto;
+  height: auto;
+  padding: 0 2px 0 5px;
+  border-radius: 4px 4px 4px 0;
+}
+.pm-change-caret-review:not(.pm-change-active) .pm-change-tag:hover > * {
+  visibility: visible;
+}
+.pm-change-tag button {
+  padding: 0 5px;
+  border: 0;
+  border-radius: 3px;
+  background: rgb(255 255 255 / 0.22);
+  color: inherit;
+  font: inherit;
+  line-height: 15px;
+  cursor: pointer;
+}
+.pm-change-tag button:hover {
+  background: rgb(255 255 255 / 0.4);
+}
+/* Where the changes are, at the edge of the scrolled page. */
+.pm-change-ticks {
+  position: absolute;
+  right: 1px;
+  z-index: 4;
+  width: 6px;
+  pointer-events: none;
+}
+.pm-change-tick {
+  position: absolute;
+  right: 0;
+  width: 6px;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--pm-change-color);
+}
+/* What there is to review, or where an unseen change went. */
+.pm-change-bar {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  z-index: 20;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  padding: 6px 8px 6px 12px;
+  transform: translateX(-50%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l, 8px);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font: 13px/1.4 var(--font-ui);
+}
+.pm-change-bar[hidden] {
+  display: none;
+}
+.pm-change-bar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pm-change-bar button {
+  flex: none;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s, 4px);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.pm-change-bar button:hover {
+  background: var(--bg-hover);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pm-change.pm-change-flash {
+    animation-timing-function: steps(1, end);
+  }
 }

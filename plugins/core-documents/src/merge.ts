@@ -1,6 +1,6 @@
 import fastDiff from 'fast-diff';
 import { diff3Merge } from 'node-diff3';
-import type * as Y from 'yjs';
+import * as Y from 'yjs';
 
 export interface MergeResult {
   text: string;
@@ -134,6 +134,33 @@ export function applyTextDiff(ytext: Y.Text, target: string): void {
       ytext.insert(pos, chunk);
       pos += chunk.length;
     }
+  }
+}
+
+/**
+ * `applyTextDiff` on `doc.getText(name)`, made as Yjs client `client` (another author than the
+ * document's own client, such as an assistant), applied to `doc` with transaction `origin`.
+ * The change is made in a copy that has that client id, so `doc` keeps its own id throughout
+ * (code watching `doc` while the change lands sees the person's id, not the author's).
+ */
+export function applyTextDiffAs(
+  doc: Y.Doc,
+  name: string,
+  target: string,
+  client: number,
+  origin: unknown,
+): void {
+  if (doc.getText(name).toString() === target) return;
+  const copy = new Y.Doc({ gc: false });
+  try {
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+    // Only now: Yjs gives a copy that receives text of its own id a new id.
+    copy.clientID = client;
+    const before = Y.encodeStateVector(doc);
+    copy.transact(() => applyTextDiff(copy.getText(name), target));
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(copy, before), origin);
+  } finally {
+    copy.destroy();
   }
 }
 

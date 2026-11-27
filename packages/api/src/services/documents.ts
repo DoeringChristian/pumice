@@ -44,6 +44,11 @@ export interface DocumentAttachment extends Disposable {
   readonly awareness?: unknown;
   /** True when the user may only read (e.g. viewer role in a shared vault). */
   readonly readOnly?: boolean;
+  /**
+   * False until the document received its first state from the server: what arrives before is
+   * the document itself, not changes to it. Absent where there is no such first state.
+   */
+  readonly synced?: boolean;
   /** The file was written to disk with this text. */
   saved?(text: string): void;
 }
@@ -70,6 +75,40 @@ export interface DocumentHandle extends Disposable {
 /** Transaction origin for changes coming from the file on disk. */
 export const ORIGIN_EXTERNAL_FILE = 'pumice:external-file';
 
+/**
+ * Who made a change that was not typed in this editor; the editor marks such changes with it.
+ * - `person`: a collaborator (their typing is shown by their cursor; only larger steps, like a
+ *   paste, are marked).
+ * - `agent`: an assistant: the built-in one, or one that joins a shared vault by itself.
+ * - `file`: a program that changed the file: another editor, git, the server's folder sync.
+ */
+export interface ChangeAuthor {
+  kind: 'person' | 'agent' | 'file';
+  name: string;
+  /** A CSS colour; absent: shown in a neutral one. */
+  color?: string;
+}
+
+/**
+ * Transaction origin of a change made on someone's behalf, in this app:
+ * `doc.transact(() => …, new AuthoredChange({ kind: 'agent', name: 'Claude', color }))`.
+ */
+export class AuthoredChange {
+  constructor(readonly author: ChangeAuthor) {}
+}
+
+/**
+ * Presence of authors in a shared document (fields of the y-protocols Awareness state):
+ * - `user`: the client's own author. Clients of people leave out `kind`; an agent that joins by
+ *   itself sets `kind: 'agent'`, the server's folder sync `kind: 'file'`.
+ * - `agents`: assistants working through this client (the built-in one). Each edits as a Yjs
+ *   client of its own (`client`), so its changes are told apart from the person's for good.
+ */
+export interface AuthorPresence {
+  user?: { name: string; color?: string; kind?: ChangeAuthor['kind'] };
+  agents?: Array<{ client: number; name: string; color?: string }>;
+}
+
 export interface DocumentsApi {
   /** Opens (or shares an already open) document. Release with `handle.dispose()`. */
   open(path: VaultPath): Promise<DocumentHandle>;
@@ -80,11 +119,25 @@ export interface DocumentsApi {
   read(path: VaultPath): Promise<string>;
   /** Fires on every content change of an open document (local, remote or merged from disk). */
   readonly onDidChange: Event<VaultPath>;
+  /** Fires when a document is opened (loaded), not each time an open one is shared again. */
+  readonly onDidOpen: Event<OpenedDocument>;
   codecFor(path: VaultPath): DocumentCodec | undefined;
   registerCodec(codec: DocumentCodec): Disposable;
   registerProvider(provider: DocumentProvider): Disposable;
   /** Saves all open documents (on pause/quit). */
   flushAll(): Promise<void>;
+}
+
+/** A document just opened: to watch its changes while it stays open. */
+export interface OpenedDocument {
+  readonly doc: Y.Doc;
+  readonly codec: DocumentCodec;
+  /** Current path; follows renames. */
+  readonly path: VaultPath;
+  /** Presence (y-protocols Awareness) when a provider offers it. */
+  readonly awareness?: unknown;
+  /** See `DocumentAttachment.synced`. */
+  readonly synced?: boolean;
 }
 
 export const Documents = defineService<DocumentsApi>('core.documents');

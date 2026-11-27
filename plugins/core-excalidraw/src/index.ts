@@ -204,7 +204,7 @@ export const plugin = definePlugin({
               document.documentElement.dataset.theme === 'dark' ||
               (document.documentElement.dataset.theme !== 'light' &&
                 matchMedia('(prefers-color-scheme: dark)').matches);
-            const key = `svg3:${await hash(`${dark ? 'd' : 'l'}${text}`)}`;
+            const key = `svg5:${await hash(`${dark ? 'd' : 'l'}${text}`)}`;
             let svg = await ctx.storage.get(key);
             if (!svg) {
               const { exportToSvg, loadEmbeddedFiles, isDefaultBackground } = await loadView();

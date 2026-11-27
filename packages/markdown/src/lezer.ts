@@ -324,10 +324,14 @@ function parseMathBlock(cx: BlockContext, line: Line): boolean {
       if (line.skipSpace(i) === line.text.length || label) {
         const end = cx.lineStart + i;
         marks.push(cx.elt('MathMark', cx.lineStart + line.pos, end));
-        const at = label ? end + label[0].indexOf('{') : -1;
+        // (Part of the block, which ends with its line: the formula itself ends at its mark.)
+        if (label) {
+          const at = end + label[0].indexOf('{');
+          marks.push(cx.elt('BlockId', at, at + label[1]!.length));
+        }
+        const lineEnd = cx.lineStart + line.text.length;
         cx.nextLine();
-        cx.addElement(cx.elt('MathBlock', from, end, marks));
-        if (label) cx.addElement(cx.elt('BlockId', at, at + label[1]!.length));
+        cx.addElement(cx.elt('MathBlock', from, label ? lineEnd : end, marks));
         return true;
       }
     }

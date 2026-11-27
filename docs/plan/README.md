@@ -17,6 +17,7 @@ a first-class Excalidraw integration, desktop + mobile, and real-time collaborat
 | 07  | [Mobile](07-mobile.md)                                 | Capacitor shell, filesystem, UI, constraints                              |
 | 08  | [Roadmap & risks](08-roadmap.md)                       | Spikes, milestones, risks, open questions                                 |
 | 09  | [Authoring tools & agents](09-authoring-and-agents.md) | Ribbon, tables, comments, copy location, agents (ACP), Excalidraw + LaTeX |
+|     | [Queue](queue.md)                                      | Features to add when there is time                                        |
 
 ## Decisions
 

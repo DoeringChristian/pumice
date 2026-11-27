@@ -755,9 +755,13 @@ export class SharedVault {
     // Ask the server for this document's current cursors.
     this.syncDoc(fileId, replica);
 
+    const synced = this.synced;
     return {
       awareness,
       readOnly: this.readOnly,
+      get synced() {
+        return synced.has(fileId);
+      },
       saved: (text) => {
         this.projected.set(fileId, text);
         this.persistSoon(`doc:${fileId}`);
